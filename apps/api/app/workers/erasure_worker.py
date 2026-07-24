@@ -1,0 +1,1 @@
+"""Erasure worker composition root."""

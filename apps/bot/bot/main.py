@@ -51,7 +51,7 @@ def build_router(webapp_url: str) -> Router:
 def load_config(env: Mapping[str, str] | None = None) -> tuple[str, str]:
     env = os.environ if env is None else env
     names = ("BOT_TOKEN", "WEBAPP_URL")
-    values = tuple(env.get(name, "").strip() for name in names)
+    values = (env.get(names[0], "").strip(), env.get(names[1], "").strip())
     missing = [name for name, value in zip(names, values, strict=True) if not value]
     if missing:
         raise ValueError(f"Не задано в env: {', '.join(missing)}")

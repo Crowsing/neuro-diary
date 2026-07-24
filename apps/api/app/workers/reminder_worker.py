@@ -1,0 +1,1 @@
+"""Reminder worker composition root."""

@@ -1,0 +1,1 @@
+"""Cross-context domain events."""

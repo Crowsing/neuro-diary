@@ -4,15 +4,22 @@ version = "0.1.0"
 description = "Neuro Diary API — плейсхолдер під майбутню опційну синхронізацію"
 requires-python = ">=3.11"
 dependencies = [
-    "fastapi",
-    "uvicorn[standard]",
+    "alembic==1.18.5",
+    "fastapi==0.139.2",
+    "psycopg[binary]==3.3.4",
+    "pydantic==2.13.4",
+    "sqlalchemy==2.0.51",
+    "uvicorn[standard]==0.51.0",
 ]
 
 [dependency-groups]
 dev = [
-    "pytest",
-    "httpx",
-    "ruff",
+    "httpx==0.28.1",
+    "import-linter==2.13",
+    "mypy==2.3.0",
+    "pytest==9.1.1",
+    "ruff==0.15.22",
+    "testcontainers[postgres]==4.14.2",
 ]
 
 [build-system]
@@ -21,3 +28,51 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["app"]
+
+[tool.mypy]
+strict = true
+
+[tool.importlinter]
+root_package = "app"
+include_external_packages = true    # інакше заборони fastapi/sqlalchemy не працюють
+
+[[tool.importlinter.contracts]]
+name = "Layers"
+type = "layers"
+layers = ["app.main", "app.api | app.workers", "app.services", "app.infra", "app.domain"]
+
+[[tool.importlinter.contracts]]
+name = "Domain is pure"
+type = "forbidden"
+source_modules = ["app.domain"]
+forbidden_modules = ["fastapi", "sqlalchemy", "app.infra", "app.services", "app.api"]
+
+[[tool.importlinter.contracts]]
+name = "No ORM/DB above repositories"
+type = "forbidden"
+source_modules = ["app.api", "app.services"]
+forbidden_modules = ["sqlalchemy", "app.infra.db"]   # увесь підпакет; заодно закриває «роутер → репозиторій повз сервіси»
+
+[[tool.importlinter.contracts]]
+name = "Workers do not import ORM models"
+type = "forbidden"
+source_modules = ["app.workers"]
+forbidden_modules = ["app.infra.db.models"]
+
+[[tool.importlinter.contracts]]
+name = "Services are framework-free"
+type = "forbidden"
+source_modules = ["app.services"]
+forbidden_modules = ["fastapi", "starlette"]
+
+[[tool.importlinter.contracts]]
+name = "Schemas are standalone"
+type = "forbidden"
+source_modules = ["app.schemas"]
+forbidden_modules = ["app.api", "app.services", "app.infra"]
+
+[[tool.importlinter.contracts]]
+name = "Reminder worker never touches vault"
+type = "forbidden"
+source_modules = ["app.workers.reminder_worker", "app.services.reminder"]
+forbidden_modules = ["app.infra.db.repositories.vault", "app.services.sync", "app.domain.vault"]

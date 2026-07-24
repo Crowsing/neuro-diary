@@ -1,0 +1,1 @@
+"""Outbox dispatcher composition root."""

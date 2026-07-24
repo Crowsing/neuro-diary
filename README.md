@@ -15,14 +15,30 @@
 
 ## Запуск
 
+### Локальна інфраструктура PostgreSQL 16
+
+```bash
+cp .env.example .env
+# Заповніть POSTGRES_DB, POSTGRES_ADMIN_USER, POSTGRES_ADMIN_PASSWORD
+# і MIGRATION_DATABASE_URL; файл .env не комітьте.
+docker compose up -d postgres
+(cd apps/api && uv sync --locked && uv run --locked --env-file ../../.env alembic upgrade head)
+docker compose ps
+```
+
+Це піднімає лише локальну БД і застосовує міграції. Web і далі повністю
+працює local-only; синхронізація та Telegram-нагадування ще недоступні.
+
+### Застосунки
+
 ```bash
 pnpm install
 pnpm dev          # web на http://localhost:5173
 pnpm test         # Vitest (unit)
 pnpm e2e          # Playwright (acceptance-критерії)
 
-(cd apps/api && uv sync && uv run pytest && uv run ruff check . && uv run uvicorn app.main:app)
-(cd apps/bot && uv sync && uv run pytest && uv run ruff check .)
+(cd apps/api && uv sync --locked && uv run --locked pytest && uv run --locked ruff check . && uv run --locked uvicorn app.main:app --no-access-log)
+(cd apps/bot && uv sync --locked && uv run --locked pytest && uv run --locked ruff check .)
 ```
 
 Для детермінованих демо/тестів дату «сьогодні» можна зафіксувати параметром URL: `http://localhost:5173/?now=2026-01-15`.

@@ -12,20 +12,25 @@
 ## Що тут є
 
 - `app/main.py` — FastAPI-застосунок з єдиним ендпоінтом `GET /health`.
-- `app/schemas.py` — Pydantic-моделі активного local JSON-контракту та явні
+- `app/schemas/contract.py` — Pydantic-моделі активного local JSON-контракту та явні
   legacy input adapters, які ігнорують retired reminder-поля (без ендпоінтів).
-- `tests/` — health-check і контрактні тести схем.
+- `app/infra/db/migrations/` — Alembic-міграція PostgreSQL 16 з ізольованими
+  ролями та GRANT-матрицею.
+- `tests/` — health-check, контрактні тести схем та інтеграційні тести
+  міграції на тимчасовій PostgreSQL 16.
 
 ## Запуск
 
 ```bash
-uv sync
-uv run uvicorn app.main:app --reload
+uv sync --locked
+uv run --locked uvicorn app.main:app --reload --no-access-log
 ```
 
 ## Тести
 
 ```bash
-uv run pytest
-uv run ruff check .
+uv run --locked pytest
+uv run --locked ruff check .
+uv run --locked mypy --strict app
+uv run --locked lint-imports
 ```

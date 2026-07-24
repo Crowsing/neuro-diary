@@ -169,10 +169,12 @@ class ExportState(ContractModel):
     obCycle: bool = False
     safetyMore: bool = False
     tab: Literal["today", "history", "trends", "report", "set"] = "today"
-    sub: Literal[
-        "checkin", "day", "sym", "catalog", "groups", "privacy", "safety",
-        "states", "crisis"
-    ] | None = None
+    sub: (
+        Literal[
+            "checkin", "day", "sym", "catalog", "groups", "privacy", "safety", "crisis"
+        ]
+        | None
+    ) = None
     checkin: CheckinState | None = None
     selDay: str | None = None
     histShift: int = 0

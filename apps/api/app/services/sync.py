@@ -1,0 +1,1 @@
+"""Vault synchronization application service."""

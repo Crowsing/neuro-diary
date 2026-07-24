@@ -171,6 +171,11 @@ def test_current_output_schema_has_no_reminder_fields() -> None:
     assert {"obRemOn", "obTime"}.isdisjoint(export_fields)
 
 
+def test_export_state_rejects_removed_states_subroute() -> None:
+    with pytest.raises(ValidationError):
+        ExportState.model_validate({"sub": "states"})
+
+
 def test_contract_rejects_wrong_schema_or_web_type_mismatches() -> None:
     wrong_version = {**v4_data(), "schemaVersion": 3}
     with pytest.raises(ValidationError):
