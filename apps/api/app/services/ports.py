@@ -118,13 +118,26 @@ class ErasureRepositoryPort(Protocol):
 
 
 class UnitOfWork(Protocol):
-    accounts: AccountRepositoryPort
-    identities: TelegramIdentityRepositoryPort
-    sessions: SessionRepositoryPort
-    auth_replay: AuthReplayRepositoryPort
-    consents: ConsentRepositoryPort
-    schedules: ReminderScheduleRepositoryPort
-    erasure: ErasureRepositoryPort
+    """Read-only properties, not attributes.
+
+    A protocol with mutable attributes is invariant in their types, which would
+    reject any concrete repository that is merely a subtype of its port.
+    """
+
+    @property
+    def accounts(self) -> AccountRepositoryPort: ...
+    @property
+    def identities(self) -> TelegramIdentityRepositoryPort: ...
+    @property
+    def sessions(self) -> SessionRepositoryPort: ...
+    @property
+    def auth_replay(self) -> AuthReplayRepositoryPort: ...
+    @property
+    def consents(self) -> ConsentRepositoryPort: ...
+    @property
+    def schedules(self) -> ReminderScheduleRepositoryPort: ...
+    @property
+    def erasure(self) -> ErasureRepositoryPort: ...
 
     def commit(self) -> None: ...
     def rollback(self) -> None: ...

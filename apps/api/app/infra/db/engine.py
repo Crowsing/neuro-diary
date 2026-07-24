@@ -8,8 +8,7 @@ structural property rather than a discipline.
 
 from __future__ import annotations
 
-from collections.abc import Iterator
-from contextlib import contextmanager
+from types import TracebackType
 
 from sqlalchemy import Engine, create_engine
 from sqlalchemy.orm import Session, sessionmaker
@@ -50,21 +49,32 @@ class SqlUnitOfWork:
         self._session.rollback()
 
 
+class SqlUnitOfWorkScope:
+    """Context manager written out by hand so its type stays precise."""
+
+    def __init__(self, session: Session) -> None:
+        self._session = session
+        self._unit = SqlUnitOfWork(session)
+
+    def __enter__(self) -> SqlUnitOfWork:
+        return self._unit
+
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        traceback: TracebackType | None,
+    ) -> None:
+        # An uncommitted block is a discarded block, never a silent commit.
+        try:
+            self._unit.rollback()
+        finally:
+            self._session.close()
+
+
 class SqlUnitOfWorkFactory:
     def __init__(self, engine: Engine) -> None:
         self._sessionmaker = sessionmaker(engine, expire_on_commit=False)
 
-    @contextmanager
-    def __call__(self) -> Iterator[SqlUnitOfWork]:
-        session = self._sessionmaker()
-        unit = SqlUnitOfWork(session)
-        try:
-            yield unit
-        except BaseException:
-            unit.rollback()
-            raise
-        else:
-            # An uncommitted block is a discarded block, never a silent commit.
-            unit.rollback()
-        finally:
-            session.close()
+    def __call__(self) -> SqlUnitOfWorkScope:
+        return SqlUnitOfWorkScope(self._sessionmaker())

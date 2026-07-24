@@ -38,6 +38,11 @@ jobs:
       - run: uv run --locked ruff check .
       - run: uv run --locked mypy --strict app
       - run: uv run --locked pytest
+      # Phase 1 DoD: the initData validator keeps 100% branch coverage.
+      - run: >-
+          uv run --locked pytest tests/unit/test_initdata_validator.py
+          --cov=app.infra.telegram.initdata --cov-branch --cov-fail-under=100
+      - run: uv run --locked ruff format --check .
       - run: uv run --locked lint-imports
 
   bot:
