@@ -1,0 +1,58 @@
+{
+  "schema": 1,
+  "locales": [
+    "uk"
+  ],
+  "grants": [
+    {
+      "kind": "health_sync",
+      "text_version": "health_sync@0.9",
+      "locale": "uk",
+      "file": "uk/health_sync/0.9.md",
+      "sha256": "d67dd0290b21350f424f732cd9ab12c2018bad0b487bf6acc891351661ef17dd",
+      "frozen": false
+    },
+    {
+      "kind": "telegram_reminders",
+      "text_version": "telegram_reminders@0.9",
+      "locale": "uk",
+      "file": "uk/telegram_reminders/0.9.md",
+      "sha256": "ed8ef3fc9a35b3583c3a8d3e4bf0aef419e18c147cf66a78004363361bb66336",
+      "frozen": false
+    },
+    {
+      "kind": "cycle_sync",
+      "text_version": "cycle_sync@0.9",
+      "locale": "uk",
+      "file": "uk/cycle_sync/0.9.md",
+      "sha256": "27f745d3cb53a26dd7c9104733b79bb9ed6dba083d9af8a828611f95b775ae05",
+      "frozen": false
+    }
+  ],
+  "revocations": [
+    {
+      "kind": "health_sync",
+      "text_version": "health_sync@0.9",
+      "locale": "uk",
+      "file": "uk/revoke/health_sync/0.9.md",
+      "sha256": "45ab55732a522c419ed48c8325f34ac708a9b076c14769722c0d2f1a82d427aa",
+      "frozen": false
+    },
+    {
+      "kind": "telegram_reminders",
+      "text_version": "telegram_reminders@0.9",
+      "locale": "uk",
+      "file": "uk/revoke/telegram_reminders/0.9.md",
+      "sha256": "8ae19eb214230cbc9b15b186c1197fb3f9a3513f976c2e9d80ff86349ea81214",
+      "frozen": false
+    },
+    {
+      "kind": "cycle_sync",
+      "text_version": "cycle_sync@0.9",
+      "locale": "uk",
+      "file": "uk/revoke/cycle_sync/0.9.md",
+      "sha256": "f05764768328f0563bd0cb7238a11b632400a83cef87e10f836c27c91c60883f",
+      "frozen": false
+    }
+  ]
+}
