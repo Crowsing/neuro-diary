@@ -47,6 +47,7 @@ class GrantRequest:
 class RevocationOutcome:
     revoked: list[ConsentKind]
     account_erased: bool
+    erasure_reference: UUID | None = None
 
 
 class ConsentService:
@@ -73,7 +74,14 @@ class ConsentService:
         request: GrantRequest,
         now: datetime,
     ) -> None:
-        """Validate and record one consent inside the caller's transaction."""
+        """Validate and record one consent inside the caller's transaction.
+
+        The account row is locked first, exactly as revocation does: without it
+        two concurrent grants both read an empty active set and the second one
+        reaches the partial unique index as an integrity error instead of a
+        clean 409.
+        """
+        unit.accounts.lock(account_id)
         text = self._consent_copy.grant_text(request.kind, locale=DEFAULT_LOCALE)
         version = TextVersion.parse(text.text_version)
 
@@ -150,8 +158,12 @@ class ConsentService:
             # §4.3; the sweeper owns that deadline.
             return RevocationOutcome(revoked=revoked, account_erased=False)
 
-        self._erasure.erase(unit, account_id=account_id, now=now)
-        return RevocationOutcome(revoked=revoked, account_erased=True)
+        reference = self._erasure.erase(unit, account_id=account_id, now=now)
+        return RevocationOutcome(
+            revoked=revoked,
+            account_erased=True,
+            erasure_reference=reference,
+        )
 
     def _provision_schedule(
         self,

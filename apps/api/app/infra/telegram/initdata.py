@@ -7,6 +7,12 @@ needs no bot token: api holds only the public key and the non-secret bot id.
 Nothing here returns the raw initData. The caller receives the user id, the
 issue time, and a SHA-256 digest for the replay table — initData itself is
 neither logged nor persisted.
+
+The replay digest covers the *canonical signed content*, never the raw query
+string. The two are not in bijection: the check string is order-independent and
+excludes `hash` and `signature`, so digesting the raw string would let one
+captured initData mint unlimited "fresh" replay keys by reordering fields or
+appending an unsigned one.
 """
 
 from __future__ import annotations
@@ -43,7 +49,7 @@ class ValidatedInitData:
 
     telegram_user_id: int
     auth_date: datetime
-    initdata_sha256: bytes
+    replay_digest: bytes
 
 
 class InitDataValidator:
@@ -81,8 +87,13 @@ class InitDataValidator:
         return ValidatedInitData(
             telegram_user_id=_user_id(fields),
             auth_date=auth_date,
-            initdata_sha256=hashlib.sha256(init_data.encode("utf-8")).digest(),
+            replay_digest=hashlib.sha256(
+                self._signed_message(fields).encode("utf-8")
+            ).digest(),
         )
+
+    def _signed_message(self, fields: dict[str, str]) -> str:
+        return f"{self._bot_id}:WebAppData\n{_check_string(fields)}"
 
     def _verify_signature(self, fields: dict[str, str], signature: str) -> None:
         try:
@@ -92,7 +103,7 @@ class InitDataValidator:
         if len(raw) != _SIGNATURE_SIZE:
             raise AuthInvalid()
 
-        message = f"{self._bot_id}:WebAppData\n{_check_string(fields)}".encode()
+        message = self._signed_message(fields).encode("utf-8")
         try:
             self._public_key.verify(raw, message)
         except InvalidSignature as error:
@@ -103,9 +114,11 @@ class InitDataValidator:
         if provided is None:
             raise AuthInvalid()
         assert self._hmac_secret is not None  # guarded in __init__
-        secret = hmac.new(b"WebAppData", self._hmac_secret, hashlib.sha256).digest()
+        # §8 derives WEBAPP_HMAC_SECRET = HMAC_SHA256(BOT_TOKEN, key="WebAppData")
+        # outside api, so it already *is* Telegram's secret_key. Deriving again
+        # here would make every real hash mismatch.
         expected = hmac.new(
-            secret,
+            self._hmac_secret,
             _check_string(fields).encode("utf-8"),
             hashlib.sha256,
         ).hexdigest()

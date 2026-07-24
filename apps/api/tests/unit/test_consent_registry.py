@@ -37,15 +37,31 @@ def _registry() -> dict[str, Any]:
 
 
 def _entries() -> list[dict[str, Any]]:
+    """Every hashed entry, including the deletion promise.
+
+    `deletion_copy` is the version stamped on every `erasure_job`, so a drift
+    between it and its file has to fail CI like any other.
+    """
     registry = _registry()
     grants: list[dict[str, Any]] = registry["grants"]
     revocations: list[dict[str, Any]] = registry["revocations"]
-    return [*grants, *revocations]
+    deletion: dict[str, Any] = registry["deletion_copy"]
+    return [*grants, *revocations, deletion]
 
 
 def _major(entry: dict[str, Any]) -> int:
     version: str = entry["text_version"]
     return int(version.split("@", 1)[1].split(".", 1)[0])
+
+
+def test_the_deletion_promise_is_frozen_and_hashed() -> None:
+    deletion = _registry()["deletion_copy"]
+
+    assert deletion["text_version"] == "deletion@1.0"
+    assert deletion["frozen"] is True
+    body = (REGISTRY_ROOT / deletion["file"]).read_text(encoding="utf-8")
+    assert "щонайбільше через 30 днів" in body
+    assert CONTROLLER_PLACEHOLDER not in body
 
 
 def test_registry_declares_exactly_the_three_gate_d_consents() -> None:
@@ -71,7 +87,8 @@ def test_no_registry_file_contains_an_unfilled_token() -> None:
 
 
 def test_text_versions_use_the_kind_major_minor_format() -> None:
-    for entry in _entries():
+    registry = _registry()
+    for entry in [*registry["grants"], *registry["revocations"]]:
         assert TEXT_VERSION.match(entry["text_version"]), entry["text_version"]
         assert entry["text_version"].startswith(f"{entry['kind']}@")
         assert entry["locale"] == "uk"

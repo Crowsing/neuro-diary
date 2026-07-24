@@ -21,7 +21,11 @@ from app.api.v1.account import router as account_router
 from app.api.v1.auth import router as auth_router
 from app.api.v1.consents import router as consents_router
 from app.api.v1.deps import Services
-from app.api.v1.errors import domain_error_handler, request_validation_error_handler
+from app.api.v1.errors import (
+    domain_error_handler,
+    request_validation_error_handler,
+    unhandled_error_handler,
+)
 from app.api.v1.health import router as health_router
 from app.api.v1.middleware import RateLimitMiddleware, RequestContextMiddleware
 from app.domain.identity import DomainError
@@ -93,6 +97,9 @@ def create_app(dependencies: AppDependencies) -> FastAPI:
         request_validation_error_handler,
     )
     application.add_exception_handler(DomainError, domain_error_handler)
+    # Registered last so nothing reaches uvicorn.error with a SQL statement and
+    # its bound parameters attached.
+    application.add_exception_handler(Exception, unhandled_error_handler)
 
     application.add_middleware(
         CORSMiddleware,
@@ -107,7 +114,10 @@ def create_app(dependencies: AppDependencies) -> FastAPI:
         window_seconds=RATE_LIMIT_WINDOW_SECONDS,
         secret=settings.log_account_ref_key,
     )
-    application.add_middleware(RequestContextMiddleware)
+    application.add_middleware(
+        RequestContextMiddleware,
+        secret=settings.log_account_ref_key,
+    )
 
     application.include_router(health_router)
     application.include_router(auth_router)

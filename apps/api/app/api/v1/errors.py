@@ -10,6 +10,7 @@ from __future__ import annotations
 from fastapi import Request
 from fastapi.responses import JSONResponse
 
+from app.infra.logging import get_logger
 from app.domain.identity import (
     AuthInvalid,
     AuthReplayed,
@@ -52,7 +53,25 @@ async def request_validation_error_handler(
 
 
 async def domain_error_handler(request: Request, error: Exception) -> JSONResponse:
-    assert isinstance(error, DomainError)
+    if not isinstance(error, DomainError):  # pragma: no cover - registered by type
+        return await unhandled_error_handler(request, error)
     status = STATUS_BY_ERROR.get(type(error), 500)
     request.state.error_code = error.code
     return JSONResponse(status_code=status, content={"error": error.code})
+
+
+async def unhandled_error_handler(request: Request, error: Exception) -> JSONResponse:
+    """Swallow the exception here so its traceback never reaches the log.
+
+    A database integrity error carries the failing statement and its bound
+    parameters — account id, consent kind, telegram user id. Letting it escape
+    to `uvicorn.error` would put all three on disk, past the §11 allowlist.
+    """
+    del error
+    request.state.error_code = "internal"
+    get_logger().error(
+        "request_failed",
+        request_id=getattr(request.state, "request_id", None),
+        error_code="internal",
+    )
+    return JSONResponse(status_code=500, content={"error": "internal"})

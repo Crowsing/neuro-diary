@@ -13,6 +13,7 @@ is what makes the deadlines testable without waiting for them.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from uuid import UUID
 
 from app.domain.identity import (
     ACCOUNT_ERASURE_DELAY,
@@ -73,11 +74,19 @@ class Housekeeper:
             )
 
         erased = 0
+        seen: set[UUID] = set()
         for candidate in pending:
+            # A cascade revokes two consents with an identical `revoked_at`, so
+            # the same account can appear twice in one batch.
+            if candidate.account_id in seen:
+                continue
+            seen.add(candidate.account_id)
             # One transaction per account: a single unreachable journal must not
             # cost every other account its deadline.
             with self._unit_of_work() as unit:
-                unit.accounts.lock(candidate.account_id)
+                if not unit.accounts.lock(candidate.account_id):
+                    # Already gone: never journal an erasure for a missing row.
+                    continue
                 if unit.consents.active_kinds(candidate.account_id):
                     continue
                 reference = self._erasure.erase(

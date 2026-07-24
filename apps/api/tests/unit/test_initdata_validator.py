@@ -31,7 +31,9 @@ from app.infra.telegram.initdata import (
 BOT_ID = 1234567890
 USER_ID = 4242424242
 NOW = datetime(2026, 7, 24, 12, 0, tzinfo=UTC)
-HMAC_SECRET = bytes(range(32))
+# The real deployment derives this once, outside api, from the bot token.
+BOT_TOKEN = "1234567890:AAHrandomlookingsecretvalueforthetest"
+HMAC_SECRET = hmac.new(b"WebAppData", BOT_TOKEN.encode(), hashlib.sha256).digest()
 
 _SIGNING_KEY = Ed25519PrivateKey.from_private_bytes(bytes(range(32)))
 PUBLIC_KEY = _SIGNING_KEY.public_key().public_bytes_raw()
@@ -58,10 +60,11 @@ def make_init_data(
     signature: str | None = None,
     extra: dict[str, str] | None = None,
     drop: set[str] | None = None,
+    nonce: str = "AAHdF6IQAAAAAN0Xoh",
 ) -> str:
     fields: dict[str, str] = {
         "auth_date": str(int(auth_date.timestamp())),
-        "query_id": "AAHdF6IQAAAAAN0Xoh",
+        "query_id": nonce,
         "user": user if user is not None else json.dumps({"id": USER_ID}),
     }
     fields.update(extra or {})
@@ -84,8 +87,10 @@ def make_hmac_init_data(*, auth_date: datetime = NOW, bad_hash: bool = False) ->
     }
     pairs = sorted(fields.items())
     check = "\n".join(f"{key}={value}" for key, value in pairs).encode()
-    secret = hmac.new(b"WebAppData", HMAC_SECRET, hashlib.sha256).digest()
-    digest = hmac.new(secret, check, hashlib.sha256).hexdigest()
+    # Built the way Telegram documents it, from the bot token, so the test
+    # cannot pass by mirroring whatever the implementation happens to do.
+    secret_key = hmac.new(b"WebAppData", BOT_TOKEN.encode(), hashlib.sha256).digest()
+    digest = hmac.new(secret_key, check, hashlib.sha256).hexdigest()
     fields["hash"] = "0" * 64 if bad_hash else digest
     return _encode(fields)
 
@@ -113,17 +118,60 @@ def test_documented_public_keys() -> None:
     )
 
 
-def test_valid_init_data_yields_only_the_user_id_and_a_hash() -> None:
+def test_valid_init_data_yields_only_the_user_id_and_a_digest() -> None:
     raw = make_init_data()
 
     result = validator().validate(raw, now=NOW)
 
     assert result.telegram_user_id == USER_ID
     assert result.auth_date == NOW
-    assert result.initdata_sha256 == hashlib.sha256(raw.encode()).digest()
-    assert len(result.initdata_sha256) == 32
+    assert len(result.replay_digest) == 32
     assert not hasattr(result, "raw")
     assert not hasattr(result, "query_id")
+
+
+def test_the_replay_digest_covers_the_signed_content_not_the_raw_string() -> None:
+    """One captured initData must yield exactly one replay key.
+
+    The signature is checked over the canonical check string, which excludes
+    `hash` and `signature` and is order-independent. Digesting the raw query
+    instead would let an attacker mint unlimited "fresh" initData from a single
+    capture by reordering fields or appending an unsigned one.
+    """
+    fields = {
+        "auth_date": str(int(NOW.timestamp())),
+        "user": json.dumps({"id": USER_ID}),
+    }
+    signature = (
+        base64.urlsafe_b64encode(_SIGNING_KEY.sign(_check_string(fields)))
+        .decode()
+        .rstrip("=")
+    )
+    variants = [
+        _encode({**fields, "signature": signature}),
+        _encode(
+            {
+                "user": fields["user"],
+                "auth_date": fields["auth_date"],
+                "signature": signature,
+            }
+        ),
+        _encode({**fields, "signature": signature, "hash": "0" * 64}),
+        _encode({**fields, "signature": signature, "hash": "1" * 64}),
+    ]
+
+    checker = validator()
+    digests = {checker.validate(raw, now=NOW).replay_digest for raw in variants}
+
+    assert len(digests) == 1
+
+
+def test_different_init_data_yields_different_replay_digests() -> None:
+    checker = validator()
+    first = checker.validate(make_init_data(nonce="one"), now=NOW).replay_digest
+    second = checker.validate(make_init_data(nonce="two"), now=NOW).replay_digest
+
+    assert first != second
 
 
 def test_signature_padding_is_optional() -> None:

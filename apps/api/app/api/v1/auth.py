@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
 
 from app.api.v1.deps import BearerDep, ServicesDep
 from app.api.v1.mapping import consent_outputs, require_session, to_grant_request
@@ -31,9 +31,14 @@ def authenticate(payload: AuthRequest, services: ServicesDep) -> AuthResponse:
 
 
 @router.get("/sessions", response_model=SessionListOutput)
-def list_sessions(services: ServicesDep, token: BearerDep) -> SessionListOutput:
+def list_sessions(
+    request: Request,
+    services: ServicesDep,
+    token: BearerDep,
+) -> SessionListOutput:
     with services.unit_of_work() as unit:
         session = require_session(services, unit, token)
+        request.state.account_id = session.account_id
         summaries = services.auth.list_sessions(unit, session)
         unit.commit()
     return SessionListOutput(
@@ -52,11 +57,13 @@ def list_sessions(services: ServicesDep, token: BearerDep) -> SessionListOutput:
 
 @router.post("/sessions/revoke-others", response_model=RevokedSessionsOutput)
 def revoke_other_sessions(
+    request: Request,
     services: ServicesDep,
     token: BearerDep,
 ) -> RevokedSessionsOutput:
     with services.unit_of_work() as unit:
         session = require_session(services, unit, token)
+        request.state.account_id = session.account_id
         revoked = services.auth.revoke_other_sessions(unit, session)
         unit.commit()
     return RevokedSessionsOutput(revoked=revoked)

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
 
 from app.api.v1.deps import BearerDep, ServicesDep
 from app.api.v1.mapping import require_session
@@ -14,6 +14,7 @@ router = APIRouter(prefix="/v1", tags=["account"])
 
 @router.post("/account/delete", response_model=AccountDeletedResponse)
 def delete_account(
+    request: Request,
     services: ServicesDep,
     token: BearerDep,
 ) -> AccountDeletedResponse:
@@ -21,6 +22,7 @@ def delete_account(
     now = services.auth.now()
     with services.unit_of_work() as unit:
         session = require_session(services, unit, token)
+        request.state.account_id = session.account_id
         services.auth.require_step_up(session, ProtectedOperation.ACCOUNT_DELETE)
         unit.accounts.lock(session.account_id)
         reference = services.erasure.erase(

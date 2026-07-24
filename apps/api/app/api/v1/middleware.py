@@ -17,7 +17,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 
-from app.infra.logging import client_ref, get_logger
+from app.infra.logging import account_ref, client_ref, get_logger
 
 UNMATCHED_ROUTE = "unmatched"
 _MILLISECONDS = 1_000
@@ -32,9 +32,11 @@ class RequestContextMiddleware(BaseHTTPMiddleware):
         self,
         app: Callable[..., Awaitable[None]],
         *,
+        secret: bytes = b"",
         monotonic: Callable[[], float] = time.monotonic,
     ) -> None:
         super().__init__(app)
+        self._secret = secret
         self._monotonic = monotonic
 
     async def dispatch(self, request: Request, call_next: Handler) -> Response:
@@ -55,6 +57,16 @@ class RequestContextMiddleware(BaseHTTPMiddleware):
         error_code = getattr(request.state, "error_code", None)
         if error_code:
             fields["error_code"] = error_code
+        retry_after = response.headers.get("Retry-After")
+        if retry_after:
+            fields["retry_after"] = int(retry_after)
+
+        account_id = getattr(request.state, "account_id", None)
+        if account_id is not None:
+            # The rotating reference, never the identifier itself (§11).
+            fields["account_ref"] = account_ref(
+                self._secret, account_id, datetime.now(UTC)
+            )
 
         get_logger().info("request_completed", **fields)
         response.headers["X-Request-Id"] = request_id
@@ -105,9 +117,15 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         request.state.route_template = path
 
         now = self._monotonic()
-        hits = self._hits[(path, self._caller(request))]
+        key = (path, self._caller(request))
+        hits = self._hits[key]
         while hits and now - hits[0] >= self._window:
             hits.popleft()
+        if not hits:
+            # Otherwise every address ever seen keeps an empty deque for good,
+            # and `client_ref` rotates weekly.
+            del self._hits[key]
+            hits = self._hits[key]
 
         if len(hits) >= limit:
             retry_after = max(1, int(self._window - (now - hits[0])))

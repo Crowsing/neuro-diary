@@ -43,8 +43,13 @@ class AuthenticatedSession:
 
 
 def hash_token(token: str) -> bytes:
-    """The database holds only the digest; the token itself is never stored."""
-    return hashlib.sha256(token.encode("ascii")).digest()
+    """The database holds only the digest; the token itself is never stored.
+
+    Encoded as UTF-8 rather than ASCII: Starlette decodes headers as latin-1, so
+    a single high byte in `Authorization` would otherwise raise before any
+    lookup and turn an unauthenticated request into a 500.
+    """
+    return hashlib.sha256(token.encode("utf-8")).digest()
 
 
 class AuthService:
@@ -81,7 +86,7 @@ class AuthService:
                 # block without committing is what makes "zero rows" structural.
                 raise NoAccount()
 
-            if not unit.auth_replay.remember(validated.initdata_sha256, now=now):
+            if not unit.auth_replay.remember(validated.replay_digest, now=now):
                 raise AuthReplayed()
 
             if account_id is None:
