@@ -1,0 +1,1734 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Архівний прототип — не acceptance contract</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<!--
+  ARCHIVED REFERENCE ONLY (2026-07-23).
+  This snapshot contains superseded reminder, permission, snooze, and sync
+  concepts. It is not the current product contract or an acceptance source.
+  The implemented React app and its tests are authoritative.
+-->
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="_ds/organic-deb3ff67-6cc1-4d92-a050-0213a8e47825/styles.css">
+<script src="_ds/organic-deb3ff67-6cc1-4d92-a050-0213a8e47825/_ds_bundle.js"></script>
+<style>
+body{margin:0;background:var(--color-bg)}
+a{color:var(--color-accent)}a:hover{color:var(--color-accent-600)}
+.nd-frame[data-theme="dark"]{--color-bg:#211e19;--color-surface:#2f2a23;--color-text:#f3ecdd;--color-divider:color-mix(in srgb,#f3ecdd 20%,transparent);--color-neutral-100:#3a352d;--color-neutral-200:#474138;--color-neutral-300:#57503f;--color-accent-100:#4a3626;--color-accent-800:#ffd9bd;--color-accent-2-100:#38402a;--color-accent-2-200:#43502f;--color-accent-2-800:#dce8c4;--color-neutral-800:#e8e0d0;--color-neutral-700:#cfc6b4}
+.nd-frame[data-theme="contrast"]{--color-bg:#ffffff;--color-surface:#f4f4f4;--color-text:#000000;--color-divider:#000000;--color-accent:#8c3a00;--color-accent-2:#33431d;--color-accent-100:#ffe7d6;--color-accent-800:#5c2600;--color-accent-2-100:#e4edd2;--color-accent-2-200:#d2e0b8;--color-accent-2-800:#22300f}
+.nd-frame ::-webkit-scrollbar{width:0;height:0}
+.nd-reduce *{transition:none!important;animation:none!important}
+@keyframes ndToast{from{opacity:0;transform:translateX(-50%) translateY(8px)}to{opacity:1;transform:translateX(-50%) translateY(0)}}
+</style>
+</helmet>
+<div style="min-height:100vh;background:var(--color-bg);font-family:var(--font-body);color:var(--color-text);display:flex;flex-direction:column;align-items:center;padding:28px 20px 60px">
+<div style="width:100%;max-width:1200px;display:flex;align-items:center;gap:16px;flex-wrap:wrap;margin-bottom:24px">
+<h1 style="font-size:26px;margin:0">Неврологічний щоденник</h1>
+<span class="tag tag-accent">Архівний прототип · не acceptance contract</span>
+<div style="margin-left:auto;display:flex;border:1px solid var(--color-divider);border-radius:999px;overflow:hidden">
+<button onClick="{{ modeMob }}" style="border:none;cursor:pointer;font:inherit;font-size:13px;padding:9px 18px;min-height:44px;background: {{ modeMobBg }};color: {{ modeMobFg }}">Mobile 390</button>
+<button onClick="{{ modeDesk }}" style="border:none;cursor:pointer;font:inherit;font-size:13px;padding:9px 18px;min-height:44px;background: {{ modeDeskBg }};color: {{ modeDeskFg }}">Desktop dashboard</button>
+</div>
+</div>
+<sc-if value="{{ mob }}" hint-placeholder-val="{{ true }}">
+<div class="{{ frameClass }}" data-theme="{{ theme }}" style="width:390px;height:844px;background:var(--color-bg);color:var(--color-text);border-radius:46px;box-shadow:0 0 0 11px #26221d,0 0 0 13px #45403a,var(--shadow-lg);overflow:hidden;position:relative;display:flex;flex-direction:column;font-size:16px;flex:none">
+<div style="height:46px;flex:none;display:flex;align-items:center;justify-content:space-between;padding:0 26px;font-size:14px;font-weight:600">
+<span>9:41</span>
+<span style="display:flex;gap:5px;align-items:center"><span style="width:16px;height:10px;border:1.5px solid currentColor;border-radius:3px;position:relative"><span style="position:absolute;inset:1.5px;right:5px;background:currentColor;border-radius:1px"></span></span></span>
+</div>
+<div style="flex:1;min-height:0;position:relative;display:flex;flex-direction:column">
+<!--@ob-->
+<sc-if value="{{ isOb }}" hint-placeholder-val="{{ false }}">
+<div data-screen-label="Onboarding" style="flex:1;display:flex;flex-direction:column;overflow-y:auto;padding:20px 22px 24px">
+<div style="display:flex;gap:6px;margin-bottom:26px">
+<sc-for list="{{ obDots }}" as="d" hint-placeholder-count="5"><span style="flex:1;height:5px;border-radius:99px;background: {{ d.bg }}"></span></sc-for>
+</div>
+<sc-if value="{{ ob0 }}" hint-placeholder-val="{{ false }}">
+<div style="flex:1;display:flex;flex-direction:column;justify-content:center;gap:14px">
+<div style="width:84px;height:84px;border-radius:50%;background:var(--color-accent-2-200);display:grid;place-items:center;margin-bottom:6px">
+<svg width="40" height="40"><path d="M6 20 L14 20 L17 10 L23 30 L26 20 L34 20" fill="none" stroke="var(--color-accent-2-800)" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"></path></svg>
+</div>
+<h2 style="font-size:32px;margin:0">Пам’ятати менше.<br>Бачити більше.</h2>
+<p style="font-size:16px;margin:0" class="text-muted">Щоденник допомагає фіксувати симптоми та контекст, бачити власну динаміку й готувати зрозумілі факти для розмови з лікарем.</p>
+<p style="font-size:13px;margin:8px 0 0;padding:12px 16px;border-radius:18px;background:var(--color-surface)" class="text-muted">Застосунок допомагає фіксувати самопочуття та готувати дані для лікаря. Він не встановлює діагноз, не підтверджує загострення і не призначений для невідкладної допомоги.</p>
+</div>
+</sc-if>
+<sc-if value="{{ ob1 }}" hint-placeholder-val="{{ false }}">
+<div style="flex:1;display:flex;flex-direction:column;gap:14px">
+<h2 style="font-size:26px;margin:0">Приватність</h2>
+<div style="display:flex;flex-direction:column;gap:10px">
+<sc-for list="{{ obPrivacy }}" as="p" hint-placeholder-count="4">
+<div style="display:flex;gap:12px;padding:12px 14px;border-radius:18px;background:var(--color-surface)">
+<span style="width:8px;height:8px;border-radius:50%;background:var(--color-accent-2);flex:none;margin-top:7px"></span>
+<div><div style="font-size:14px;font-weight:600">{{ p.k }}</div><div style="font-size:13px" class="text-muted">{{ p.v }}</div></div>
+</div>
+</sc-for>
+</div>
+<p style="font-size:12.5px;margin:0" class="text-muted">Зміст медичних записів не надсилається повідомленнями боту. Перелік технічних даних буде описано після визначення фінальної архітектури застосунку.</p>
+</div>
+</sc-if>
+<sc-if value="{{ ob2 }}" hint-placeholder-val="{{ false }}">
+<div style="flex:1;display:flex;flex-direction:column;gap:12px">
+<h2 style="font-size:26px;margin:0">Ваш список симптомів</h2>
+<p style="font-size:14px;margin:0" class="text-muted">Це те, про що застосунок питатиме щодня. Змінити список можна будь-коли в Налаштуваннях.</p>
+<div style="display:flex;flex-wrap:wrap;gap:8px">
+<sc-for list="{{ obSymList }}" as="c" hint-placeholder-count="6">
+<button onClick="{{ c.on }}" style="min-height:44px;padding:9px 15px;border-radius:999px;font:inherit;font-size:13.5px;cursor:pointer;border:1.5px solid {{ c.bd }};background: {{ c.bg }};color: {{ c.fg }}">{{ c.t }}</button>
+</sc-for>
+</div>
+</div>
+</sc-if>
+<sc-if value="{{ ob3 }}" hint-placeholder-val="{{ false }}">
+<div style="flex:1;display:flex;flex-direction:column;gap:14px">
+<span class="tag tag-neutral" style="align-self:flex-start;font-size:12px">Опційно · вимкнено за замовчуванням</span>
+<h2 style="font-size:26px;margin:0">Менструальний цикл</h2>
+<p style="font-size:14px;margin:0" class="text-muted">День циклу рахується автоматично від позначеного початку менструації та може допомогти побачити збіги. Ці дані приховані у нагадуваннях і вимкнені у звіті. Увімкнути можна будь-коли в Налаштуваннях.</p>
+<div style="display:flex;gap:8px">
+<sc-for list="{{ obCycleChips }}" as="c" hint-placeholder-count="2"><button onClick="{{ c.on }}" style="min-height:48px;padding:9px 20px;border-radius:999px;font:inherit;font-size:14.5px;cursor:pointer;border:1.5px solid {{ c.bd }};background: {{ c.bg }};color: {{ c.fg }}">{{ c.t }}</button></sc-for>
+</div>
+</div>
+</sc-if>
+<sc-if value="{{ ob4 }}" hint-placeholder-val="{{ false }}">
+<div style="flex:1;display:flex;flex-direction:column;gap:14px">
+<span class="tag tag-neutral" style="align-self:flex-start;font-size:12px">Опційно · вимкнено за замовчуванням</span>
+<h2 style="font-size:26px;margin:0">Одне нагадування на день</h2>
+<p style="font-size:14px;margin:0" class="text-muted">Нейтральний текст без згадки симптомів: «Час зробити короткий запис». Системний дозвіл попросимо лише якщо увімкнете. Вимкнути можна будь-коли.</p>
+<div style="display:flex;gap:8px">
+<sc-for list="{{ obRemChips }}" as="c" hint-placeholder-count="2"><button onClick="{{ c.on }}" style="min-height:48px;padding:9px 20px;border-radius:999px;font:inherit;font-size:14.5px;cursor:pointer;border:1.5px solid {{ c.bd }};background: {{ c.bg }};color: {{ c.fg }}">{{ c.t }}</button></sc-for>
+</div>
+<sc-if value="{{ obRemOnF }}" hint-placeholder-val="{{ false }}">
+<div style="display:flex;flex-wrap:wrap;gap:8px">
+<sc-for list="{{ obTimeChips }}" as="c" hint-placeholder-count="4">
+<button onClick="{{ c.on }}" style="min-height:44px;padding:9px 18px;border-radius:999px;font:inherit;font-size:14px;cursor:pointer;border:1.5px solid {{ c.bd }};background: {{ c.bg }};color: {{ c.fg }}">{{ c.t }}</button>
+</sc-for>
+</div>
+<div style="padding:12px 16px;border-radius:18px;background:var(--color-surface);font-size:13px" class="text-muted">Telegram-бот надішле лише: «Час зробити короткий запис» із кнопками «Відкрити щоденник» і «Нагадати за годину».</div>
+</sc-if>
+</div>
+</sc-if>
+<div style="display:flex;gap:10px;margin-top:18px">
+<sc-if value="{{ obShowBack }}" hint-placeholder-val="{{ false }}"><button class="btn btn-secondary" style="min-height:48px" onClick="{{ obBack }}">Назад</button></sc-if>
+<button class="btn btn-primary" style="flex:1;min-height:48px;font-size:16px" onClick="{{ obNext }}">{{ obNextL }}</button>
+</div>
+<sc-if value="{{ obSkipShow }}" hint-placeholder-val="{{ false }}"><button class="btn btn-ghost" style="min-height:44px;margin-top:6px" onClick="{{ obSkip }}">Пропустити решту налаштувань</button></sc-if>
+</div>
+</sc-if>
+<sc-if value="{{ isApp }}" hint-placeholder-val="{{ true }}">
+<sc-if value="{{ subNone }}" hint-placeholder-val="{{ true }}">
+<sc-if value="{{ tToday }}" hint-placeholder-val="{{ true }}">
+<div data-screen-label="Сьогодні" style="flex:1;overflow-y:auto;padding:8px 20px 20px;display:flex;flex-direction:column;gap:14px">
+<div>
+<div style="font-size:12px;letter-spacing:.08em;text-transform:uppercase" class="text-muted">Сьогодні</div>
+<div style="display:flex;align-items:baseline;gap:10px;flex-wrap:wrap">
+<h2 style="font-size:27px;margin:0">{{ todWD }}</h2>
+</div>
+<div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap">
+<span class="tag" style="background: {{ todStatusBg }};color: {{ todStatusFg }};font-size:12px;padding:5px 12px">{{ todStatusT }}</span>
+<sc-if value="{{ todHasCycle }}" hint-placeholder-val="{{ false }}"><span class="tag tag-neutral" style="font-size:12px;padding:5px 12px">{{ todCycle }}</span></sc-if>
+</div>
+</div>
+<sc-if value="{{ todHasSum }}" hint-placeholder-val="{{ false }}">
+<div class="card elev-sm" style="gap:8px">
+<span class="card-kicker">Підсумок дня</span>
+<p style="margin:0;font-size:14.5px;line-height:1.5">{{ todSum }}</p>
+<span style="font-size:12px" class="text-muted">Підсумок лише переказує введені факти й змінюється тільки через редагування запису.</span>
+</div>
+</sc-if>
+<button class="btn btn-primary" style="min-height:54px;font-size:17px" onClick="{{ todCta }}">{{ todCtaL }}</button>
+<sc-if value="{{ todNoSymShow }}" hint-placeholder-val="{{ false }}">
+<button class="btn btn-secondary" style="min-height:48px" onClick="{{ todNoSym }}">Сьогодні симптомів не було</button>
+</sc-if>
+<sc-if value="{{ todAddMore }}" hint-placeholder-val="{{ false }}">
+<button class="btn btn-secondary" style="min-height:48px" onClick="{{ todAddMoreOn }}">Додати самопочуття або контекст</button>
+</sc-if>
+<button class="btn btn-secondary" style="min-height:48px" onClick="{{ todMenses }}">
+<svg width="18" height="18"><path d="M9 2 C9 2 14 8 14 11.5 A5 5 0 0 1 4 11.5 C4 8 9 2 9 2 Z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"></path></svg>
+Почалися місячні</button>
+<div class="card" style="gap:10px">
+<div style="display:flex;align-items:baseline;justify-content:space-between"><span class="card-kicker">Останні 7 днів · втома</span></div>
+<div style="display:flex;align-items:flex-end;gap:7px;height:56px">
+<sc-for list="{{ week7 }}" as="b" hint-placeholder-count="7">
+<div style="flex:1;display:flex;flex-direction:column;justify-content:flex-end;align-items:center;gap:4px;height:100%"><div style="width:100%;border-radius:6px;background: {{ b.bg }};height: {{ b.h }};border: {{ b.bd }}"></div><span style="font-size:9.5px" class="text-muted">{{ b.l }}</span></div>
+</sc-for>
+</div>
+<span style="font-size:12px" class="text-muted">Без висновків: лише те, що ви записали. Порожній стовпчик — день не заповнено.</span>
+</div>
+<button class="btn btn-ghost" style="min-height:44px;justify-content:flex-start;padding-inline:4px" onClick="{{ safetyOpen }}">
+<svg width="17" height="17"><path d="M8.5 2 L16 15 L1 15 Z M8.5 7 L8.5 10.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"></path><circle cx="8.5" cy="12.8" r="0.9" fill="currentColor"></circle></svg>
+Коли потрібна термінова допомога?</button>
+</div>
+</sc-if>
+<sc-if value="{{ tHist }}" hint-placeholder-val="{{ false }}">
+<div data-screen-label="Історія" style="flex:1;overflow-y:auto;padding:8px 20px 20px;display:flex;flex-direction:column;gap:13px">
+<h2 style="font-size:24px;margin:0">Історія</h2>
+<div class="card" style="gap:10px">
+<div style="display:flex;align-items:center;justify-content:space-between">
+<button class="btn btn-icon btn-secondary" aria-label="Попередній місяць" onClick="{{ calPrev }}" style="width:44px;height:44px"><svg width="14" height="14"><path d="M9 2 L4 7 L9 12" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"></path></svg></button>
+<span style="font-family:var(--font-heading);font-size:17px">{{ calTitle }}</span>
+<button class="btn btn-icon btn-secondary" aria-label="Наступний місяць" onClick="{{ calNext }}" style="width:44px;height:44px"><svg width="14" height="14"><path d="M5 2 L10 7 L5 12" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"></path></svg></button>
+</div>
+<div style="display:grid;grid-template-columns:repeat(7,1fr);gap:3px;font-size:10.5px;text-align:center" class="text-muted"><span>Пн</span><span>Вт</span><span>Ср</span><span>Чт</span><span>Пт</span><span>Сб</span><span>Нд</span></div>
+<sc-for list="{{ calRows }}" as="w" hint-placeholder-count="5">
+<div style="display:grid;grid-template-columns:repeat(7,1fr);gap:3px">
+<sc-for list="{{ w.cells }}" as="c">
+<button onClick="{{ c.on }}" aria-label="{{ c.aria }}" style="min-height:46px;border-radius:13px;cursor: {{ c.cur }};font:inherit;font-size:13.5px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;border: {{ c.bd }};background: {{ c.bg }};color: {{ c.fg }};padding:2px 0">
+<span style="font-weight:600">{{ c.txt }}</span>
+<span style="display:flex;gap:2.5px;align-items:center;height:7px">
+<sc-if value="{{ c.mNote }}" hint-placeholder-val="{{ false }}"><span style="width:5px;height:5px;border-radius:1.5px;background:var(--color-neutral-600)"></span></sc-if>
+<sc-if value="{{ c.mMenses }}" hint-placeholder-val="{{ false }}"><span style="width:6px;height:6px;border-radius:50%;border:1.6px solid var(--color-accent-700)"></span></sc-if>
+<sc-if value="{{ c.mFlare }}" hint-placeholder-val="{{ false }}"><span style="width:0;height:0;border-left:3.5px solid transparent;border-right:3.5px solid transparent;border-bottom:6px solid var(--color-accent-600)"></span></sc-if>
+</span>
+</button>
+</sc-for>
+</div>
+</sc-for>
+<div style="display:flex;flex-wrap:wrap;gap:10px;font-size:11px" class="text-muted">
+<span style="display:flex;gap:5px;align-items:center"><span style="width:11px;height:11px;border-radius:4px;background:var(--color-accent-2-200)"></span>завершено</span>
+<span style="display:flex;gap:5px;align-items:center"><span style="width:11px;height:11px;border-radius:4px;background:var(--color-accent-100);border:1.5px dashed var(--color-accent-600)"></span>чернетка</span>
+<span style="display:flex;gap:5px;align-items:center"><span style="width:5px;height:5px;border-radius:1.5px;background:var(--color-neutral-600)"></span>нотатка</span>
+<span style="display:flex;gap:5px;align-items:center"><span style="width:7px;height:7px;border-radius:50%;border:1.6px solid var(--color-accent-700)"></span>менструація</span>
+<span style="display:flex;gap:5px;align-items:center"><span style="width:0;height:0;border-left:4px solid transparent;border-right:4px solid transparent;border-bottom:7px solid var(--color-accent-600)"></span>загострення</span>
+</div>
+</div>
+<div style="display:flex;flex-wrap:wrap;gap:7px">
+<sc-for list="{{ histChips }}" as="c" hint-placeholder-count="5">
+<button onClick="{{ c.on }}" style="min-height:44px;padding:8px 14px;border-radius:999px;font:inherit;font-size:13px;cursor:pointer;border:1.5px solid {{ c.bd }};background: {{ c.bg }};color: {{ c.fg }}">{{ c.t }}</button>
+</sc-for>
+</div>
+<sc-if value="{{ histEmpty }}" hint-placeholder-val="{{ false }}">
+<div class="card"><p style="margin:0;font-size:14px" class="text-muted">За цим фільтром записів немає.</p></div>
+</sc-if>
+<sc-for list="{{ histList }}" as="h" hint-placeholder-count="4">
+<button onClick="{{ h.on }}" class="card" style="text-align:left;cursor:pointer;border:none;font:inherit;gap:5px;width:100%">
+<div style="display:flex;justify-content:space-between;gap:10px;align-items:baseline"><span style="font-weight:700;font-size:14px">{{ h.dateL }}</span><span class="tag" style="background: {{ h.sBg }};color: {{ h.sFg }};font-size:11px;padding:3px 10px;flex:none">{{ h.statusT }}</span></div>
+<span style="font-size:13px;line-height:1.45" class="text-muted">{{ h.sum }}</span>
+</button>
+</sc-for>
+</div>
+</sc-if>
+<sc-if value="{{ tTrends }}" hint-placeholder-val="{{ false }}">
+<div data-screen-label="Динаміка" style="flex:1;overflow-y:auto;padding:8px 20px 20px;display:flex;flex-direction:column;gap:13px">
+<h2 style="font-size:24px;margin:0">Динаміка</h2>
+<div style="display:flex;gap:7px;flex-wrap:wrap">
+<sc-for list="{{ trChips }}" as="c" hint-placeholder-count="3"><button onClick="{{ c.on }}" style="min-height:44px;padding:8px 16px;border-radius:999px;font:inherit;font-size:13.5px;cursor:pointer;border:1.5px solid {{ c.bd }};background: {{ c.bg }};color: {{ c.fg }}">{{ c.t }}</button></sc-for>
+</div>
+<span style="font-size:12.5px" class="text-muted">{{ trCover }} · пропущені дні показуються як прогалини, без домальовування</span>
+<sc-for list="{{ trList }}" as="s" hint-placeholder-count="5">
+<button onClick="{{ s.on }}" class="card" style="text-align:left;cursor:pointer;border:none;font:inherit;gap:4px;width:100%;flex-direction:row;align-items:center">
+<span style="flex:1;display:flex;flex-direction:column;gap:3px"><span style="font-weight:700;font-size:14px">{{ s.name }}</span><span style="font-size:12.5px" class="text-muted">{{ s.line }}</span></span>
+<svg width="14" height="14" style="flex:none"><path d="M5 2 L10 7 L5 12" fill="none" stroke="var(--color-accent)" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"></path></svg>
+</button>
+</sc-for>
+<span style="font-size:12px" class="text-muted">Порівняння — це спостереження, а не доказ причинно-наслідкового звʼязку.</span>
+</div>
+</sc-if>
+<sc-if value="{{ tReport }}" hint-placeholder-val="{{ false }}">
+<div data-screen-label="Звіт" style="flex:1;overflow-y:auto;padding:8px 20px 20px;display:flex;flex-direction:column;gap:13px">
+<h2 style="font-size:24px;margin:0">Звіт для лікаря</h2>
+<div style="font-size:12.5px" class="text-muted">{{ repStepTxt }}</div>
+<sc-if value="{{ r1 }}" hint-placeholder-val="{{ false }}">
+<div class="card" style="gap:10px">
+<span class="card-kicker">Крок 1 · Період</span>
+<div style="display:flex;gap:7px;flex-wrap:wrap">
+<sc-for list="{{ repPeriodChips }}" as="c"><button onClick="{{ c.on }}" style="min-height:44px;padding:8px 16px;border-radius:999px;font:inherit;font-size:13.5px;cursor:pointer;border:1.5px solid {{ c.bd }};background: {{ c.bg }};color: {{ c.fg }}">{{ c.t }}</button></sc-for>
+</div>
+<span style="font-size:12.5px" class="text-muted">{{ repPeriodLbl }}</span>
+</div>
+<button class="btn btn-primary" style="min-height:50px" onClick="{{ repTo2 }}">Далі: вибір даних</button>
+</sc-if>
+<sc-if value="{{ r2 }}" hint-placeholder-val="{{ false }}">
+<div class="card" style="gap:10px">
+<span class="card-kicker">Крок 2 · Симптоми у звіті</span>
+<div style="display:flex;flex-wrap:wrap;gap:7px">
+<sc-for list="{{ repSymList }}" as="c" hint-placeholder-count="6"><button onClick="{{ c.on }}" style="min-height:44px;padding:8px 14px;border-radius:999px;font:inherit;font-size:13px;cursor:pointer;border:1.5px solid {{ c.bd }};background: {{ c.bg }};color: {{ c.fg }}">{{ c.t }}</button></sc-for>
+</div>
+</div>
+<div class="card" style="gap:12px">
+<span class="card-kicker">Що ще включити</span>
+<sc-for list="{{ repTgRows }}" as="t" hint-placeholder-count="4">
+<div style="display:flex;align-items:flex-start;gap:12px">
+<button role="switch" aria-checked="{{ t.tg.sel }}" aria-label="{{ t.k }}" onClick="{{ t.tg.on }}" style="width:50px;height:29px;border-radius:999px;border:none;background: {{ t.tg.bg }};position:relative;cursor:pointer;flex:none"><span style="position:absolute;top:3px;left: {{ t.tg.x }};width:23px;height:23px;border-radius:50%;background:var(--color-bg);box-shadow:var(--shadow-sm);transition:left .15s"></span></button>
+<span style="display:flex;flex-direction:column;gap:1px"><span style="font-size:14px;font-weight:600">{{ t.k }}</span><span style="font-size:12px" class="text-muted">{{ t.d }}</span></span>
+</div>
+</sc-for>
+</div>
+<div class="card" style="gap:10px">
+<span class="card-kicker">Опційно</span>
+<div class="field"><label>Імʼя</label><input class="input" value="{{ repName }}" onChange="{{ repNameOn }}" placeholder="Не вказувати" style="min-height:44px"></div>
+<div class="field"><label>Дата народження</label><input class="input" value="{{ repDob }}" onChange="{{ repDobOn }}" placeholder="Не вказувати" style="min-height:44px"></div>
+</div>
+<div style="display:flex;gap:10px">
+<button class="btn btn-secondary" style="min-height:50px" onClick="{{ repTo1 }}">Назад</button>
+<button class="btn btn-primary" style="flex:1;min-height:50px" onClick="{{ repTo3 }}">Переглянути PDF</button>
+</div>
+</sc-if>
+<sc-if value="{{ r3 }}" hint-placeholder-val="{{ false }}">
+<div style="background:#ffffff;color:#1c1c1c;border-radius:14px;padding:18px 16px;display:flex;flex-direction:column;gap:12px;box-shadow:var(--shadow-md);font-size:12.5px;line-height:1.45">
+<div style="font-size:16.5px;font-weight:700">Неврологічний щоденник — звіт за період</div>
+<div style="color:#555">{{ pdfPeriod }}<br>{{ pdfGen }} · {{ pdfCover }}</div>
+<sc-if value="{{ pdfHasName }}" hint-placeholder-val="{{ false }}"><div style="color:#333">{{ pdfNameT }}</div></sc-if>
+<div style="border:1px solid #ccc;border-radius:8px;padding:9px 11px;color:#444;font-size:11.5px">Легенда: інтенсивність 1–5 (1 — ледь помітно, 5 — дуже сильно); самопочуття 1–10 (10 — дуже добре); «не було» — підтверджена відсутність; порожньо — день не заповнено.</div>
+<div>
+<div style="font-weight:700;margin-bottom:4px">Короткий підсумок</div>
+<sc-for list="{{ pdfSumRows }}" as="s" hint-placeholder-count="3"><div style="color:#333">· {{ s.t }}</div></sc-for>
+</div>
+<div>
+<div style="font-weight:700;margin-bottom:4px">Втома за період</div>
+<svg width="306" height="120" style="display:block">
+<sc-for list="{{ pdfGrid }}" as="g"><line x1="12" x2="294" y1="{{ g.y }}" y2="{{ g.y }}" stroke="#e2e2e2" stroke-width="1"></line></sc-for>
+<sc-for list="{{ pdfSegs }}" as="s"><path d="{{ s.d }}" fill="none" stroke="#444" stroke-width="2" stroke-linecap="round"></path></sc-for>
+<sc-for list="{{ pdfPts }}" as="p"><circle cx="{{ p.x }}" cy="{{ p.y }}" r="2.4" fill="{{ p.gfill }}" stroke="#444" stroke-width="1.4"></circle></sc-for>
+</svg>
+<div style="display:flex;justify-content:space-between;color:#777;font-size:10.5px"><span>{{ pdfXl }}</span><span>{{ pdfXr }}</span></div>
+</div>
+<div>
+<div style="font-weight:700;margin-bottom:4px">Дати з найбільшою інтенсивністю</div>
+<sc-for list="{{ pdfTop }}" as="t" hint-placeholder-count="3"><div style="color:#333">· {{ t.d }} — {{ t.t }}</div></sc-for>
+</div>
+<div>
+<div style="font-weight:700;margin-bottom:4px">Записи симптомів</div>
+<table style="width:100%;border-collapse:collapse;font-size:10.5px">
+<thead><tr><th style="text-align:left;border-bottom:1px solid #bbb;padding:3px 4px">Дата</th><th style="text-align:left;border-bottom:1px solid #bbb;padding:3px 4px">Симптом</th><th style="text-align:left;border-bottom:1px solid #bbb;padding:3px 4px">Інт.</th><th style="text-align:left;border-bottom:1px solid #bbb;padding:3px 4px">Локалізація</th><th style="text-align:left;border-bottom:1px solid #bbb;padding:3px 4px">Коментар</th></tr></thead>
+<tbody>
+<sc-for list="{{ pdfRows }}" as="r" hint-placeholder-count="6">
+<tr><td style="border-bottom:1px solid #e5e5e5;padding:3px 4px;white-space:nowrap">{{ r.d }}</td><td style="border-bottom:1px solid #e5e5e5;padding:3px 4px">{{ r.s }}</td><td style="border-bottom:1px solid #e5e5e5;padding:3px 4px">{{ r.i }}</td><td style="border-bottom:1px solid #e5e5e5;padding:3px 4px">{{ r.l }}</td><td style="border-bottom:1px solid #e5e5e5;padding:3px 4px">{{ r.c }}</td></tr>
+</sc-for>
+</tbody>
+</table>
+<sc-if value="{{ pdfMoreF }}" hint-placeholder-val="{{ false }}"><div style="color:#777;font-size:10.5px;margin-top:3px">{{ pdfMore }}</div></sc-if>
+</div>
+<div><div style="font-weight:700;margin-bottom:4px">Контекст</div><div style="color:#333">{{ pdfCtx }}</div></div>
+<sc-if value="{{ pdfHasFlares }}" hint-placeholder-val="{{ false }}">
+<div><div style="font-weight:700;margin-bottom:4px">Позначені можливі загострення</div>
+<sc-for list="{{ pdfFlares }}" as="f"><div style="color:#333">· {{ f.d }} — {{ f.t }}</div></sc-for>
+<div style="color:#777;font-size:10.5px">Позначки зроблені користувачкою вручну.</div></div>
+</sc-if>
+<sc-if value="{{ pdfHasCycle }}" hint-placeholder-val="{{ false }}"><div><div style="font-weight:700;margin-bottom:4px">Цикл</div><div style="color:#333">{{ pdfCycleT }}</div></div></sc-if>
+<sc-if value="{{ pdfHasNotes }}" hint-placeholder-val="{{ false }}">
+<div><div style="font-weight:700;margin-bottom:4px">Нотатки</div>
+<sc-for list="{{ pdfNotes }}" as="n"><div style="color:#333">· {{ n.d }} — {{ n.t }}</div></sc-for></div>
+</sc-if>
+<div style="border-top:1px solid #ccc;padding-top:8px;color:#555;font-size:10.5px">Звіт відображає самоспостереження користувачки та не є медичним висновком.</div>
+<div style="color:#888;font-size:10px;letter-spacing:.06em;text-transform:uppercase">Конфіденційні медичні дані</div>
+</div>
+<button class="btn btn-primary" style="min-height:52px;font-size:16px" onClick="{{ pdfCreate }}">Створити PDF</button>
+<button class="btn btn-secondary" style="min-height:48px" onClick="{{ repTo2 }}">Назад до налаштувань</button>
+<span style="font-size:12px" class="text-muted">Звіт читабельний у відтінках сірого при друці. У demo файл не створюється і нікуди не надсилається.</span>
+</sc-if>
+</div>
+</sc-if>
+<sc-if value="{{ tSet }}" hint-placeholder-val="{{ false }}">
+<div data-screen-label="Налаштування" style="flex:1;overflow-y:auto;padding:8px 20px 20px;display:flex;flex-direction:column;gap:13px">
+<h2 style="font-size:24px;margin:0">Налаштування</h2>
+<button class="card" onClick="{{ openCat }}" style="border:none;font:inherit;cursor:pointer;text-align:left;width:100%;flex-direction:row;align-items:center;gap:10px">
+<span style="flex:1;display:flex;flex-direction:column;gap:2px"><span style="font-weight:700;font-size:14.5px">Мої симптоми</span><span style="font-size:12.5px" class="text-muted">Активний список, каталог, архів, власні симптоми</span></span>
+<svg width="14" height="14" style="flex:none"><path d="M5 2 L10 7 L5 12" fill="none" stroke="var(--color-accent)" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"></path></svg>
+</button>
+<div class="card" style="gap:12px">
+<div style="display:flex;align-items:flex-start;gap:12px">
+<button role="switch" aria-checked="{{ cycleTg2.sel }}" aria-label="Відстеження циклу" onClick="{{ cycleTg2.on }}" style="width:50px;height:29px;border-radius:999px;border:none;background: {{ cycleTg2.bg }};position:relative;cursor:pointer;flex:none"><span style="position:absolute;top:3px;left: {{ cycleTg2.x }};width:23px;height:23px;border-radius:50%;background:var(--color-bg);box-shadow:var(--shadow-sm);transition:left .15s"></span></button>
+<span style="display:flex;flex-direction:column;gap:1px"><span style="font-size:14.5px;font-weight:700">Відстеження циклу</span><span style="font-size:12px" class="text-muted">Приховано у нагадуваннях, вимкнено у звіті за замовчуванням</span></span>
+</div>
+<div style="display:flex;align-items:flex-start;gap:12px">
+<button role="switch" aria-checked="{{ remTg.sel }}" aria-label="Щоденне нагадування" onClick="{{ remTg.on }}" style="width:50px;height:29px;border-radius:999px;border:none;background: {{ remTg.bg }};position:relative;cursor:pointer;flex:none"><span style="position:absolute;top:3px;left: {{ remTg.x }};width:23px;height:23px;border-radius:50%;background:var(--color-bg);box-shadow:var(--shadow-sm);transition:left .15s"></span></button>
+<span style="display:flex;flex-direction:column;gap:1px"><span style="font-size:14.5px;font-weight:700">Одне нагадування на день</span><span style="font-size:12px" class="text-muted">«Час зробити короткий запис» — без симптомів і циклу. Quiet hours 22:00–08:00. Жодних «Ви знову пропустили».</span></span>
+</div>
+<sc-if value="{{ remOnF }}" hint-placeholder-val="{{ false }}">
+<div style="display:flex;flex-wrap:wrap;gap:7px">
+<sc-for list="{{ remChips }}" as="c"><button onClick="{{ c.on }}" style="min-height:44px;padding:8px 16px;border-radius:999px;font:inherit;font-size:13.5px;cursor:pointer;border:1.5px solid {{ c.bd }};background: {{ c.bg }};color: {{ c.fg }}">{{ c.t }}</button></sc-for>
+</div>
+</sc-if>
+</div>
+<button class="card" onClick="{{ openPrivacy }}" style="border:none;font:inherit;cursor:pointer;text-align:left;width:100%;flex-direction:row;align-items:center;gap:10px">
+<span style="flex:1;display:flex;flex-direction:column;gap:2px"><span style="font-weight:700;font-size:14.5px">Приватність і дані</span><span style="font-size:12.5px" class="text-muted">App lock, експорт, видалення, Telegram-нагадування</span></span>
+<svg width="14" height="14" style="flex:none"><path d="M5 2 L10 7 L5 12" fill="none" stroke="var(--color-accent)" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"></path></svg>
+</button>
+<button class="card" onClick="{{ safetyOpen }}" style="border:none;font:inherit;cursor:pointer;text-align:left;width:100%;flex-direction:row;align-items:center;gap:10px">
+<span style="flex:1;display:flex;flex-direction:column;gap:2px"><span style="font-weight:700;font-size:14.5px">Коли потрібна термінова допомога?</span><span style="font-size:12.5px" class="text-muted">Ключові ознаки і як діяти</span></span>
+<svg width="14" height="14" style="flex:none"><path d="M5 2 L10 7 L5 12" fill="none" stroke="var(--color-accent)" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"></path></svg>
+</button>
+<button class="card" onClick="{{ openStates }}" style="border:none;font:inherit;cursor:pointer;text-align:left;width:100%;flex-direction:row;align-items:center;gap:10px">
+<span style="flex:1;display:flex;flex-direction:column;gap:2px"><span style="font-weight:700;font-size:14.5px">Системні стани · для команди</span><span style="font-size:12.5px" class="text-muted">Empty, draft, offline, error — component/state sheet</span></span>
+<svg width="14" height="14" style="flex:none"><path d="M5 2 L10 7 L5 12" fill="none" stroke="var(--color-accent)" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"></path></svg>
+</button>
+<button class="btn btn-secondary" style="min-height:48px" onClick="{{ openDel }}">Дані: експорт і видалення</button>
+<div class="card" style="gap:5px">
+<span class="card-kicker">Теми</span>
+<span style="font-size:13px" class="text-muted">Світла, темна та high-contrast теми реалізовані як design tokens — перемикайте через панель Tweaks цього прототипу.</span>
+</div>
+<span style="font-size:12px" class="text-muted">Demo-прототип: вигадані дані зберігаються лише у вашому браузері (localStorage). Це не захищене сховище — не вводьте реальні медичні дані.</span>
+</div>
+</sc-if>
+<!--@tabs-->
+</sc-if>
+<sc-if value="{{ sCheckin }}" hint-placeholder-val="{{ false }}">
+<div data-screen-label="Щоденний запис" style="flex:1;display:flex;flex-direction:column;min-height:0">
+<div style="flex:none;display:flex;align-items:center;gap:10px;padding:6px 14px 10px">
+<button class="btn btn-icon btn-secondary" aria-label="Закрити і зберегти чернетку" onClick="{{ ciClose }}" style="width:44px;height:44px"><svg width="16" height="16"><path d="M2 2 L14 14 M14 2 L2 14" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"></path></svg></button>
+<div style="flex:1"><div style="font-size:11.5px" class="text-muted">{{ ciStepTxt }}</div><div style="font-family:var(--font-heading);font-size:18px">{{ ciTitle }}</div></div>
+</div>
+<div style="flex:none;height:5px;margin:0 20px;border-radius:99px;background:var(--color-neutral-200);overflow:hidden"><div style="height:100%;border-radius:99px;background:var(--color-accent);width: {{ ciProgW }};transition:width .2s"></div></div>
+<div style="flex:1;overflow-y:auto;padding:16px 20px 20px;display:flex;flex-direction:column;gap:14px">
+<sc-if value="{{ ci1 }}" hint-placeholder-val="{{ false }}">
+<p style="margin:0;font-size:15px">Як ви загалом почувалися сьогодні?</p>
+<div style="display:flex;justify-content:space-between;font-size:12px" class="text-muted"><span>1 — дуже погано</span><span>10 — дуже добре</span></div>
+<div style="display:grid;grid-template-columns:repeat(5,1fr);gap:7px">
+<sc-for list="{{ wbOpts }}" as="o" hint-placeholder-count="10">
+<button onClick="{{ o.on }}" aria-label="{{ o.aria }}" style="min-height:52px;border-radius:16px;cursor:pointer;font:inherit;font-size:18px;font-weight:600;border:1.5px solid {{ o.bd }};background: {{ o.bg }};color: {{ o.fg }}">{{ o.n }}</button>
+</sc-for>
+</div>
+<div style="font-size:14px;min-height:22px;font-weight:600;color:var(--color-accent-700)">{{ wbLabel }}</div>
+<button onClick="{{ wbSkipChip.on }}" style="align-self:flex-start;min-height:44px;padding:9px 18px;border-radius:999px;font:inherit;font-size:14px;cursor:pointer;border:1.5px solid {{ wbSkipChip.bd }};background: {{ wbSkipChip.bg }};color: {{ wbSkipChip.fg }}">Не знаю / Пропустити</button>
+</sc-if>
+<sc-if value="{{ ci2 }}" hint-placeholder-val="{{ false }}">
+<p style="margin:0;font-size:15px">Позначте все, що було. Деталі спитаємо далі — по одному симптому, обовʼязкова лише інтенсивність.</p>
+<div style="display:flex;flex-wrap:wrap;gap:8px">
+<sc-for list="{{ ciSymList }}" as="c" hint-placeholder-count="8">
+<button onClick="{{ c.on }}" style="min-height:44px;padding:9px 15px;border-radius:999px;font:inherit;font-size:13.5px;cursor:pointer;border:1.5px solid {{ c.bd }};background: {{ c.bg }};color: {{ c.fg }}">{{ c.t }}</button>
+</sc-for>
+</div>
+<button onClick="{{ ciNoneBtn }}" style="min-height:48px;padding:9px 18px;border-radius:999px;font:inherit;font-size:14.5px;cursor:pointer;border:1.5px solid {{ ciNoneCh.bd }};background: {{ ciNoneCh.bg }};color: {{ ciNoneCh.fg }}">Сьогодні симптомів не було</button>
+<button class="btn btn-ghost" style="min-height:44px;align-self:flex-start" onClick="{{ ciOpenCat }}">Повний каталог симптомів</button>
+</sc-if>
+<sc-if value="{{ ci3 }}" hint-placeholder-val="{{ false }}">
+<div style="display:flex;align-items:baseline;justify-content:space-between;gap:10px"><span style="font-size:13px;font-weight:700" class="text-muted">{{ ciSymPos }}</span><span style="font-size:12px" class="text-muted">обовʼязкова лише інтенсивність</span></div>
+<sc-for list="{{ ciCards }}" as="cd" hint-placeholder-count="1">
+<div class="card" style="gap:12px">
+<div style="font-family:var(--font-heading);font-size:17px">{{ cd.name }}</div>
+<sc-if value="{{ cd.isScale }}" hint-placeholder-val="{{ false }}">
+<div style="display:flex;gap:6px">
+<sc-for list="{{ cd.scaleOpts }}" as="o"><button onClick="{{ o.on }}" aria-label="{{ o.aria }}" style="flex:1;min-height:50px;border-radius:14px;cursor:pointer;font:inherit;font-size:17px;font-weight:600;border:1.5px solid {{ o.bd }};background: {{ o.bg }};color: {{ o.fg }}">{{ o.n }}</button></sc-for>
+</div>
+<div style="font-size:12.5px" class="text-muted">{{ cd.intLabel }}</div>
+</sc-if>
+<sc-if value="{{ cd.moreF }}" hint-placeholder-val="{{ false }}">
+<sc-if value="{{ cd.hasSide }}" hint-placeholder-val="{{ false }}">
+<div style="font-size:12px" class="text-muted">Сторона</div>
+<div style="display:flex;flex-wrap:wrap;gap:7px">
+<sc-for list="{{ cd.sideOpts }}" as="c"><button onClick="{{ c.on }}" style="min-height:44px;padding:8px 14px;border-radius:999px;font:inherit;font-size:13px;cursor:pointer;border:1.5px solid {{ c.bd }};background: {{ c.bg }};color: {{ c.fg }}">{{ c.t }}</button></sc-for>
+</div>
+</sc-if>
+<sc-if value="{{ cd.hasExtra }}" hint-placeholder-val="{{ false }}">
+<div style="font-size:12px" class="text-muted">{{ cd.extraLabel }}</div>
+<div style="display:flex;flex-wrap:wrap;gap:7px">
+<sc-for list="{{ cd.extraOpts }}" as="c"><button onClick="{{ c.on }}" style="min-height:44px;padding:8px 14px;border-radius:999px;font:inherit;font-size:13px;cursor:pointer;border:1.5px solid {{ c.bd }};background: {{ c.bg }};color: {{ c.fg }}">{{ c.t }}</button></sc-for>
+</div>
+</sc-if>
+<sc-if value="{{ cd.hasEp }}" hint-placeholder-val="{{ false }}">
+<div style="display:flex;align-items:center;gap:12px">
+<span style="font-size:13px" class="text-muted">Кількість епізодів</span>
+<button class="btn btn-icon btn-secondary" aria-label="Менше епізодів" onClick="{{ cd.epM }}" style="width:44px;height:44px;font-size:20px">−</button>
+<span style="min-width:28px;text-align:center;font-size:17px;font-weight:700">{{ cd.ep }}</span>
+<button class="btn btn-icon btn-secondary" aria-label="Більше епізодів" onClick="{{ cd.epP }}" style="width:44px;height:44px;font-size:20px">+</button>
+</div>
+</sc-if>
+<sc-if value="{{ cd.hasImpact }}" hint-placeholder-val="{{ false }}">
+<div style="font-size:12px" class="text-muted">Вплив на функціонування</div>
+<div style="display:flex;flex-wrap:wrap;gap:7px">
+<sc-for list="{{ cd.impactOpts }}" as="c"><button onClick="{{ c.on }}" style="min-height:44px;padding:8px 14px;border-radius:999px;font:inherit;font-size:12.5px;cursor:pointer;border:1.5px solid {{ c.bd }};background: {{ c.bg }};color: {{ c.fg }}">{{ c.t }}</button></sc-for>
+</div>
+</sc-if>
+<input class="input" aria-label="Короткий коментар" placeholder="Короткий коментар (опційно)" value="{{ cd.comment }}" onChange="{{ cd.onComment }}" style="font-size:14px;min-height:44px">
+</sc-if>
+<sc-if value="{{ cd.moreBtnF }}" hint-placeholder-val="{{ false }}">
+<button class="btn btn-ghost" style="min-height:44px;align-self:flex-start" onClick="{{ cd.moreOn }}">Додати деталі · сторона, уточнення, коментар</button>
+</sc-if>
+</div>
+</sc-for>
+<sc-if value="{{ ci3Mood5 }}" hint-placeholder-val="{{ false }}">
+<div class="card" style="gap:8px;background:var(--color-accent-2-100)">
+<span style="font-weight:600;font-size:14.5px;color:var(--color-accent-2-800)">Схоже, сьогодні дуже важко.</span>
+<span style="font-size:13px;color:var(--color-accent-2-800)">Можна просто продовжити запис. А якщо хочете — ось шлях до підтримки, без жодних автоматичних дій з боку застосунку.</span>
+<button class="btn btn-secondary" style="min-height:46px" onClick="{{ crisisOpen }}">Потрібна підтримка зараз</button>
+</div>
+</sc-if>
+</sc-if>
+<sc-if value="{{ ci4 }}" hint-placeholder-val="{{ false }}">
+<div class="card" style="gap:10px">
+<div style="display:flex;justify-content:space-between;align-items:baseline"><span style="font-weight:600;font-size:15px">Стрес</span><button class="btn btn-ghost" style="min-height:44px" onClick="{{ stressSkip }}">Не знаю</button></div>
+<div style="display:flex;gap:6px">
+<sc-for list="{{ stressOpts }}" as="o"><button onClick="{{ o.on }}" aria-label="{{ o.aria }}" style="flex:1;min-height:50px;border-radius:14px;cursor:pointer;font:inherit;font-size:17px;font-weight:600;border:1.5px solid {{ o.bd }};background: {{ o.bg }};color: {{ o.fg }}">{{ o.n }}</button></sc-for>
+</div>
+</div>
+<div class="card" style="gap:10px">
+<div style="display:flex;justify-content:space-between;align-items:baseline"><span style="font-weight:600;font-size:15px">Якість сну</span><button class="btn btn-ghost" style="min-height:44px" onClick="{{ sleepSkip }}">Не знаю</button></div>
+<div style="display:flex;gap:6px">
+<sc-for list="{{ sleepQOpts }}" as="o"><button onClick="{{ o.on }}" aria-label="{{ o.aria }}" style="flex:1;min-height:50px;border-radius:14px;cursor:pointer;font:inherit;font-size:17px;font-weight:600;border:1.5px solid {{ o.bd }};background: {{ o.bg }};color: {{ o.fg }}">{{ o.n }}</button></sc-for>
+</div>
+<div style="display:flex;align-items:center;gap:12px">
+<span style="font-size:13px" class="text-muted">Годин сну</span>
+<button class="btn btn-icon btn-secondary" aria-label="Менше годин" onClick="{{ slHM }}" style="width:44px;height:44px;font-size:20px">−</button>
+<span style="min-width:36px;text-align:center;font-size:17px;font-weight:700">{{ slH }}</span>
+<button class="btn btn-icon btn-secondary" aria-label="Більше годин" onClick="{{ slHP }}" style="width:44px;height:44px;font-size:20px">+</button>
+</div>
+</div>
+<sc-if value="{{ ctxMoreBtnF }}" hint-placeholder-val="{{ false }}">
+<button class="btn btn-ghost" style="min-height:44px;align-self:flex-start" onClick="{{ ctxMoreOn }}">Додати контекст · активність, спека, інше</button>
+</sc-if>
+<sc-if value="{{ ctxMoreF }}" hint-placeholder-val="{{ false }}">
+<div class="card" style="gap:10px">
+<div style="display:flex;align-items:center;gap:12px">
+<button role="switch" aria-checked="{{ actTg.sel }}" aria-label="Фізична активність" onClick="{{ actTg.on }}" style="width:50px;height:29px;border-radius:999px;border:none;background: {{ actTg.bg }};position:relative;cursor:pointer;flex:none"><span style="position:absolute;top:3px;left: {{ actTg.x }};width:23px;height:23px;border-radius:50%;background:var(--color-bg);box-shadow:var(--shadow-sm);transition:left .15s"></span></button>
+<span style="font-size:15px;font-weight:600">Фізична активність</span>
+</div>
+<sc-if value="{{ actOn }}" hint-placeholder-val="{{ false }}">
+<div style="display:flex;flex-wrap:wrap;gap:7px">
+<sc-for list="{{ actChips }}" as="c"><button onClick="{{ c.on }}" style="min-height:44px;padding:8px 14px;border-radius:999px;font:inherit;font-size:13px;cursor:pointer;border:1.5px solid {{ c.bd }};background: {{ c.bg }};color: {{ c.fg }}">{{ c.t }}</button></sc-for>
+</div>
+</sc-if>
+<div style="display:flex;align-items:center;gap:12px">
+<button role="switch" aria-checked="{{ heatTg.sel }}" aria-label="Було дуже спекотно або перегрілася" onClick="{{ heatTg.on }}" style="width:50px;height:29px;border-radius:999px;border:none;background: {{ heatTg.bg }};position:relative;cursor:pointer;flex:none"><span style="position:absolute;top:3px;left: {{ heatTg.x }};width:23px;height:23px;border-radius:50%;background:var(--color-bg);box-shadow:var(--shadow-sm);transition:left .15s"></span></button>
+<span style="font-size:15px;font-weight:600">Було дуже спекотно / перегрілася</span>
+</div>
+</div>
+<div class="card" style="gap:10px">
+<div style="font-size:12px;letter-spacing:.06em;text-transform:uppercase" class="text-muted">Додатково · опційно</div>
+<div style="display:flex;flex-wrap:wrap;gap:7px">
+<sc-for list="{{ extraChips }}" as="c" hint-placeholder-count="4"><button onClick="{{ c.on }}" style="min-height:44px;padding:8px 14px;border-radius:999px;font:inherit;font-size:12.5px;cursor:pointer;border:1.5px solid {{ c.bd }};background: {{ c.bg }};color: {{ c.fg }}">{{ c.t }}</button></sc-for>
+</div>
+</div>
+</sc-if>
+</sc-if>
+<sc-if value="{{ ci5 }}" hint-placeholder-val="{{ false }}">
+<textarea class="input" aria-label="Нотатка дня" placeholder="Вільна нотатка про день (опційно)" value="{{ ciNote }}" onChange="{{ ciNoteOn }}" style="font-size:15px;border-radius:20px;min-height:110px"></textarea>
+<div class="card" style="gap:10px">
+<div style="display:flex;align-items:center;gap:12px">
+<button role="switch" aria-checked="{{ flareTg.sel }}" aria-label="Позначити як можливий початок загострення" onClick="{{ flareTg.on }}" style="width:50px;height:29px;border-radius:999px;border:none;background: {{ flareTg.bg }};position:relative;cursor:pointer;flex:none"><span style="position:absolute;top:3px;left: {{ flareTg.x }};width:23px;height:23px;border-radius:50%;background:var(--color-bg);box-shadow:var(--shadow-sm);transition:left .15s"></span></button>
+<span style="font-size:15px;font-weight:600">Можливий початок загострення</span>
+</div>
+<span style="font-size:12.5px" class="text-muted">Це ваша особиста позначка для подальшого обговорення з лікарем, а не діагноз.</span>
+<sc-if value="{{ flareOn }}" hint-placeholder-val="{{ false }}">
+<div style="display:flex;flex-wrap:wrap;gap:7px">
+<sc-for list="{{ flChips }}" as="c"><button onClick="{{ c.on }}" style="min-height:44px;padding:8px 14px;border-radius:999px;font:inherit;font-size:12.5px;cursor:pointer;border:1.5px solid {{ c.bd }};background: {{ c.bg }};color: {{ c.fg }}">{{ c.t }}</button></sc-for>
+</div>
+<sc-if value="{{ flTip }}" hint-placeholder-val="{{ false }}">
+<div style="padding:11px 14px;border-radius:16px;background:var(--color-accent-100);color:var(--color-accent-800);font-size:13px">Якщо новий або значно сильніший симптом триває понад добу, варто звʼязатися зі своїм неврологом або MS-командою.</div>
+</sc-if>
+</sc-if>
+</div>
+</sc-if>
+<sc-if value="{{ ci6 }}" hint-placeholder-val="{{ false }}">
+<sc-for list="{{ rvSecs }}" as="sec" hint-placeholder-count="4">
+<div class="card" style="gap:6px">
+<div style="display:flex;align-items:center;justify-content:space-between;gap:10px"><span class="card-kicker" style="margin:0">{{ sec.k }}</span><button class="btn btn-ghost" style="min-height:40px;font-size:13px;flex:none" onClick="{{ sec.on }}">{{ sec.btnL }}</button></div>
+<sc-for list="{{ sec.rows }}" as="r" hint-placeholder-count="2">
+<div style="display:flex;gap:12px;justify-content:space-between;border-bottom:1px solid color-mix(in srgb, var(--color-text) 8%, transparent);padding:6px 0"><span style="font-size:13px;flex:none" class="text-muted">{{ r.k }}</span><span style="font-size:13.5px;text-align:right">{{ r.v }}</span></div>
+</sc-for>
+</div>
+</sc-for>
+<sc-if value="{{ rvMood5 }}" hint-placeholder-val="{{ false }}">
+<div class="card" style="gap:8px;background:var(--color-accent-2-100)">
+<span style="font-weight:600;font-size:14.5px;color:var(--color-accent-2-800)">Схоже, сьогодні дуже важко.</span>
+<span style="font-size:13px;color:var(--color-accent-2-800)">Якщо хочете, ось шлях до підтримки — без жодних автоматичних дій з боку застосунку.</span>
+<button class="btn btn-secondary" style="min-height:46px" onClick="{{ crisisOpen }}">Потрібна підтримка зараз</button>
+</div>
+</sc-if>
+<sc-if value="{{ rvNoneF }}" hint-placeholder-val="{{ false }}">
+<div style="padding:12px 15px;border-radius:16px;background:var(--color-accent-2-100);color:var(--color-accent-2-800);font-size:13.5px">Буде записано: сьогодні симптомів не було. Повторне підтвердження не потрібне.</div>
+</sc-if>
+<sc-if value="{{ rvConfShow }}" hint-placeholder-val="{{ false }}">
+<button onClick="{{ rvConfOn }}" role="checkbox" aria-checked="{{ rvConf }}" style="display:flex;align-items:flex-start;gap:12px;text-align:left;min-height:52px;padding:13px 15px;border-radius:18px;cursor:pointer;font:inherit;border:1.5px solid {{ rvConfBd }};background: {{ rvConfBg }}">
+<span style="width:24px;height:24px;flex:none;border-radius:8px;border:2px solid {{ rvConfMk }};background: {{ rvConfMkBg }};display:grid;place-items:center"><sc-if value="{{ rvConf }}" hint-placeholder-val="{{ false }}"><svg width="13" height="13"><path d="M2 7 L5.5 10.5 L11 3" fill="none" stroke="var(--color-bg)" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"></path></svg></sc-if></span>
+<span style="font-size:14px;font-weight:600">Позначити невибрані симптоми як «не було»</span>
+</button>
+<sc-if value="{{ rvConf }}" hint-placeholder-val="{{ false }}">
+<div style="padding:12px 15px;border-radius:16px;background:var(--color-surface);font-size:13px" class="text-muted">Невибрані симптоми з вашого активного списку буде записано як «не було». Питання, де ви натиснули «Не знаю» або «Пропустити», залишаться як «не заповнено».</div>
+<sc-if value="{{ rvHasAbsent }}" hint-placeholder-val="{{ false }}"><div style="font-size:12px;padding:0 4px" class="text-muted">Як «не було»: {{ rvAbsent }}</div></sc-if>
+</sc-if>
+<sc-if value="{{ rvNotConf }}" hint-placeholder-val="{{ false }}">
+<div style="font-size:12.5px;padding:0 4px" class="text-muted">Без цього підтвердження невибрані симптоми залишаться як «не заповнено» — пропущений день ніколи не означає відсутність симптому.</div>
+</sc-if>
+</sc-if>
+</sc-if>
+</div>
+<div style="flex:none;padding:12px 20px 16px;border-top:1px solid var(--color-divider);display:flex;flex-direction:column;gap:8px;background:var(--color-bg)">
+<div style="display:flex;gap:10px">
+<sc-if value="{{ ciShowBack }}" hint-placeholder-val="{{ false }}"><button class="btn btn-secondary" style="min-height:52px" onClick="{{ ciBack }}">Назад</button></sc-if>
+<button class="btn btn-primary" style="flex:1;min-height:52px;font-size:16px" onClick="{{ ciNext }}">{{ ciNextL }}</button>
+</div>
+<button class="btn btn-ghost" style="min-height:44px" onClick="{{ ciSaveDraft }}">Зберегти як чернетку й вийти</button>
+</div>
+</div>
+</sc-if>
+<sc-if value="{{ sDay }}" hint-placeholder-val="{{ false }}">
+<div data-screen-label="Деталі дня" style="flex:1;overflow-y:auto;padding:6px 20px 20px;display:flex;flex-direction:column;gap:13px">
+<div style="display:flex;align-items:center;gap:10px">
+<button class="btn btn-icon btn-secondary" aria-label="Назад до історії" onClick="{{ dayBack }}" style="width:44px;height:44px"><svg width="16" height="16"><path d="M10 2 L4 8 L10 14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"></path></svg></button>
+<h2 style="font-size:20px;margin:0;flex:1">{{ dayTitle }}</h2>
+</div>
+<div style="display:flex;gap:8px;flex-wrap:wrap">
+<span class="tag" style="background: {{ dayStatusBg }};color: {{ dayStatusFg }};font-size:12px;padding:5px 12px">{{ dayStatusT }}</span>
+<sc-if value="{{ dayFilledLater }}" hint-placeholder-val="{{ false }}"><span class="tag tag-neutral" style="font-size:12px;padding:5px 12px">Заповнено пізніше</span></sc-if>
+<sc-if value="{{ dayHasMenses }}" hint-placeholder-val="{{ false }}"><span class="tag tag-accent" style="font-size:12px;padding:5px 12px">Початок менструації</span></sc-if>
+</div>
+<sc-if value="{{ dayHasEntry }}" hint-placeholder-val="{{ false }}">
+<sc-if value="{{ dayHasSum }}" hint-placeholder-val="{{ false }}">
+<div class="card" style="gap:6px"><span class="card-kicker">Підсумок</span><p style="margin:0;font-size:14px;line-height:1.5">{{ daySum }}</p></div>
+</sc-if>
+<div class="card" style="gap:6px">
+<sc-for list="{{ dayRows }}" as="r" hint-placeholder-count="4">
+<div style="display:flex;gap:12px;justify-content:space-between;border-bottom:1px solid color-mix(in srgb, var(--color-text) 8%, transparent);padding:6px 0"><span style="font-size:13px;flex:none" class="text-muted">{{ r.k }}</span><span style="font-size:13.5px;text-align:right">{{ r.v }}</span></div>
+</sc-for>
+</div>
+<sc-if value="{{ dayHasNote }}" hint-placeholder-val="{{ false }}">
+<div class="card" style="gap:6px"><span class="card-kicker">Нотатка</span><p style="margin:0;font-size:14px">{{ dayNote }}</p></div>
+</sc-if>
+<sc-if value="{{ dayHasFlare }}" hint-placeholder-val="{{ false }}">
+<div class="card" style="gap:6px;background:var(--color-accent-100)"><span class="card-kicker">Можливе загострення · ваша позначка</span><p style="margin:0;font-size:13.5px;color:var(--color-accent-800)">{{ dayFlareT }}</p><span style="font-size:12px;color:var(--color-accent-800)">Особиста позначка для розмови з лікарем, не діагноз. Її можна змінити або прибрати.</span></div>
+</sc-if>
+<button class="btn btn-primary" style="min-height:50px" onClick="{{ dayEdit }}">{{ dayEditL }}</button>
+<sc-if value="{{ dayCanFlare }}" hint-placeholder-val="{{ false }}"><button class="btn btn-secondary" style="min-height:48px" onClick="{{ dayFlareBtn }}">Позначити як можливий початок загострення</button></sc-if>
+<sc-if value="{{ dayHasFlare }}" hint-placeholder-val="{{ false }}"><button class="btn btn-secondary" style="min-height:48px" onClick="{{ dayFlareBtn }}">Редагувати позначку загострення</button></sc-if>
+<sc-if value="{{ dayHasMenses }}" hint-placeholder-val="{{ false }}"><button class="btn btn-ghost" style="min-height:44px" onClick="{{ dayDelMenses }}">Прибрати позначку початку менструації</button></sc-if>
+<button class="btn btn-ghost" style="min-height:44px;color:#a33d2f" onClick="{{ dayDelete }}">Видалити запис</button>
+</sc-if>
+<sc-if value="{{ dayNoEntry }}" hint-placeholder-val="{{ false }}">
+<div class="card" style="gap:8px"><p style="margin:0;font-size:14px" class="text-muted">Цей день не заповнено. Пропущений день не означає, що симптомів не було — на графіках він показується як прогалина.</p></div>
+<button class="btn btn-primary" style="min-height:50px" onClick="{{ dayEdit }}">Заповнити цей день</button>
+<sc-if value="{{ dayHasMenses }}" hint-placeholder-val="{{ false }}"><button class="btn btn-ghost" style="min-height:44px" onClick="{{ dayDelMenses }}">Прибрати позначку початку менструації</button></sc-if>
+</sc-if>
+</div>
+</sc-if>
+<sc-if value="{{ sSym }}" hint-placeholder-val="{{ false }}">
+<div data-screen-label="Графік симптому" style="flex:1;overflow-y:auto;padding:6px 20px 20px;display:flex;flex-direction:column;gap:13px">
+<div style="display:flex;align-items:center;gap:10px">
+<button class="btn btn-icon btn-secondary" aria-label="Назад до динаміки" onClick="{{ syBack }}" style="width:44px;height:44px"><svg width="16" height="16"><path d="M10 2 L4 8 L10 14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"></path></svg></button>
+<h2 style="font-size:19px;margin:0;flex:1">{{ syName }}</h2>
+</div>
+<div style="display:flex;gap:7px;flex-wrap:wrap">
+<sc-for list="{{ trChips }}" as="c"><button onClick="{{ c.on }}" style="min-height:44px;padding:8px 14px;border-radius:999px;font:inherit;font-size:13px;cursor:pointer;border:1.5px solid {{ c.bd }};background: {{ c.bg }};color: {{ c.fg }}">{{ c.t }}</button></sc-for>
+<span style="flex:1"></span>
+<sc-for list="{{ syModeChips }}" as="c"><button onClick="{{ c.on }}" style="min-height:44px;padding:8px 14px;border-radius:999px;font:inherit;font-size:13px;cursor:pointer;border:1.5px solid {{ c.bd }};background: {{ c.bg }};color: {{ c.fg }}">{{ c.t }}</button></sc-for>
+</div>
+<sc-if value="{{ syEmpty }}" hint-placeholder-val="{{ false }}">
+<div class="card"><p style="margin:0;font-size:14px" class="text-muted">Щоб побачити можливі закономірності, потрібно ще щонайменше 7 заповнених днів.</p></div>
+</sc-if>
+<sc-if value="{{ syHasData }}" hint-placeholder-val="{{ true }}">
+<sc-if value="{{ syIsChart }}" hint-placeholder-val="{{ true }}">
+<div class="card" style="gap:6px">
+<span style="font-size:12px" class="text-muted">{{ syCover }}</span>
+<svg width="308" height="150" style="display:block" aria-label="Графік симптому за період">
+<sc-for list="{{ chGrid }}" as="g" hint-placeholder-count="3"><line x1="12" x2="296" y1="{{ g.y }}" y2="{{ g.y }}" stroke="var(--color-divider)" stroke-width="1"></line></sc-for>
+<sc-if value="{{ chHasSel }}" hint-placeholder-val="{{ false }}"><line x1="{{ chSelX }}" x2="{{ chSelX }}" y1="6" y2="144" stroke="var(--color-accent-2)" stroke-width="1.6" stroke-dasharray="3 3"></line></sc-if>
+<sc-for list="{{ chSegs }}" as="s" hint-placeholder-count="2"><path d="{{ s.d }}" fill="none" stroke="var(--color-accent)" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"></path></sc-for>
+<sc-for list="{{ chPts }}" as="p" hint-placeholder-count="5"><circle cx="{{ p.x }}" cy="{{ p.y }}" r="3" fill="{{ p.fill }}" stroke="var(--color-accent)" stroke-width="1.8"></circle></sc-for>
+<sc-for list="{{ chHeat }}" as="m"><circle cx="{{ m.x }}" cy="8" r="3" fill="var(--color-accent-400)"></circle></sc-for>
+<sc-for list="{{ chMenses }}" as="m"><circle cx="{{ m.x }}" cy="143" r="3.2" fill="none" stroke="var(--color-accent-700)" stroke-width="1.8"></circle></sc-for>
+<sc-for list="{{ chFlare }}" as="m"><path d="{{ m.d }}" fill="var(--color-accent-600)"></path></sc-for>
+<sc-for list="{{ chHits }}" as="hz"><rect x="{{ hz.x }}" y="0" width="{{ hz.w }}" height="150" fill="transparent" onClick="{{ hz.on }}" style="cursor:pointer"></rect></sc-for>
+</svg>
+<div style="display:flex;justify-content:space-between;font-size:10.5px" class="text-muted"><span>{{ chXl }}</span><span>{{ chXr }}</span></div>
+<div style="display:flex;flex-wrap:wrap;gap:10px;font-size:11px" class="text-muted">
+<span style="display:flex;gap:5px;align-items:center"><span style="width:9px;height:9px;border-radius:50%;background:var(--color-accent)"></span>значення</span>
+<span style="display:flex;gap:5px;align-items:center"><span style="width:9px;height:9px;border-radius:50%;border:2px solid var(--color-accent);background:var(--color-bg)"></span>не було (0)</span>
+<span style="display:flex;gap:5px;align-items:center"><span style="width:9px;height:9px;border-radius:50%;background:var(--color-accent-400)"></span>спека</span>
+<span style="display:flex;gap:5px;align-items:center"><span style="width:9px;height:9px;border-radius:50%;border:2px solid var(--color-accent-700)"></span>менструація</span>
+<span style="display:flex;gap:5px;align-items:center"><span style="width:0;height:0;border-left:5px solid transparent;border-right:5px solid transparent;border-bottom:9px solid var(--color-accent-600)"></span>загострення</span>
+</div>
+<span style="font-size:11px" class="text-muted">Торкніться дня на графіку, щоб побачити деталі. Прогалина — день не заповнено.</span>
+</div>
+<sc-if value="{{ chHasSel }}" hint-placeholder-val="{{ false }}">
+<div class="card elev-sm" style="gap:4px">
+<span class="card-kicker">{{ chTipDate }}</span>
+<span style="font-size:15px;font-weight:700">{{ chTipVal }}</span>
+<span style="font-size:12.5px" class="text-muted">{{ chTipCtx }}</span>
+<button class="btn btn-ghost" style="min-height:44px;align-self:flex-start" onClick="{{ chTipOpen }}">Відкрити запис дня →</button>
+</div>
+</sc-if>
+<div style="display:flex;gap:9px">
+<sc-for list="{{ syStats }}" as="s" hint-placeholder-count="3">
+<div class="card" style="flex:1;gap:2px;padding:12px"><span style="font-size:11px" class="text-muted">{{ s.k }}</span><span style="font-size:17px;font-weight:700;font-family:var(--font-heading)">{{ s.v }}</span></div>
+</sc-for>
+</div>
+<div class="card" style="gap:6px">
+<span class="card-kicker">Порівняння · спільна вісь часу</span>
+<span style="font-size:12px" class="text-muted">Стрес (1–5)</span>
+<svg width="308" height="60" style="display:block"><sc-for list="{{ stSegs }}" as="s"><path d="{{ s.d }}" fill="none" stroke="var(--color-accent-2-600)" stroke-width="2" stroke-linecap="round"></path></sc-for></svg>
+<span style="font-size:12px" class="text-muted">Якість сну (1–5)</span>
+<svg width="308" height="60" style="display:block"><sc-for list="{{ slSegs }}" as="s"><path d="{{ s.d }}" fill="none" stroke="var(--color-neutral-600)" stroke-width="2" stroke-linecap="round"></path></sc-for></svg>
+</div>
+<div class="card" style="gap:5px;background:var(--color-accent-2-100)">
+<span style="font-size:13.5px;color:var(--color-accent-2-800)">{{ syInsight }}</span>
+<span style="font-size:11.5px;color:var(--color-accent-2-800)">Це спостереження, а не доказ причинно-наслідкового звʼязку.</span>
+</div>
+</sc-if>
+<sc-if value="{{ syIsTable }}" hint-placeholder-val="{{ false }}">
+<div class="card" style="gap:2px">
+<span style="font-size:12px;margin-bottom:6px" class="text-muted">{{ syCover }} · текстова альтернатива графіка</span>
+<sc-for list="{{ syTable }}" as="r" hint-placeholder-count="6">
+<button onClick="{{ r.on }}" style="display:flex;gap:10px;border:none;background:transparent;cursor:pointer;text-align:left;font:inherit;width:100%;border-bottom:1px solid color-mix(in srgb, var(--color-text) 8%, transparent);padding:8px 0;font-size:13px;align-items:baseline;min-height:44px"><span style="flex:none;width:52px;font-weight:600">{{ r.d }}</span><span style="flex:none;width:82px">{{ r.v }}</span><span class="text-muted" style="flex:1;font-size:12px">{{ r.c }}</span><svg width="12" height="12" style="flex:none"><path d="M4 2 L9 6 L4 10" fill="none" stroke="var(--color-accent)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path></svg></button>
+</sc-for>
+</div>
+</sc-if>
+</sc-if>
+</div>
+</sc-if>
+<sc-if value="{{ sCatalog }}" hint-placeholder-val="{{ false }}">
+<div data-screen-label="Мої симптоми" style="flex:1;overflow-y:auto;padding:6px 20px 20px;display:flex;flex-direction:column;gap:13px">
+<div style="display:flex;align-items:center;gap:10px">
+<button class="btn btn-icon btn-secondary" aria-label="Назад" onClick="{{ catBack }}" style="width:44px;height:44px"><svg width="16" height="16"><path d="M10 2 L4 8 L10 14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"></path></svg></button>
+<h2 style="font-size:20px;margin:0;flex:1">Мої симптоми</h2>
+</div>
+<input class="input" aria-label="Пошук симптому" placeholder="Пошук у каталозі…" value="{{ catQ }}" onChange="{{ catQOn }}" style="min-height:48px;font-size:15px">
+<div class="card" style="gap:8px">
+<span class="card-kicker">Активні · питаємо щодня</span>
+<sc-for list="{{ catActive }}" as="a" hint-placeholder-count="5">
+<div style="display:flex;align-items:center;gap:8px;border-bottom:1px solid color-mix(in srgb, var(--color-text) 7%, transparent);padding:5px 0">
+<span style="flex:1;display:flex;flex-direction:column"><span style="font-size:13.5px;font-weight:600">{{ a.t }}</span><span style="font-size:11px" class="text-muted">{{ a.meta }}</span></span>
+<button class="btn btn-icon btn-secondary" aria-label="Перемістити вище" onClick="{{ a.up }}" style="width:40px;height:40px"><svg width="12" height="12"><path d="M2 8 L6 3 L10 8" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path></svg></button>
+<button class="btn btn-icon btn-secondary" aria-label="Перемістити нижче" onClick="{{ a.down }}" style="width:40px;height:40px"><svg width="12" height="12"><path d="M2 4 L6 9 L10 4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path></svg></button>
+<button class="btn btn-ghost" style="min-height:40px;font-size:12px" onClick="{{ a.arch }}">В архів</button>
+</div>
+</sc-for>
+<span style="font-size:11.5px" class="text-muted">Кнопки «вище/нижче» — альтернатива drag-and-drop. Архівування не видаляє історію. Тип уже використаного симптому змінити не можна, щоб не спотворити старі дані.</span>
+</div>
+<sc-if value="{{ catArchF }}" hint-placeholder-val="{{ false }}">
+<div class="card" style="gap:8px">
+<span class="card-kicker">Архів</span>
+<sc-for list="{{ catArch }}" as="a">
+<div style="display:flex;align-items:center;gap:8px"><span style="flex:1;font-size:13.5px" class="text-muted">{{ a.t }}</span><button class="btn btn-ghost" style="min-height:40px;font-size:12px" onClick="{{ a.restore }}">Повернути</button></div>
+</sc-for>
+</div>
+</sc-if>
+<div class="card" style="gap:10px">
+<span class="card-kicker">Каталог · широкий і розширюваний</span>
+<span style="font-size:12px" class="text-muted">Каталог не охоплює буквально всі неврологічні симптоми. Додані звідси симптоми неактивні за замовчуванням не бувають — вони одразу зʼявляються в активному списку, і їх можна архівувати.</span>
+<sc-for list="{{ catList }}" as="g" hint-placeholder-count="4">
+<div style="display:flex;flex-direction:column;gap:6px">
+<span style="font-size:11.5px;letter-spacing:.06em;text-transform:uppercase;font-weight:700" class="text-muted">{{ g.cat }}</span>
+<div style="display:flex;flex-wrap:wrap;gap:6px">
+<sc-for list="{{ g.items }}" as="i">
+<button onClick="{{ i.on }}" style="min-height:44px;padding:8px 13px;border-radius:999px;font:inherit;font-size:12.5px;cursor:pointer;border:1.5px solid {{ i.bd }};background: {{ i.bg }};color: {{ i.fg }}">{{ i.t }}</button>
+</sc-for>
+</div>
+</div>
+</sc-for>
+<span style="font-size:11.5px" class="text-muted">«Втрата свідомості / ймовірний напад» — подієвий запис із часом і тривалістю, а не щоденна шкала. Сексуальна функція — приватний опційний модуль.</span>
+</div>
+<div class="card" style="gap:9px">
+<span class="card-kicker">Власний симптом</span>
+<input class="input" aria-label="Назва власного симптому" placeholder="Назва" value="{{ newName }}" onChange="{{ newNameOn }}" style="min-height:44px">
+<div style="display:flex;gap:7px">
+<sc-for list="{{ newTypeChips }}" as="c"><button onClick="{{ c.on }}" style="min-height:44px;padding:8px 14px;border-radius:999px;font:inherit;font-size:13px;cursor:pointer;border:1.5px solid {{ c.bd }};background: {{ c.bg }};color: {{ c.fg }}">{{ c.t }}</button></sc-for>
+</div>
+<button class="btn btn-primary" style="min-height:46px" onClick="{{ addCustom }}">Додати симптом</button>
+</div>
+</div>
+</sc-if>
+<sc-if value="{{ sPrivacy }}" hint-placeholder-val="{{ false }}">
+<div data-screen-label="Приватність і дані" style="flex:1;overflow-y:auto;padding:6px 20px 20px;display:flex;flex-direction:column;gap:13px">
+<div style="display:flex;align-items:center;gap:10px">
+<button class="btn btn-icon btn-secondary" aria-label="Назад" onClick="{{ pvBack }}" style="width:44px;height:44px"><svg width="16" height="16"><path d="M10 2 L4 8 L10 14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"></path></svg></button>
+<h2 style="font-size:20px;margin:0;flex:1">Приватність і дані</h2>
+</div>
+<sc-for list="{{ obPrivacy }}" as="p" hint-placeholder-count="4">
+<div style="display:flex;gap:12px;padding:12px 14px;border-radius:18px;background:var(--color-surface)">
+<span style="width:8px;height:8px;border-radius:50%;background:var(--color-accent-2);flex:none;margin-top:7px"></span>
+<div><div style="font-size:14px;font-weight:600">{{ p.k }}</div><div style="font-size:13px" class="text-muted">{{ p.v }}</div></div>
+</div>
+</sc-for>
+<div class="card" style="gap:10px">
+<div style="display:flex;align-items:flex-start;gap:12px">
+<button role="switch" aria-checked="{{ pvLockTg.sel }}" aria-label="App lock" onClick="{{ pvLockTg.on }}" style="width:50px;height:29px;border-radius:999px;border:none;background: {{ pvLockTg.bg }};position:relative;cursor:pointer;flex:none"><span style="position:absolute;top:3px;left: {{ pvLockTg.x }};width:23px;height:23px;border-radius:50%;background:var(--color-bg);box-shadow:var(--shadow-sm);transition:left .15s"></span></button>
+<span style="display:flex;flex-direction:column;gap:1px"><span style="font-size:14.5px;font-weight:700">App lock: PIN / біометрія</span><span style="font-size:12px" class="text-muted">Автоблокування через 2 хвилини неактивності. У demo — лише концепт.</span></span>
+</div>
+</div>
+<div class="card" style="gap:6px">
+<span class="card-kicker">Telegram і lock screen</span>
+<span style="font-size:13px" class="text-muted">Нагадування нейтральне: «Час зробити короткий запис». Lock screen може показати назву та іконку бота — можна використати нейтральну назву або приховати previews у налаштуваннях Telegram. Назви симптомів, оцінки, цикл і нотатки в чат не надсилаються.</span>
+</div>
+<div class="card" style="gap:6px">
+<span class="card-kicker">Чого застосунок не робить</span>
+<span style="font-size:13px" class="text-muted">Не включає медичні значення в URL, логи, session replay, рекламу чи продуктову аналітику. Не аналізує нотатки без окремої явної згоди. Не надсилає дані третім особам.</span>
+</div>
+<button class="btn btn-secondary" style="min-height:48px" onClick="{{ expCsv }}">Експортувати CSV · демо</button>
+<button class="btn btn-secondary" style="min-height:48px" onClick="{{ expJson }}">Експортувати JSON · демо</button>
+<button class="btn btn-secondary" style="min-height:48px" onClick="{{ openDel }}">Видалення даних…</button>
+</div>
+</sc-if>
+<sc-if value="{{ sSafety }}" hint-placeholder-val="{{ false }}">
+<div data-screen-label="Термінова допомога" style="flex:1;overflow-y:auto;padding:6px 20px 20px;display:flex;flex-direction:column;gap:13px">
+<div style="display:flex;align-items:center;gap:10px">
+<button class="btn btn-icon btn-secondary" aria-label="Назад" onClick="{{ sfBack }}" style="width:44px;height:44px"><svg width="16" height="16"><path d="M10 2 L4 8 L10 14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"></path></svg></button>
+<h2 style="font-size:20px;margin:0;flex:1">Коли потрібна термінова допомога?</h2>
+</div>
+<p style="margin:0;font-size:14px" class="text-muted">Це загальна довідка, а не оцінка ваших записів — застосунок не аналізує симптоми автоматично.</p>
+<div style="border-radius:24px;padding:16px;background:#a33d2f;color:#fff;display:flex;flex-direction:column;gap:10px">
+<span style="font-weight:700;font-size:16px">Якщо у вас зараз є щось із переліченого нижче…</span>
+<span style="font-size:14px;line-height:1.5">…і воно виникло раптово, сильне або швидко посилюється — не витрачайте час на щоденник, зателефонуйте 112.</span>
+<a href="tel:112" class="btn" style="min-height:54px;background:#fff;color:#a33d2f;font-size:17px;text-decoration:none">Подзвонити 112</a>
+</div>
+<div class="card" style="gap:8px">
+<span class="card-kicker">Ключові ознаки</span>
+<span style="font-size:13.5px;line-height:1.6">· Раптова однобічна слабкість або оніміння<br>· Асиметрія обличчя чи порушення мовлення<br>· Раптова втрата зору<br>· Раптовий надзвичайно сильний головний біль</span>
+<sc-if value="{{ sfMoreF }}" hint-placeholder-val="{{ false }}">
+<span style="font-size:13.5px;line-height:1.6">· Втрата свідомості<br>· Перший судомний напад, напад понад 5 хвилин або повторні напади без відновлення свідомості<br>· Гостре утруднення дихання чи ковтання<br>· Нова затримка або нетримання сечі/калу разом з онімінням промежини чи двобічною слабкістю ніг</span>
+</sc-if>
+<sc-if value="{{ sfMoreBtnF }}" hint-placeholder-val="{{ false }}">
+<button class="btn btn-ghost" style="min-height:44px;align-self:flex-start" onClick="{{ sfMoreOn }}">Показати більше ознак</button>
+</sc-if>
+</div>
+</div>
+</sc-if>
+<sc-if value="{{ sStates }}" hint-placeholder-val="{{ false }}">
+<div data-screen-label="Системні стани" style="flex:1;overflow-y:auto;padding:6px 20px 20px;display:flex;flex-direction:column;gap:11px">
+<div style="display:flex;align-items:center;gap:10px">
+<button class="btn btn-icon btn-secondary" aria-label="Назад" onClick="{{ stBack }}" style="width:44px;height:44px"><svg width="16" height="16"><path d="M10 2 L4 8 L10 14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"></path></svg></button>
+<h2 style="font-size:20px;margin:0;flex:1">Системні стани</h2>
+</div>
+<span style="font-size:12.5px" class="text-muted">Component/state sheet для команди — репрезентативні стани P1.</span>
+<div class="card" style="gap:4px"><span class="card-kicker">Перший день без даних</span><span style="font-size:13px">«Почнімо з короткого запису — 60–90 секунд». Одна CTA, без графіків і порожніх карток.</span></div>
+<div class="card" style="gap:4px"><span class="card-kicker">Недостатньо даних</span><span style="font-size:13px">«Щоб побачити можливі закономірності, потрібно ще щонайменше 7 заповнених днів».</span></div>
+<div class="card" style="gap:6px"><span class="card-kicker">Offline</span>
+<div style="display:flex;gap:8px;align-items:center;padding:9px 13px;border-radius:14px;background:var(--color-neutral-200);font-size:13px"><span style="width:8px;height:8px;border-radius:50%;background:var(--color-neutral-600);flex:none"></span>Немає звʼязку. Запис зберігається на пристрої та синхронізується пізніше.</div></div>
+<div class="card" style="gap:6px"><span class="card-kicker">Автозбереження</span>
+<div style="display:flex;gap:8px;align-items:center"><span class="tag tag-accent-2" style="font-size:12px">Чернетку збережено · 14:32</span><button class="btn btn-ghost" style="min-height:44px" onClick="{{ demoToast }}">Показати toast</button></div></div>
+<div class="card" style="gap:6px"><span class="card-kicker">Помилка збереження</span>
+<div style="display:flex;gap:8px;align-items:center;padding:9px 13px;border-radius:14px;background:var(--color-accent-100);color:var(--color-accent-800);font-size:13px">Не вдалося зберегти. Дані залишилися на екрані — спробуйте ще раз.<button class="btn btn-ghost" style="min-height:40px;flex:none">Повторити</button></div></div>
+<div class="card" style="gap:4px"><span class="card-kicker">Помилка генерації PDF</span><span style="font-size:13px">«Не вдалося сформувати PDF. Ваші дані не постраждали — спробуйте ще раз». Кнопка «Повторити», без втрати налаштувань звіту.</span></div>
+<div class="card" style="gap:4px"><span class="card-kicker">Push permission denied</span><span style="font-size:13px">«Нагадування вимкнені на рівні системи. Увімкнути можна в налаштуваннях пристрою» + кнопка-інструкція. Без повторних запитів дозволу.</span></div>
+<div class="card" style="gap:4px"><span class="card-kicker">Дубль початку менструації</span><span style="font-size:13px">«Ця дата вже позначена. Дубль не створено» — дані не змінюються.</span></div>
+<div class="card" style="gap:4px"><span class="card-kicker">Архівування симптому</span><span style="font-size:13px">Симптом зникає зі щоденного списку, історія та графіки зберігаються повністю.</span></div>
+<div class="card" style="gap:4px"><span class="card-kicker">Видалення даних</span><span style="font-size:13px">Двокроковий діалог із явним описом безповоротності; окремо цикл / усі дані.</span></div>
+</div>
+</sc-if>
+<sc-if value="{{ sCrisis }}" hint-placeholder-val="{{ false }}">
+<div data-screen-label="Підтримка" style="flex:1;overflow-y:auto;padding:6px 20px 20px;display:flex;flex-direction:column;gap:13px">
+<div style="display:flex;align-items:center;gap:10px">
+<button class="btn btn-icon btn-secondary" aria-label="Назад" onClick="{{ crBack }}" style="width:44px;height:44px"><svg width="16" height="16"><path d="M10 2 L4 8 L10 14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"></path></svg></button>
+<h2 style="font-size:20px;margin:0;flex:1">Підтримка</h2>
+</div>
+<sc-if value="{{ crAskF }}" hint-placeholder-val="{{ true }}">
+<div class="card" style="gap:10px">
+<span style="font-size:15px;line-height:1.5">Дякуємо, що поділилися. Одне необовʼязкове запитання, щоб підказати правильний шлях:</span>
+<span style="font-size:15px;font-weight:700">Чи є зараз ризик, що ви завдасте собі шкоди?</span>
+<div style="display:flex;gap:10px">
+<button class="btn btn-secondary" style="flex:1;min-height:50px" onClick="{{ crYes }}">Так</button>
+<button class="btn btn-secondary" style="flex:1;min-height:50px" onClick="{{ crNo }}">Ні</button>
+</div>
+<span style="font-size:12px" class="text-muted">Застосунок нічого не робить автоматично й нікому не повідомляє.</span>
+</div>
+</sc-if>
+<sc-if value="{{ crYesF }}" hint-placeholder-val="{{ false }}">
+<div style="border-radius:24px;padding:16px;background:#a33d2f;color:#fff;display:flex;flex-direction:column;gap:10px">
+<span style="font-weight:700;font-size:16px">Ви не мусите проходити це наодинці.</span>
+<a href="tel:112" class="btn" style="min-height:54px;background:#fff;color:#a33d2f;font-size:17px;text-decoration:none">Подзвонити 112</a>
+</div>
+<button class="btn btn-secondary" style="min-height:50px" onClick="{{ crContact }}">Звʼязатися з довіреною людиною</button>
+<div class="card" style="gap:6px">
+<span style="font-size:13.5px;line-height:1.55">· Постарайтеся не залишатися наодинці найближчим часом.<br>· Якщо можете — зверніться до психіатра, психотерапевта або сімейного лікаря.<br>· Ці відчуття можуть змінюватися; допомога існує.</span>
+</div>
+</sc-if>
+<sc-if value="{{ crNoF }}" hint-placeholder-val="{{ false }}">
+<div class="card" style="gap:8px">
+<span style="font-size:14px;line-height:1.55">Дякуємо за відповідь. Навіть без негайного ризику ви заслуговуєте на підтримку. Якщо пригніченість тримається довше двох тижнів або заважає щодня — варто обговорити це з лікарем; щоденник допоможе показати динаміку.</span>
+<button class="btn btn-secondary" style="min-height:48px" onClick="{{ crContact }}">Звʼязатися з довіреною людиною</button>
+</div>
+</sc-if>
+</div>
+</sc-if>
+<!--@subs-->
+<sc-if value="{{ subNone }}" hint-placeholder-val="{{ true }}">
+<div style="flex:none;display:flex;border-top:1px solid var(--color-divider);background:var(--color-bg);padding:6px 8px 14px">
+<sc-for list="{{ navs }}" as="n" hint-placeholder-count="5">
+<button onClick="{{ n.on }}" aria-label="{{ n.label }}" style="flex:1;min-height:52px;border:none;background:transparent;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:3px;font:inherit;color: {{ n.c }};padding:6px 0;border-radius:14px">
+<svg width="23" height="23" style="overflow:visible"><path d="{{ n.d }}" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" transform="scale(0.96)"></path></svg>
+<span style="font-size:10.5px;font-weight: {{ n.w }}">{{ n.label }}</span>
+</button>
+</sc-for>
+</div>
+</sc-if>
+<sc-if value="{{ dlgOpen }}" hint-placeholder-val="{{ false }}">
+<div style="position:absolute;inset:0;background:color-mix(in srgb, var(--color-neutral-900) 45%, transparent);display:grid;place-items:center;padding:22px;z-index:50">
+<div class="dialog elev-lg" style="width:100%;gap:12px;max-height:90%;overflow-y:auto">
+<sc-if value="{{ dMenses }}" hint-placeholder-val="{{ false }}">
+<div class="dialog-title">Почалися місячні</div>
+<div class="dialog-body" style="margin:0">Позначте дату початку — день циклу рахуватиметься від неї автоматично. Позначку можна виправити або видалити пізніше.</div>
+<div style="display:flex;flex-wrap:wrap;gap:7px">
+<sc-for list="{{ mensChips }}" as="c"><button onClick="{{ c.on }}" style="min-height:44px;padding:8px 16px;border-radius:999px;font:inherit;font-size:13.5px;cursor:pointer;border:1.5px solid {{ c.bd }};background: {{ c.bg }};color: {{ c.fg }}">{{ c.t }}</button></sc-for>
+</div>
+<div class="field"><label>Інша дата</label><input type="date" class="input" value="{{ mensDate }}" onChange="{{ mensDateOn }}" style="min-height:44px"></div>
+<sc-if value="{{ mensDup }}" hint-placeholder-val="{{ false }}">
+<div style="padding:11px 14px;border-radius:16px;background:var(--color-accent-100);color:var(--color-accent-800);font-size:13px">Ця дата вже позначена як початок менструації. Дубль не створено.</div>
+</sc-if>
+<div class="dialog-actions"><button class="btn btn-secondary" style="min-height:46px" onClick="{{ mensCancel }}">Скасувати</button><button class="btn btn-primary" style="min-height:46px" onClick="{{ mensConfirm }}">Позначити</button></div>
+</sc-if>
+<sc-if value="{{ dDelE }}" hint-placeholder-val="{{ false }}">
+<div class="dialog-title">Видалити запис?</div>
+<div class="dialog-body" style="margin:0">{{ delETxt }} Запис буде видалено безповоротно, день стане «не заповнено».</div>
+<div class="dialog-actions"><button class="btn btn-secondary" style="min-height:46px" onClick="{{ delECancel }}">Скасувати</button><button class="btn" style="min-height:46px;background:#a33d2f;color:#fff" onClick="{{ delEC }}">Видалити</button></div>
+</sc-if>
+<sc-if value="{{ dDelD }}" hint-placeholder-val="{{ false }}">
+<div class="dialog-title">Дані застосунку</div>
+<div class="dialog-body" style="margin:0">Demo-дані зберігаються лише у вашому браузері. Видалення безповоротне.</div>
+<button class="btn btn-secondary btn-block" style="min-height:48px" onClick="{{ delCycle }}">Видалити лише дані циклу</button>
+<button class="btn btn-block" style="min-height:48px;background:#a33d2f;color:#fff" onClick="{{ delAll }}">Видалити всі дані</button>
+<button class="btn btn-secondary btn-block" style="min-height:48px" onClick="{{ restoreDemo }}">Відновити demo-дані</button>
+<div class="dialog-actions"><button class="btn btn-ghost" style="min-height:44px" onClick="{{ delDCancel }}">Закрити</button></div>
+</sc-if>
+<sc-if value="{{ dPdf }}" hint-placeholder-val="{{ false }}">
+<div class="dialog-title">PDF сформовано</div>
+<div class="dialog-body" style="margin:0">Після збереження або надсилання файл більше не контролюється застосунком.</div>
+<button class="btn btn-primary btn-block" style="min-height:48px" onClick="{{ pdfSave }}">Зберегти</button>
+<button class="btn btn-secondary btn-block" style="min-height:48px" onClick="{{ pdfShare }}">Поділитися</button>
+<button class="btn btn-secondary btn-block" style="min-height:48px" onClick="{{ pdfPrint }}">Надрукувати</button>
+<div style="font-size:12px" class="text-muted">Переносима копія даних: <button class="btn btn-ghost" style="min-height:44px" onClick="{{ expCsv }}">CSV</button> <button class="btn btn-ghost" style="min-height:44px" onClick="{{ expJson }}">JSON</button></div>
+<div class="dialog-actions"><button class="btn btn-ghost" style="min-height:44px" onClick="{{ pdfDlgClose }}">Закрити</button></div>
+</sc-if>
+<sc-if value="{{ dFlare }}" hint-placeholder-val="{{ false }}">
+<div class="dialog-title">Можливий початок загострення</div>
+<div class="dialog-body" style="margin:0">Це ваша особиста позначка для подальшого обговорення з лікарем, а не діагноз.</div>
+<div style="display:flex;flex-wrap:wrap;gap:7px">
+<sc-for list="{{ dfChips }}" as="c"><button onClick="{{ c.on }}" style="min-height:44px;padding:8px 14px;border-radius:999px;font:inherit;font-size:12.5px;cursor:pointer;border:1.5px solid {{ c.bd }};background: {{ c.bg }};color: {{ c.fg }}">{{ c.t }}</button></sc-for>
+</div>
+<input class="input" aria-label="Коментар до позначки" placeholder="Коментар (опційно)" value="{{ dfNote }}" onChange="{{ dfNoteOn }}" style="min-height:44px;font-size:14px">
+<sc-if value="{{ dfDel }}" hint-placeholder-val="{{ false }}"><button class="btn btn-ghost" style="min-height:44px;color:#a33d2f" onClick="{{ dfDelOn }}">Прибрати позначку</button></sc-if>
+<div class="dialog-actions"><button class="btn btn-secondary" style="min-height:46px" onClick="{{ dfCancel }}">Скасувати</button><button class="btn btn-primary" style="min-height:46px" onClick="{{ dfSave }}">Зберегти позначку</button></div>
+</sc-if>
+</div>
+</div>
+</sc-if>
+<!--@overlays-->
+<sc-if value="{{ toastF }}" hint-placeholder-val="{{ false }}">
+<div role="status" style="position:absolute;bottom:96px;left:50%;transform:translateX(-50%);background:var(--color-neutral-800);color:var(--color-neutral-100);padding:11px 20px;border-radius:999px;font-size:13.5px;box-shadow:var(--shadow-md);animation:ndToast .18s ease-out;white-space:nowrap;max-width:340px;overflow:hidden;text-overflow:ellipsis;z-index:60">{{ toastT }}</div>
+</sc-if>
+</sc-if>
+</div>
+</div>
+</sc-if>
+<sc-if value="{{ desk }}" hint-placeholder-val="{{ false }}">
+<div data-screen-label="Desktop dashboard" style="width:100%;max-width:1200px;background:var(--color-bg);border:1px solid var(--color-divider);border-radius:28px;box-shadow:var(--shadow-lg);display:flex;overflow:hidden;min-height:720px">
+<div style="width:240px;flex:none;border-right:1px solid var(--color-divider);padding:24px 16px;display:flex;flex-direction:column;gap:6px">
+<div style="font-family:var(--font-heading);font-size:19px;padding:0 12px 16px">Неврологічний щоденник</div>
+<sc-for list="{{ dkNav }}" as="n" hint-placeholder-count="5">
+<button onClick="{{ n.on }}" style="display:flex;align-items:center;gap:10px;min-height:46px;border:none;border-radius:14px;cursor:pointer;font:inherit;font-size:14px;text-align:left;padding:0 14px;background: {{ n.bg }};color: {{ n.c }};font-weight: {{ n.w }}">{{ n.label }}</button>
+</sc-for>
+<span style="margin-top:auto;font-size:11.5px;padding:0 12px" class="text-muted">Desktop-адаптація одного ключового dashboard (P2 — решта екранів mobile-first).</span>
+</div>
+<div style="flex:1;padding:28px 32px;display:flex;flex-direction:column;gap:16px;overflow-y:auto">
+<div style="display:flex;align-items:baseline;gap:14px;flex-wrap:wrap">
+<h2 style="font-size:28px;margin:0">Динаміка · втома</h2>
+<span style="font-size:13px" class="text-muted">Останні 30 днів · {{ dkCover }}</span>
+</div>
+<div style="display:flex;gap:12px">
+<sc-for list="{{ dkStats }}" as="s" hint-placeholder-count="4">
+<div class="card" style="flex:1;gap:3px"><span style="font-size:12px" class="text-muted">{{ s.k }}</span><span style="font-size:24px;font-weight:700;font-family:var(--font-heading)">{{ s.v }}</span></div>
+</sc-for>
+</div>
+<div class="card" style="gap:8px">
+<span class="card-kicker">Втома 1–5 · маркери: спека, менструація, загострення</span>
+<svg width="860" height="240" style="display:block;max-width:100%" aria-label="Графік втоми за 30 днів">
+<sc-for list="{{ dkGrid }}" as="g" hint-placeholder-count="5"><line x1="14" x2="846" y1="{{ g.y }}" y2="{{ g.y }}" stroke="var(--color-divider)" stroke-width="1"></line></sc-for>
+<sc-for list="{{ dkSegs }}" as="s"><path d="{{ s.d }}" fill="none" stroke="var(--color-accent)" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"></path></sc-for>
+<sc-for list="{{ dkPts }}" as="p"><circle cx="{{ p.x }}" cy="{{ p.y }}" r="4" fill="{{ p.fill }}" stroke="var(--color-accent)" stroke-width="2"></circle></sc-for>
+<sc-for list="{{ dkHeat }}" as="m"><circle cx="{{ m.x }}" cy="10" r="4" fill="var(--color-accent-400)"></circle></sc-for>
+<sc-for list="{{ dkMenses }}" as="m"><circle cx="{{ m.x }}" cy="230" r="4.5" fill="none" stroke="var(--color-accent-700)" stroke-width="2"></circle></sc-for>
+<sc-for list="{{ dkFlare }}" as="m"><path d="{{ m.d }}" fill="var(--color-accent-600)"></path></sc-for>
+</svg>
+<div style="display:flex;justify-content:space-between;font-size:11.5px" class="text-muted"><span>{{ dkXl }}</span><span>{{ dkXr }}</span></div>
+</div>
+<div style="display:flex;gap:16px">
+<div class="card" style="flex:1;gap:6px">
+<span class="card-kicker">Стрес 1–5</span>
+<svg width="420" height="110" style="display:block;max-width:100%"><sc-for list="{{ dkStSegs }}" as="s"><path d="{{ s.d }}" fill="none" stroke="var(--color-accent-2-600)" stroke-width="2.5" stroke-linecap="round"></path></sc-for></svg>
+</div>
+<div class="card" style="flex:1;gap:6px">
+<span class="card-kicker">Якість сну 1–5</span>
+<svg width="420" height="110" style="display:block;max-width:100%"><sc-for list="{{ dkSlSegs }}" as="s"><path d="{{ s.d }}" fill="none" stroke="var(--color-neutral-600)" stroke-width="2.5" stroke-linecap="round"></path></sc-for></svg>
+</div>
+</div>
+<div class="card" style="gap:5px;background:var(--color-accent-2-100)">
+<span style="font-size:14px;color:var(--color-accent-2-800)">{{ dkInsight }}</span>
+<span style="font-size:12px;color:var(--color-accent-2-800)">Це спостереження, а не доказ причинно-наслідкового звʼязку. Пропущені дні — прогалини, без імпутації.</span>
+</div>
+</div>
+</div>
+</sc-if>
+<div style="width:100%;max-width:1200px;margin-top:36px;display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:18px">
+<div class="card" style="gap:8px">
+<span class="card-kicker">Sitemap</span>
+<span style="font-size:13px;line-height:1.7">Onboarding (5 кроків) → Застосунок<br>├ <b>Сьогодні</b>: статус · CTA · «симптомів не було» · «почалися місячні» · 7 днів · safety-лінк<br>├ <b>Історія</b>: календар · фільтри · стрічка → Деталі дня → Редагування<br>├ <b>Динаміка</b>: огляд симптомів → Графік/Таблиця + порівняння<br>├ <b>Звіт</b>: період → дані → PDF preview → дії<br>└ <b>Налаштування</b>: Мої симптоми · цикл · нагадування · приватність · safety · системні стани<br>Повноекранні: Щоденний запис (3 кроки + опційні контекст і нотатка) · Підтримка · Safety-довідка</span>
+</div>
+<div class="card" style="gap:8px">
+<span class="card-kicker">Reusable components</span>
+<span style="font-size:13px;line-height:1.7">bottom nav / desktop sidebar · date header · progress stepper · symptom card із conditional fields · segmented scale 1–5 та 1–10 · chips (локалізація, сторона, фільтри) · toggle · numeric stepper · textarea · summary card · event tag · calendar cell із shape-маркерами · chart card + legend + tooltip · empty state · toast «Збережено» · confirmation dialog · sticky bottom CTA · offline/save status</span>
+</div>
+<div class="card" style="gap:8px">
+<span class="card-kicker">Ключові UX-рішення</span>
+<span style="font-size:13px;line-height:1.7">· Три стани даних: unknown / absent / present; «не було» лише після явного підтвердження.<br>· Базовий запис — 3 екрани: самопочуття → симптоми → збереження; контекст і нотатка опційні, «не було» з головної — один тап.<br>· Жодних streaks і провини; резюме — детерміноване, без медичних висновків.<br>· Кореляції — «спостереження», загострення позначає лише користувачка.<br>· Графіки: gap для пропущених днів, 0 — підтверджена відсутність, середня — лише серед днів із симптомом.<br>· Цикл і нотатки вимкнені у звіті за замовчуванням; Telegram отримує лише нейтральний текст.<br>· Червоний — тільки для невідкладного та деструктивного.</span>
+</div>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;theme&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;light&quot;,&quot;dark&quot;,&quot;contrast&quot;],&quot;default&quot;:&quot;light&quot;,&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;Вигляд&quot;},&quot;reduceMotion&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:false,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;Вигляд&quot;}}">
+class Component extends DCLogic {
+  constructor(props){
+    super(props);
+    let s=null; try{ s=JSON.parse(localStorage.getItem('nd_demo_v3')||'null'); }catch(e){}
+    const base={view:'ob',obStep:0,obSyms:null,obCycle:false,obRemOn:false,obTime:'20:00',safetyMore:false,tab:'today',sub:null,desk:false,
+      checkin:null,selDay:null,histShift:0,histFilter:'all',catQ:'',catFrom:null,newName:'',newType:'bool',
+      trends:{period:30,mode:'chart',sym:'fatigue',sel:null},crisisAns:'',
+      report:{step:1,period:30,syms:['fatigue','armWeak','headache','vision'],ctx:true,cycle:false,notes:false,flares:true,name:'',dob:''}};
+    this.state=Object.assign(base,s||{},{dialog:null,toast:null});
+    if(!this.state.data) this.state.data=this.genDemo();
+  }
+  componentDidUpdate(){ try{ const st={...this.state}; delete st.dialog; delete st.toast; localStorage.setItem('nd_demo_v3',JSON.stringify(st)); }catch(e){} }
+  get SYM(){ return [
+    {id:'armWeak',name:'Слабкість у руці/руках',type:'scale',side:['Ліва','Права','Обидві'],impact:true},
+    {id:'numb',name:'Оніміння кінцівок або пальців',type:'bool',side:['Ліва','Права','Обидві'],extra:{label:'Де саме',opts:['Руки','Ноги','Обличчя'],multi:true}},
+    {id:'lowSense',name:'Знижена чутливість',type:'bool',side:['Ліва','Права','Обидві'],extra:{label:'Локалізація',opts:['Рука','Нога','Тулуб','Обличчя'],multi:true}},
+    {id:'allodynia',name:'Підвищена чутливість / алодинія',type:'bool',extra:{label:'Тригер',opts:['Дотик','Одяг','Холод','Тепло'],multi:true}},
+    {id:'vision',name:'Проблеми із зором',type:'scale',side:['Ліве око','Праве око','Обидва'],extra:{label:'Тип',opts:['Розмитість','Двоїння','Тьмяні кольори','Втрата поля','Біль при русі ока'],multi:true}},
+    {id:'fatigue',name:'Втома',type:'scale',extra:{label:'Тип',opts:['Фізична','Когнітивна'],multi:true},impact:true},
+    {id:'cramps',name:'М’язові спазми / крампи в ногах',type:'bool',side:['Ліва','Права','Обидві'],episodes:true,extra:{label:'Характер',opts:['Болючі','Нічні'],multi:true}},
+    {id:'twitch',name:'Посмикування м’язів / пульсація',type:'bool',extra:{label:'Локалізація',opts:['Рука','Нога','Повіка','Інше'],multi:true}},
+    {id:'bladder',name:'Проблеми із сечовипусканням',type:'bool',extra:{label:'Що саме',opts:['Позиви','Частота','Нетримання','Затримка','Нічні пробудження'],multi:true}},
+    {id:'mood',name:'Пригніченість настрою',type:'scale'},
+    {id:'cognition',name:'Концентрація / пам’ять',type:'scale',extra:{label:'Що було складно',opts:['Концентрація','Пам’ять','Пошук слів','Планування'],multi:true}},
+    {id:'headache',name:'Головний біль',type:'scale',extra:{label:'Супутнє',opts:['Аура','Нудота','Блювання','Світлочутливість','Звукочутливість'],multi:true},impact:true},
+    {id:'dizzy',name:'Запаморочення / хиткість',type:'bool',extra:{label:'Уточнення',opts:['Обертання','Переднепритомний стан','Порушення рівноваги'],multi:true}}
+  ];}
+  get INT(){ return ['','ледь помітно','легко','помірно','сильно','дуже сильно, суттєво заважає']; }
+  get IMPACT(){ return ['Не заважає','Помітно','Обмежує справи','Не можу виконувати звичні справи']; }
+  get MON(){ return ['січня','лютого','березня','квітня','травня','червня','липня','серпня','вересня','жовтня','листопада','грудня']; }
+  get MONN(){ return ['Січень','Лютий','Березень','Квітень','Травень','Червень','Липень','Серпень','Вересень','Жовтень','Листопад','Грудень']; }
+  get WDL(){ return ['понеділок','вівторок','середа','четвер','п’ятниця','субота','неділя']; }
+  p2(n){ return String(n).padStart(2,'0'); }
+  isoOff(o){ const d=new Date(); d.setDate(d.getDate()+o); return d.getFullYear()+'-'+this.p2(d.getMonth()+1)+'-'+this.p2(d.getDate()); }
+  dOf(iso){ return new Date(iso+'T12:00:00'); }
+  diffDays(a,b){ return Math.round((this.dOf(b)-this.dOf(a))/864e5); }
+  fmtShort(iso){ const d=this.dOf(iso); return d.getDate()+'.'+this.p2(d.getMonth()+1); }
+  fmtLong(iso){ const d=this.dOf(iso); return this.WDL[(d.getDay()+6)%7]+', '+d.getDate()+' '+this.MON[d.getMonth()]; }
+  symDef(id){ return this.SYM.find(s=>s.id===id)||(this.state.data.custom||[]).find(s=>s.id===id); }
+  tog(arr,v){ return arr.includes(v)?arr.filter(x=>x!==v):[...arr,v]; }
+  ch(t,sel,on,aria){ return {t,sel:!!sel,on,aria:aria||t,bg:sel?'var(--color-accent)':'var(--color-surface)',fg:sel?'var(--color-bg)':'var(--color-text)',bd:sel?'var(--color-accent)':'var(--color-divider)'}; }
+  tg(sel,on){ return {sel:!!sel,on,bg:sel?'var(--color-accent)':'var(--color-neutral-300)',x:sel?'24px':'3px'}; }
+  tset(t){ clearTimeout(this._tt); this.setState({toast:t}); this._tt=setTimeout(()=>this.setState({toast:null}),2600); }
+  genDemo(){
+    let seed=987654321; const rnd=()=>((seed=(Math.imul(48271,seed)&0x7fffffff))/2147483648);
+    const cl=(v,lo,hi)=>Math.max(lo,Math.min(hi,Math.round(v)));
+    const entries={}; const missed=[-27,-19,-11]; const heat=[-22,-15,-8,-5];
+    const notes={'-8':'Дуже спекотно, майже не спала. Права рука слабша, ніж зазвичай.','-12':'Почалися місячні, тягнучий біль унизу живота.','-20':'Спокійний день, багато гуляла.','-4':'Стресовий день на роботі, зʼїла обід аж о 16:00.'};
+    for(let o=-30;o<=-1;o++){
+      if(missed.includes(o)) continue;
+      const iso=this.isoOff(o);
+      if(o===-2){ entries[iso]={status:'draft',d:{wb:6,wbSkip:false,sel:['fatigue'],sym:{fatigue:{int:3,extra:['Фізична']}},ctx:{stress:null,sleepQ:null,sleepH:7,activity:false,actType:'',heat:false,extras:[]},note:'',flare:null,confirmed:false,noSymptoms:false,step:3}}; continue; }
+      const stress=[-8,-9,-15,-4].includes(o)?(rnd()<.4?5:4):cl(1+Math.floor(rnd()*3),1,5);
+      const sleepQ=cl(stress>=4?1+Math.floor(rnd()*2):3+Math.floor(rnd()*3),1,5);
+      const sleepH=Math.max(4,Math.min(9.5,Math.round((4.5+rnd()*4)*2)/2));
+      const sym={};
+      const f=cl(stress+(sleepQ<=2?1:0)+Math.floor(rnd()*2)-1+(heat.includes(o)?1:0),1,5);
+      if(f>=2||rnd()<.5) sym.fatigue={int:f,extra:[rnd()<.5?'Фізична':'Когнітивна']};
+      if(o===-8||rnd()<.42) sym.armWeak={int:o===-8?4:cl(1+Math.floor(rnd()*3),1,5),side:'Права'};
+      if([-25,-16,-9,-3].includes(o)) sym.headache={int:cl(2+Math.floor(rnd()*3),1,5),extra:(o===-9||o===-25)?['Аура','Світлочутливість']:['Світлочутливість']};
+      if(stress>=4&&rnd()<.6) sym.mood={int:cl(2+Math.floor(rnd()*2),1,5)};
+      entries[iso]={status:'done',wb:cl(9-f-(stress>=4?1:0),2,9),sym,confirmed:true,
+        ctx:{stress,sleepQ,sleepH,activity:rnd()<.4,actType:'Прогулянка',heat:heat.includes(o),extras:heat.includes(o)?['Задушливе приміщення']:[]},
+        note:notes[String(o)]||'',flare:o===-8?{isNew:true,dur24:true,temp:false,note:'Слабкість правої руки помітно сильніша за звичну.'}:null,
+        noSymptoms:Object.keys(sym).length===0,filledLater:false};
+    }
+    return {entries,cycleStarts:[this.isoOff(-12)],active:this.SYM.map(s=>s.id),archived:[],custom:[],cycleOn:true,remOn:true,remTime:'20:00',lock:false};
+  }
+  cycleDay(iso){ const st=(this.state.data.cycleStarts||[]).filter(s=>s<=iso).sort(); if(!st.length) return null; const d=this.diffDays(st[st.length-1],iso)+1; return d<=60?d:null; }
+  sum(e,iso){
+    if(!e||e.status!=='done') return '';
+    const parts=[];
+    if(e.wb) parts.push('самопочуття '+e.wb+'/10');
+    Object.keys(e.sym||{}).forEach(id=>{
+      const s=this.symDef(id); if(!s) return; const v=e.sym[id];
+      let t=s.name.charAt(0).toLowerCase()+s.name.slice(1);
+      if(v.int&&s.type==='scale') t+=' '+v.int+'/5';
+      if(v.side) t+=', '+v.side.toLowerCase();
+      if(v.extra&&v.extra.length) t+=' ('+v.extra.join(', ').toLowerCase()+')';
+      if(v.ep) t+=', епізодів: '+v.ep;
+      parts.push(t);
+    });
+    if(e.noSymptoms) parts.push('симптомів не було');
+    const c=e.ctx||{};
+    if(c.stress) parts.push('стрес '+c.stress+'/5');
+    if(c.sleepQ) parts.push('сон '+c.sleepQ+'/5'+(c.sleepH?' ('+c.sleepH+' год)':''));
+    if(c.heat) parts.push('було дуже спекотно');
+    const cd=this.state.data.cycleOn?this.cycleDay(iso):null;
+    if(cd) parts.push('цикл — день '+cd);
+    return parts.join('; ')+'.';
+  }
+  entryVal(e,symId){
+    const def=this.symDef(symId);
+    if(!e||e.status!=='done') return null;
+    if(symId==='stress') return (e.ctx&&e.ctx.stress)||null;
+    if(symId==='sleepQ') return (e.ctx&&e.ctx.sleepQ)||null;
+    if(symId==='wb') return e.wb||null;
+    if(e.sym&&e.sym[symId]) return def&&def.type==='scale'?(e.sym[symId].int||null):1;
+    if(e.confirmed&&this.state.data.active.includes(symId)) return 0;
+    return null;
+  }
+  model(symId,period,w,h){
+    const n=period,pad=12,iw=w-2*pad,ih=h-2*pad;
+    const def=this.symDef(symId);
+    const max=symId==='wb'?10:(def&&def.type==='bool'?1:5);
+    const days=[];
+    for(let i=0;i<n;i++){ const o=i-(n-1); const iso=this.isoOff(o); const e=this.state.data.entries[iso];
+      days.push({iso,i,v:this.entryVal(e,symId),e,heat:!!(e&&e.ctx&&e.ctx.heat),flare:!!(e&&e.flare),menses:(this.state.data.cycleStarts||[]).includes(iso)});
+    }
+    const x=i=>pad+(n>1?i*iw/(n-1):iw/2), y=v=>pad+(1-v/max)*ih;
+    const segs=[]; let cur=null;
+    days.forEach((d,i)=>{ if(d.v===null){cur=null;return;} const pt=x(i).toFixed(1)+' '+y(d.v).toFixed(1); if(!cur){cur={d:'M '+pt+' L '+pt};segs.push(cur);}else cur.d+=' L '+pt; });
+    const pts=days.filter(d=>d.v!==null).map(d=>({x:+x(d.i).toFixed(1),y:+y(d.v).toFixed(1),v:d.v,iso:d.iso,i:d.i,fill:d.v===0?'var(--color-bg)':'var(--color-accent)'}));
+    const filled=days.filter(d=>d.e&&d.e.status==='done').length;
+    return {days,segs,pts,x,y,w,h,max,filled,n,cover:'Заповнено '+filled+' із '+n+' днів'};
+  }
+  goTab(t){ this.setState({tab:t,sub:null,selDay:null,crisisAns:''}); }
+  finishOb(){
+    const d=this.state.data;
+    this.setState({view:'app',data:{...d,active:this.state.obSyms||d.active,cycleOn:this.state.obCycle,remOn:this.state.obRemOn,remTime:this.state.obTime}});
+  }
+  vCore(){
+    const st=this.state;
+    const seg=(sel)=>({bg:sel?'var(--color-accent)':'transparent',fg:sel?'var(--color-bg)':'var(--color-text)'});
+    const mm=seg(!st.desk), md=seg(st.desk);
+    const NAVD={today:'M12 3v2 M12 19v2 M3 12h2 M19 12h2 M5.6 5.6l1.4 1.4 M17 17l1.4 1.4 M5.6 18.4l1.4-1.4 M17 7l1.4-1.4 M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8',
+      history:'M4 5h16v16H4z M4 10h16 M9 3v4 M15 3v4',
+      trends:'M21 7l-7.5 7.5-4-4L3 17 M15 7h6v6',
+      report:'M14 3H7a1 1 0 0 0-1 1v16a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1V8z M14 3v5h5 M9 13h6 M9 17h6',
+      set:'M5 21v-6 M5 11V3 M12 21v-9 M12 8V3 M19 21v-4 M19 13V3 M3 15h4 M10 8h4 M17 17h4'};
+    const LBL={today:'Сьогодні',history:'Історія',trends:'Динаміка',report:'Звіт',set:'Налаштування'};
+    const navs=['today','history','trends','report','set'].map(k=>({label:LBL[k],d:NAVD[k],on:()=>this.goTab(k),
+      c:st.tab===k?'var(--color-accent)':'color-mix(in srgb, var(--color-text) 60%, transparent)',w:st.tab===k?'700':'400'}));
+    return {
+      theme:this.props.theme??'light',
+      frameClass:(this.props.reduceMotion??false)?'nd-frame nd-reduce':'nd-frame',
+      mob:!st.desk,desk:st.desk,
+      modeMob:()=>this.setState({desk:false}),modeDesk:()=>this.setState({desk:true}),
+      modeMobBg:mm.bg,modeMobFg:mm.fg,modeDeskBg:md.bg,modeDeskFg:md.fg,
+      isOb:st.view==='ob',isApp:st.view!=='ob',subNone:!st.sub,
+      tToday:st.tab==='today',tHist:st.tab==='history',tTrends:st.tab==='trends',tReport:st.tab==='report',tSet:st.tab==='set',
+      sCheckin:st.sub==='checkin',sDay:st.sub==='day',sSym:st.sub==='sym',sCatalog:st.sub==='catalog',sPrivacy:st.sub==='privacy',sSafety:st.sub==='safety',sStates:st.sub==='states',sCrisis:st.sub==='crisis',
+      navs,toastF:!!st.toast,toastT:st.toast||''
+    };
+  }
+  vOb(){
+    const st=this.state, step=st.obStep;
+    const def=this.SYM.map(s=>s.id);
+    const cur=st.obSyms||def;
+    return {
+      ob0:step===0,ob1:step===1,ob2:step===2,ob3:step===3,ob4:step===4,
+      obDots:[0,1,2,3,4].map(i=>({bg:i<=step?'var(--color-accent)':'var(--color-neutral-300)'})),
+      obPrivacy:[
+        {k:'Які дані збираються',v:'Лише те, що ви вводите: симптоми, контекст, нотатки, дати циклу.'},
+        {k:'Де вони зберігаються',v:'У цьому demo — тільки у вашому браузері (localStorage). Це не захищене сховище реальних медичних даних.'},
+        {k:'Чи залишають пристрій',v:'У demo — ні. Якщо зʼявиться синхронізація, буде окрема явна згода й опис обробки.'},
+        {k:'Хто має доступ і як видалити',v:'Лише ви. Експорт CSV/JSON і повне видалення — у Налаштуваннях.'}
+      ],
+      obSymList:this.SYM.map(s=>this.ch(s.name,cur.includes(s.id),()=>this.setState({obSyms:this.tog(cur,s.id)}))),
+      obCycleChips:[['on','Увімкнути'],['off','Не зараз']].map(([k,t])=>this.ch(t,(st.obCycle?'on':'off')===k,()=>this.setState({obCycle:k==='on'}))),
+      obRemChips:[['on','Нагадувати щодня'],['off','Не нагадувати']].map(([k,t])=>this.ch(t,(st.obRemOn?'on':'off')===k,()=>this.setState({obRemOn:k==='on'}))),
+      obRemOnF:!!st.obRemOn,
+      obSkipShow:step>=2,
+      obTimeChips:['08:00','13:00','20:00','21:30'].map(t=>this.ch(t,st.obTime===t,()=>this.setState({obTime:t}))),
+      obShowBack:step>0,obBack:()=>this.setState({obStep:step-1}),
+      obNextL:step===4?'Почати':'Далі',
+      obNext:()=>{ if(step===4) this.finishOb(); else this.setState({obStep:step+1}); },
+      obSkip:()=>this.finishOb()
+    };
+  }
+  vToday(){
+    const st=this.state,t=this.isoOff(0),e=st.data.entries[t];
+    const done=e&&e.status==='done', draft=(e&&e.status==='draft')||(st.checkin&&st.checkin.date===t);
+    const cd=st.data.cycleOn?this.cycleDay(t):null;
+    const week7=[];
+    for(let o=-6;o<=0;o++){ const en=st.data.entries[this.isoOff(o)]; const v=this.entryVal(en,'fatigue');
+      const d=this.dOf(this.isoOff(o));
+      week7.push({l:['Пн','Вт','Ср','Чт','Пт','Сб','Нд'][(d.getDay()+6)%7],
+        h:v===null?'4px':(v===0?'6px':(v*9)+'px'),
+        bg:v===null?'var(--color-neutral-300)':(v===0?'var(--color-accent-2-300)':'var(--color-accent-400)'),
+        bd:'none'});
+    }
+    return {
+      todWD:this.fmtLong(t).replace(/^./,c=>c.toUpperCase()),
+      todStatusT:done?'Завершено':(draft?'Чернетка':'Не заповнено'),
+      todStatusBg:done?'var(--color-accent-2-200)':(draft?'var(--color-accent-100)':'var(--color-neutral-200)'),
+      todStatusFg:done?'var(--color-accent-2-800)':(draft?'var(--color-accent-800)':'var(--color-neutral-800)'),
+      todHasCycle:!!cd,todCycle:cd?'Цикл · день '+cd:'',
+      todCtaL:done?'Редагувати запис':(draft?'Продовжити':'Заповнити день'),
+      todCta:()=>this.startCheckin(t,{}),
+      todNoSymShow:!done&&!draft,
+      todNoSym:()=>{ const e0={status:'done',wb:null,sym:{},confirmed:true,ctx:{stress:null,sleepQ:null,sleepH:7,activity:false,actType:'',heat:false,extras:[]},note:'',flare:null,noSymptoms:true,filledLater:false};
+        this.setState({data:{...st.data,entries:{...st.data.entries,[t]:e0}}}); this.tset('Записано: сьогодні симптомів не було'); },
+      todAddMore:!!(done&&e.noSymptoms),
+      todAddMoreOn:()=>this.startCheckin(t,{}),
+      todMenses:()=>this.setState({dialog:{type:'menses',sel:'today',custom:t,dup:false}}),
+      todHasSum:done,todSum:done?this.sum(e,t):'',
+      week7,
+      safetyOpen:()=>this.setState({sub:'safety',safetyMore:false})
+    };
+  }
+  startCheckin(iso,opts){
+    const e=this.state.data.entries[iso];
+    let d;
+    if(this.state.checkin&&this.state.checkin.date===iso) d=this.state.checkin.d;
+    else if(e&&e.status==='draft'&&e.d) d=e.d;
+    else if(e&&e.status==='done'){
+      const sym=JSON.parse(JSON.stringify(e.sym||{}));
+      Object.keys(sym).forEach(id=>{ const v=sym[id]; if(v.side||(v.extra&&v.extra.length)||v.ep||v.impact||v.comment) v.more=true; });
+      d={wb:e.wb,wbSkip:!e.wb,sel:Object.keys(sym),sym,ctx:{extras:[],...e.ctx},note:e.note||'',flare:e.flare,confirmed:e.confirmed,noSymptoms:e.noSymptoms,step:6,symIdx:0,ctxMore:!!(e.ctx&&(e.ctx.activity||e.ctx.heat||(e.ctx.extras&&e.ctx.extras.length)))};
+    }
+    else d={wb:null,wbSkip:false,sel:[],sym:{},ctx:{stress:null,sleepQ:null,sleepH:7,activity:false,actType:'',heat:false,extras:[]},note:'',flare:null,confirmed:false,noSymptoms:false,step:1,symIdx:0,ctxMore:false};
+    this.setState({sub:'checkin',checkin:{date:iso,d,back:opts.back||null}});
+  }
+  udr(p){
+    const c=this.state.checkin; if(!c) return;
+    const d={...c.d,...p};
+    const ent=this.state.data.entries[c.date];
+    let data=this.state.data;
+    if(!ent||ent.status!=='done') data={...data,entries:{...data.entries,[c.date]:{status:'draft',d}}};
+    this.setState({checkin:{...c,d},data});
+  }
+  usym(id,p){ const c=this.state.checkin; this.udr({sym:{...c.d.sym,[id]:{...(c.d.sym[id]||{}),...p}}}); }
+  uctx(p){ this.udr({ctx:{...this.state.checkin.d.ctx,...p}}); }
+  fin(){
+    const c=this.state.checkin,d=c.d;
+    const sym={}; d.sel.forEach(id=>{ const v={...(d.sym[id]||{})}; delete v.more; sym[id]=v; });
+    const prev=this.state.data.entries[c.date];
+    const e={status:'done',wb:d.wbSkip?null:d.wb,sym,confirmed:d.sel.length?!!d.confirmed:(!!d.noSymptoms||!!d.confirmed),ctx:d.ctx,note:d.note||'',flare:d.flare||null,
+      noSymptoms:d.sel.length===0&&d.noSymptoms,
+      filledLater:(prev&&prev.status==='done')?(prev.filledLater||false):(c.date!==this.isoOff(0))};
+    const nav=c.back==='day'?{sub:'day',tab:'history',selDay:c.date}:{sub:null,tab:'today',selDay:null};
+    this.setState({data:{...this.state.data,entries:{...this.state.data.entries,[c.date]:e}},checkin:null,...nav});
+    this.tset('Збережено');
+  }
+  exitCheckin(saveDraft){
+    const c=this.state.checkin;
+    const prev=this.state.data.entries[c.date];
+    let data=this.state.data;
+    if(saveDraft&&(!prev||prev.status!=='done')) data={...data,entries:{...data.entries,[c.date]:{status:'draft',d:c.d}}};
+    const nav=c.back==='day'?{sub:'day',tab:'history',selDay:c.date}:{sub:null};
+    this.setState({data,checkin:null,...nav});
+    if(saveDraft) this.tset('Чернетку збережено');
+  }
+  vCheckin(){ return this._vCheckin?this._vCheckin():{}; }
+  vHist(){ return this._vHist?this._vHist():{}; }
+  vTrends(){ return this._vTrends?this._vTrends():{}; }
+  vReport(){ return this._vReport?this._vReport():{}; }
+  vMisc(){ return this._vMisc?this._vMisc():{}; }
+  vDesk(){ return this._vDesk?this._vDesk():{}; }
+  _vDesk(){
+    if(!this.state.desk) return {dkNav:[],dkStats:[],dkGrid:[],dkSegs:[],dkPts:[],dkHeat:[],dkMenses:[],dkFlare:[],dkStSegs:[],dkSlSegs:[],dkCover:'',dkXl:'',dkXr:'',dkInsight:''};
+    const m=this.model('fatigue',30,860,240);
+    const pr=m.days.filter(d=>d.v>=1);
+    const avg=pr.length?(pr.reduce((a,d)=>a+d.v,0)/pr.length).toFixed(1):'—';
+    return {
+      dkNav:[['today','Сьогодні'],['history','Історія'],['trends','Динаміка'],['report','Звіт'],['set','Налаштування']].map(([k,l])=>({label:l,
+        bg:k==='trends'?'var(--color-accent-100)':'transparent',c:k==='trends'?'var(--color-accent-800)':'inherit',w:k==='trends'?'700':'400',
+        on:k==='trends'?()=>{}:()=>this.setState({desk:false,tab:k,sub:null})})),
+      dkCover:m.cover.toLowerCase(),
+      dkStats:[{k:'Днів із втомою',v:String(pr.length)},{k:'Середня (у дні із симптомом)',v:avg},{k:'Максимум',v:pr.length?String(Math.max(...pr.map(d=>d.v))):'—'},{k:'Coverage',v:m.filled+'/30'}],
+      dkGrid:[1,2,3,4,5].map(v=>({y:+m.y(v).toFixed(1)})),
+      dkSegs:m.segs,
+      dkPts:m.pts.map(p=>({...p,fill:p.v===0?'var(--color-bg)':'var(--color-accent)'})),
+      dkHeat:m.days.filter(d=>d.heat).map(d=>({x:+m.x(d.i).toFixed(1)})),
+      dkMenses:m.days.filter(d=>d.menses).map(d=>({x:+m.x(d.i).toFixed(1)})),
+      dkFlare:m.days.filter(d=>d.flare).map(d=>{const x=m.x(d.i);return {d:'M '+(x-6)+' 26 L '+(x+6)+' 26 L '+x+' 13 Z'};}),
+      dkXl:this.fmtShort(m.days[0].iso), dkXr:this.fmtShort(m.days[m.days.length-1].iso),
+      dkStSegs:this.model('stress',30,420,110).segs,
+      dkSlSegs:this.model('sleepQ',30,420,110).segs,
+      dkInsight:'У заповнених записах втома частіше була вищою у дні з високим стресом і після ночей із поганим сном.'
+    };
+  }
+  _vMiscMain(){
+    const st=this.state, D=st.data;
+    const q=(st.catQ||'').toLowerCase();
+    const CAT=[
+      ['Рух і мʼязи',['Слабкість або важкість у нозі','Порушення дрібної моторики','Підволікання стопи','Утруднення ходьби','Скутість / спастичність','Тремор']],
+      ['Координація й безпека',['Незграбність','Порушення координації','Падіння','Майже падіння']],
+      ['Чутливість',['Поколювання, «мурашки»','Печіння','Електричні простріли','Симптом Лермітта']],
+      ['Біль',['Нейропатичний біль','Мʼязово-скелетний біль','Поясоподібне стискання тулуба','Невралгія трійчастого нерва']],
+      ['Зір',['Сліпа пляма / втрата поля','«Стрибання» зображення']],
+      ['Вестибулярні',['Вертиго','Переднепритомний стан','Порушення рівноваги']],
+      ['Втома й когнітивні',['Когнітивна втома','Швидкість мислення','Планування','Пошук слів','Brain fog']],
+      ['Мовлення й ковтання',['Нечітка або сповільнена мова','Зміна голосу','Важко ковтати','Поперхування під час їжі']],
+      ['Сечовий міхур і кишківник',['Ніктурія','Закреп','Кишкові позиви / нетримання']],
+      ['Настрій і сон',['Тривога','Дратівливість','Емоційна лабільність','Якість сну','Денна сонливість']],
+      ['Голова й обличчя',['Мігрень','Аура','Лицеве оніміння','Лицевий біль']],
+      ['Слух',['Зниження слуху','Шум у вухах']],
+      ['Автономні',['Запаморочення при вставанні','Непритомність','Порушення потовиділення','Непереносимість спеки']],
+      ['Приватний опційний модуль',['Сексуальна функція: бажання','Чутливість','Біль','Збудження / оргазм']],
+      ['Подієві',['Втрата свідомості / ймовірний напад']]
+    ];
+    const catNames=new Set([...D.active,...D.archived].map(id=>{const s=this.symDef(id);return s?s.name:'';}));
+    const addFromCat=(name,cat)=>{
+      const id='c'+Date.now();
+      this.setState({data:{...D,custom:[...(D.custom||[]),{id,name,cat,type:'bool'}],active:[...D.active,id]}});
+      this.tset('Додано до активного списку');
+    };
+    const catList=CAT.map(([cat,items])=>{
+      const its=items.filter(t=>!q||t.toLowerCase().includes(q)).map(t=>{
+        const added=catNames.has(t);
+        return {t:added?t+' ✓':t,on:added?()=>this.tset('Уже у вашому списку'):()=>addFromCat(t,cat),
+          bd:added?'var(--color-accent-2)':'var(--color-divider)',bg:added?'var(--color-accent-2-100)':'var(--color-surface)',fg:added?'var(--color-accent-2-800)':'var(--color-text)'};
+      });
+      return its.length?{cat,items:its}:null;
+    }).filter(Boolean);
+    const move=(i,dir)=>{ const a=[...D.active]; const j=i+dir; if(j<0||j>=a.length) return;
+      const tmp=a[i]; a[i]=a[j]; a[j]=tmp; this.setState({data:{...D,active:a}}); };
+    return {
+      openCat:()=>this.setState({sub:'catalog',catFrom:'set'}),
+      cycleTg2:this.tg(D.cycleOn,()=>this.setState({data:{...D,cycleOn:!D.cycleOn}})),
+      remTg:this.tg(D.remOn,()=>this.setState({data:{...D,remOn:!D.remOn}})),
+      remOnF:!!D.remOn,
+      remChips:['08:00','13:00','20:00','21:30'].map(t=>this.ch(t,D.remTime===t,()=>{this.setState({data:{...D,remTime:t}});this.tset('Нагадування о '+t);})),
+      openPrivacy:()=>this.setState({sub:'privacy'}),
+      openStates:()=>this.setState({sub:'states'}),
+      openDel:()=>this.setState({dialog:{type:'delData'}}),
+      catBack:()=>{ if(st.catFrom==='checkin') this.setState({sub:'checkin',catQ:''}); else this.setState({sub:null,tab:'set',catQ:''}); },
+      catQ:st.catQ||'', catQOn:e=>this.setState({catQ:e.target.value}),
+      catActive:D.active.map((id,i)=>{ const s=this.symDef(id)||{name:String(id),type:'bool'};
+        return {t:s.name,meta:(s.type==='scale'?'шкала 1–5':'так / ні')+(s.side?' · сторона':'')+(String(id)[0]==='c'?' · власний':''),
+          up:()=>move(i,-1),down:()=>move(i,1),
+          arch:()=>{ this.setState({data:{...D,active:D.active.filter(x=>x!==id),archived:[...D.archived,id]}}); this.tset('Переміщено в архів — історія збережена'); }};
+      }),
+      catArchF:D.archived.length>0,
+      catArch:D.archived.map(id=>{ const s=this.symDef(id)||{name:String(id)};
+        return {t:s.name,restore:()=>this.setState({data:{...D,archived:D.archived.filter(x=>x!==id),active:[...D.active,id]}})}; }),
+      catList,
+      newName:st.newName||'', newNameOn:e=>this.setState({newName:e.target.value}),
+      newTypeChips:[['bool','Так / ні'],['scale','Шкала 1–5']].map(([k,t])=>this.ch(t,st.newType===k,()=>this.setState({newType:k}))),
+      addCustom:()=>{ const n=(st.newName||'').trim(); if(!n){ this.tset('Введіть назву симптому'); return; }
+        const id='c'+Date.now();
+        this.setState({data:{...D,custom:[...(D.custom||[]),{id,name:n,cat:'Власні',type:st.newType}],active:[...D.active,id]},newName:''});
+        this.tset('Симптом додано'); },
+      pvBack:()=>this.setState({sub:null,tab:'set'}),
+      pvLockTg:this.tg(D.lock,()=>{ this.setState({data:{...D,lock:!D.lock}}); this.tset(D.lock?'App lock вимкнено (демо)':'App lock увімкнено (демо)'); }),
+      sfBack:()=>this.setState({sub:null}),
+      sfMoreF:!!st.safetyMore, sfMoreBtnF:!st.safetyMore, sfMoreOn:()=>this.setState({safetyMore:true}),
+      stBack:()=>this.setState({sub:null,tab:'set'}),
+      demoToast:()=>this.tset('Чернетку збережено'),
+      crBack:()=>{ if(st.checkin) this.setState({sub:'checkin',crisisAns:''}); else this.setState({sub:null,crisisAns:''}); },
+      crAskF:!st.crisisAns, crYesF:st.crisisAns==='yes', crNoF:st.crisisAns==='no',
+      crYes:()=>this.setState({crisisAns:'yes'}), crNo:()=>this.setState({crisisAns:'no'}),
+      crContact:()=>this.tset('Демо: відкрились би контакти довіреної людини')
+    };
+  }
+  so(n,max,sel,on,lab){ return {n,sel:!!sel,on,aria:n+' із '+max+(lab?', '+lab:''),bg:sel?'var(--color-accent)':'var(--color-surface)',fg:sel?'var(--color-bg)':'var(--color-text)',bd:sel?'var(--color-accent)':'var(--color-divider)'}; }
+  det(sv,s){
+    const p=[];
+    if(s.type==='scale'&&sv.int) p.push(sv.int+'/5 — '+this.INT[sv.int]);
+    if(s.type==='bool') p.push('було');
+    if(sv.side) p.push(sv.side.toLowerCase());
+    if(sv.extra&&sv.extra.length) p.push(sv.extra.join(', ').toLowerCase());
+    if(sv.ep) p.push('епізодів: '+sv.ep);
+    if(sv.impact) p.push('вплив: '+sv.impact.toLowerCase());
+    if(sv.comment) p.push('«'+sv.comment+'»');
+    return p.join('; ')||'—';
+  }
+  _vCheckin(){
+    const st=this.state,c=st.checkin;
+    if(!c) return {sCheckin:false};
+    const d=c.d;
+    const seq=d.sel.length?[{s:1},{s:2},...d.sel.map((id,i)=>({s:3,i})),{s:6}]:[{s:1},{s:2},{s:6}];
+    const sat=d.step===4||d.step===5;
+    let idx;
+    if(sat) idx=seq.length-1;
+    else { idx=seq.findIndex(q=>q.s===d.step&&(q.s!==3||q.i===(d.symIdx||0))); if(idx<0) idx=seq.findIndex(q=>q.s===d.step); if(idx<0) idx=0; }
+    const cur=sat?{s:d.step}:seq[idx];
+    const step=cur.s;
+    const T={1:'Самопочуття',2:'Симптоми',4:'Контекст дня',5:'Нотатка й позначки',6:'Огляд і збереження'};
+    const active=st.data.active;
+    const curSym=step===3?d.sel[cur.i||0]:null;
+    const goTo=q=>this.udr(q.s===3?{step:3,symIdx:q.i}:{step:q.s});
+    const cards=(curSym?[curSym]:[]).map(id=>{
+      const s=this.symDef(id)||{name:id,type:'bool'}, sv=d.sym[id]||{};
+      return {
+        name:s.name, isScale:s.type==='scale',
+        scaleOpts:[1,2,3,4,5].map(n=>this.so(n,5,sv.int===n,()=>this.usym(id,{int:n}),this.INT[n])),
+        intLabel:sv.int?sv.int+' — '+this.INT[sv.int]:'Оберіть інтенсивність (відсутність — це окремий стан, не «1»)',
+        hasSide:!!s.side, sideOpts:(s.side||[]).map(t=>this.ch(t,sv.side===t,()=>this.usym(id,{side:sv.side===t?null:t}))),
+        hasExtra:!!s.extra, extraLabel:s.extra?s.extra.label:'',
+        extraOpts:s.extra?s.extra.opts.map(t=>this.ch(t,(sv.extra||[]).includes(t),()=>this.usym(id,{extra:this.tog(sv.extra||[],t)}))):[],
+        hasEp:!!s.episodes, ep:sv.ep||0,
+        epM:()=>this.usym(id,{ep:Math.max(0,(sv.ep||0)-1)}), epP:()=>this.usym(id,{ep:(sv.ep||0)+1}),
+        hasImpact:!!s.impact,
+        impactOpts:s.impact?this.IMPACT.map(t=>this.ch(t,sv.impact===t,()=>this.usym(id,{impact:sv.impact===t?null:t}))):[],
+        comment:sv.comment||'', onComment:e=>this.usym(id,{comment:e.target.value}),
+        moreF:!!sv.more, moreBtnF:!sv.more, moreOn:()=>this.usym(id,{more:true})
+      };
+    });
+    const curSymDef=curSym?this.symDef(curSym):null;
+    const mood5now=step===3&&curSym==='mood'&&!!(d.sym.mood&&d.sym.mood.int===5);
+    const cx=d.ctx||{};
+    const secs=[];
+    secs.push({k:'Самопочуття',btnL:'Змінити',on:()=>goTo(seq[0]),rows:[{k:'Оцінка',v:d.wbSkip?'не заповнено (пропущено)':(d.wb?d.wb+'/10':'не заповнено')}]});
+    const symRows=d.sel.length?d.sel.map(id=>{ const s=this.symDef(id); return s?{k:s.name,v:this.det(d.sym[id]||{},s)}:null; }).filter(Boolean):[{k:d.noSymptoms?'Не було':'Не вибрано',v:d.noSymptoms?'підтверджена відсутність':'—'}];
+    secs.push({k:'Симптоми',btnL:'Змінити',on:()=>goTo(seq[1]),rows:symRows});
+    const ctxRows=[];
+    if(cx.stress) ctxRows.push({k:'Стрес',v:cx.stress+'/5'});
+    if(cx.sleepQ) ctxRows.push({k:'Сон',v:cx.sleepQ+'/5'+(cx.sleepH?' · '+cx.sleepH+' год':'')});
+    if(cx.activity) ctxRows.push({k:'Активність',v:cx.actType||'так'});
+    if(cx.heat) ctxRows.push({k:'Спека / перегрів',v:'так'});
+    if(cx.extras&&cx.extras.length) ctxRows.push({k:'Додатково',v:cx.extras.join(', ')});
+    const cd0=st.data.cycleOn?this.cycleDay(c.date):null;
+    if(cd0) ctxRows.push({k:'Цикл',v:'день '+cd0});
+    secs.push({k:'Контекст дня · опційно',btnL:ctxRows.length?'Змінити':'Додати',on:()=>this.udr({step:4}),rows:ctxRows.length?ctxRows:[{k:'Не додано',v:'можна додати пізніше'}]});
+    const nfRows=[];
+    if(d.note) nfRows.push({k:'Нотатка',v:d.note.length>60?d.note.slice(0,60)+'…':d.note});
+    if(d.flare) nfRows.push({k:'Можливе загострення',v:'позначено'});
+    secs.push({k:'Нотатка й позначки · опційно',btnL:nfRows.length?'Змінити':'Додати',on:()=>this.udr({step:5}),rows:nfRows.length?nfRows:[{k:'Не додано',v:'можна додати пізніше'}]});
+    const absent=active.filter(id=>!d.sel.includes(id)).map(id=>{const s=this.symDef(id);return s?s.name.toLowerCase():id;});
+    const fl=d.flare;
+    return {
+      sCheckin:st.sub==='checkin',
+      ciStepTxt:sat?'Опційно · '+this.fmtLong(c.date):'Крок '+(idx+1)+' із '+seq.length+' · '+this.fmtLong(c.date),
+      ciTitle:step===3?(curSymDef?curSymDef.name:''):T[step],
+      ciProgW:sat?'100%':Math.round((idx+1)/seq.length*100)+'%',
+      ciClose:()=>this.exitCheckin(true),
+      ciShowBack:sat||idx>0,
+      ciBack:()=>{ if(sat){this.udr({step:6});return;} goTo(seq[idx-1]); },
+      ciNextL:sat?'Готово — до огляду':(step===6?'Завершити запис':'Далі'),
+      ciNext:()=>{ if(sat){this.udr({step:6});return;} if(step===6){this.fin();return;} goTo(seq[idx+1]); },
+      ciSymPos:step===3?'Симптом '+((cur.i||0)+1)+' із '+d.sel.length:'',
+      ci3Mood5:mood5now,
+      ciSaveDraft:()=>this.exitCheckin(true),
+      ci1:step===1,ci2:step===2,ci3:step===3,ci4:step===4,ci5:step===5,ci6:step===6,
+      wbOpts:[1,2,3,4,5,6,7,8,9,10].map(n=>this.so(n,10,!d.wbSkip&&d.wb===n,()=>this.udr({wb:n,wbSkip:false}),n===1?'дуже погано':(n===10?'дуже добре':''))),
+      wbLabel:d.wbSkip?'Пропущено — залишиться як «не заповнено»':(d.wb?(d.wb+'/10'+(d.wb<=3?' — дуже погано':(d.wb>=8?' — добре':''))):''),
+      wbSkipChip:this.ch('Не знаю / Пропустити',d.wbSkip,()=>this.udr({wbSkip:!d.wbSkip,wb:null})),
+      ciSymList:active.map(id=>{ const s=this.symDef(id); return this.ch(s?s.name:id,d.sel.includes(id),()=>this.udr({sel:this.tog(d.sel,id),noSymptoms:false,symIdx:0})); }),
+      ciNoneCh:this.ch('',d.noSymptoms&&!d.sel.length,()=>{}),
+      ciNoneBtn:()=>this.udr({sel:[],sym:{},noSymptoms:true,step:6}),
+      ciOpenCat:()=>this.setState({sub:'catalog',catFrom:'checkin'}),
+      ciCards:cards,
+      stressOpts:[1,2,3,4,5].map(n=>this.so(n,5,cx.stress===n,()=>this.uctx({stress:n}),this.INT[n])),
+      stressSkip:()=>this.uctx({stress:null}),
+      sleepQOpts:[1,2,3,4,5].map(n=>this.so(n,5,cx.sleepQ===n,()=>this.uctx({sleepQ:n}),this.INT[n])),
+      sleepSkip:()=>this.uctx({sleepQ:null}),
+      slH:(cx.sleepH!=null?cx.sleepH:7)+' год',
+      slHM:()=>this.uctx({sleepH:Math.max(0,(cx.sleepH||7)-0.5)}),
+      slHP:()=>this.uctx({sleepH:Math.min(14,(cx.sleepH||7)+0.5)}),
+      actTg:this.tg(cx.activity,()=>this.uctx({activity:!cx.activity})), actOn:!!cx.activity,
+      actChips:['Прогулянка','Вправи','Фізіотерапія','Інше'].map(t=>this.ch(t,cx.actType===t,()=>this.uctx({actType:t}))),
+      heatTg:this.tg(cx.heat,()=>this.uctx({heat:!cx.heat})),
+      ctxMoreF:!!d.ctxMore, ctxMoreBtnF:!d.ctxMore, ctxMoreOn:()=>this.udr({ctxMore:true}),
+      extraChips:['Температура / лихоманка','Ознаки інфекції','Гаряча ванна / сауна','Стало краще після охолодження','Нові ліки / зміна дози','Пропуск прийому ліків','Падіння або травма','Задушливе приміщення'].map(t=>this.ch(t,(cx.extras||[]).includes(t),()=>this.uctx({extras:this.tog(cx.extras||[],t)}))),
+      ciNote:d.note||'', ciNoteOn:e=>this.udr({note:e.target.value}),
+      flareTg:this.tg(!!fl,()=>this.udr({flare:fl?null:{isNew:false,dur24:false,temp:false,note:''}})),
+      flareOn:!!fl,
+      flChips:fl?[['isNew','Новий або значно сильніший за звичний'],['dur24','Триває понад 24 години'],['temp','Була температура / інфекція / перегрів']].map(([k,t])=>this.ch(t,fl[k],()=>this.udr({flare:{...fl,[k]:!fl[k]}}))):[],
+      flTip:!!(fl&&fl.isNew&&fl.dur24),
+      rvSecs:secs,
+      rvNoneF:!d.sel.length&&!!d.noSymptoms,
+      rvConfShow:d.sel.length>0,
+      rvConf:!!d.confirmed, rvConfOn:()=>this.udr({confirmed:!d.confirmed}),
+      rvConfBg:d.confirmed?'var(--color-accent-2-100)':'var(--color-surface)',
+      rvConfBd:d.confirmed?'var(--color-accent-2)':'var(--color-divider)',
+      rvConfMk:d.confirmed?'var(--color-accent-2)':'var(--color-neutral-400)',
+      rvConfMkBg:d.confirmed?'var(--color-accent-2)':'transparent',
+      rvNotConf:!d.confirmed,
+      rvHasAbsent:absent.length>0&&d.confirmed, rvAbsent:absent.join(', '),
+      rvMood5:!!(d.sel.includes('mood')&&d.sym.mood&&d.sym.mood.int===5),
+      crisisOpen:()=>this.setState({sub:'crisis',crisisAns:''})
+    };
+  }
+  _vHist(){
+    const st=this.state, E=st.data.entries, starts=st.data.cycleStarts||[];
+    const base=new Date(); base.setDate(1); base.setMonth(base.getMonth()+st.histShift);
+    const y=base.getFullYear(), m=base.getMonth();
+    const first=(new Date(y,m,1).getDay()+6)%7, dim=new Date(y,m+1,0).getDate();
+    const today=this.isoOff(0);
+    const cells=[];
+    for(let i=0;i<first;i++) cells.push({txt:'',bg:'transparent',bd:'1.5px solid transparent',fg:'inherit',on:()=>{},cur:'default',aria:'порожньо',mNote:false,mMenses:false,mFlare:false});
+    for(let dd=1;dd<=dim;dd++){
+      const iso=y+'-'+this.p2(m+1)+'-'+this.p2(dd);
+      const e=E[iso]; const fut=iso>today;
+      const done=e&&e.status==='done', draft=e&&e.status==='draft';
+      cells.push({txt:String(dd),
+        bg:done?'var(--color-accent-2-200)':(draft?'var(--color-accent-100)':'transparent'),
+        bd:iso===today?'2px solid var(--color-accent)':(draft?'1.5px dashed var(--color-accent-600)':'1.5px solid transparent'),
+        fg:fut?'color-mix(in srgb, var(--color-text) 30%, transparent)':(done?'var(--color-accent-2-800)':'inherit'),
+        on:fut?()=>{}:()=>this.setState({sub:'day',selDay:iso}),
+        cur:fut?'default':'pointer',
+        aria:dd+' '+this.MON[m]+(done?', завершено':(draft?', чернетка':', не заповнено')),
+        mNote:!!(e&&((e.note&&e.status==='done')||(e.d&&e.d.note))),
+        mMenses:starts.includes(iso),
+        mFlare:!!(e&&e.status==='done'&&e.flare)});
+    }
+    while(cells.length%7) cells.push({txt:'',bg:'transparent',bd:'1.5px solid transparent',fg:'inherit',on:()=>{},cur:'default',aria:'порожньо',mNote:false,mMenses:false,mFlare:false});
+    const rows=[]; for(let i=0;i<cells.length;i+=7) rows.push({cells:cells.slice(i,i+7)});
+    const FL={all:'Усі',flare:'Загострення',menses:'Місячні',notes:'Нотатки',draft:'Чернетки'};
+    const list=Object.keys(E).sort().reverse().filter(iso=>{
+      const e=E[iso], f=st.histFilter;
+      if(f==='flare') return e.status==='done'&&e.flare;
+      if(f==='menses') return starts.includes(iso);
+      if(f==='notes') return e.status==='done'&&e.note;
+      if(f==='draft') return e.status==='draft';
+      return true;
+    }).slice(0,40).map(iso=>{
+      const e=E[iso], done=e.status==='done';
+      return {dateL:this.fmtLong(iso).replace(/^./,ch=>ch.toUpperCase()),
+        statusT:done?'Завершено':'Чернетка',
+        sBg:done?'var(--color-accent-2-200)':'var(--color-accent-100)',
+        sFg:done?'var(--color-accent-2-800)':'var(--color-accent-800)',
+        sum:done?this.sum(e,iso):'Незавершений запис — можна продовжити з того самого місця.',
+        on:()=>this.setState({sub:'day',selDay:iso})};
+    });
+    const sel=st.selDay, se=sel?E[sel]:null;
+    const dayRows=[];
+    if(se&&se.status==='done'){
+      Object.keys(se.sym||{}).forEach(id=>{ const s=this.symDef(id); if(s) dayRows.push({k:s.name,v:this.det(se.sym[id],s)}); });
+      if(se.noSymptoms) dayRows.push({k:'Симптоми',v:'не було (підтверджено)'});
+      dayRows.push({k:'Самопочуття',v:se.wb?se.wb+'/10':'не заповнено'});
+      const cx=se.ctx||{};
+      dayRows.push({k:'Стрес',v:cx.stress?cx.stress+'/5':'не заповнено'});
+      dayRows.push({k:'Сон',v:cx.sleepQ?cx.sleepQ+'/5'+(cx.sleepH?' · '+cx.sleepH+' год':''):'не заповнено'});
+      dayRows.push({k:'Активність',v:cx.activity?(cx.actType||'так'):'ні'});
+      dayRows.push({k:'Спека / перегрів',v:cx.heat?'так':'ні'});
+      const cdd=st.data.cycleOn?this.cycleDay(sel):null;
+      if(cdd) dayRows.push({k:'Цикл',v:'день '+cdd});
+    }
+    return {
+      calTitle:this.MONN[m]+' '+y,
+      calPrev:()=>this.setState({histShift:st.histShift-1}),
+      calNext:()=>this.setState({histShift:Math.min(0,st.histShift+1)}),
+      calRows:rows,
+      histChips:Object.keys(FL).map(k=>this.ch(FL[k],st.histFilter===k,()=>this.setState({histFilter:k}))),
+      histList:list, histEmpty:!list.length,
+      dayBack:()=>this.setState({sub:null,selDay:null,tab:'history'}),
+      dayTitle:sel?this.fmtLong(sel).replace(/^./,ch=>ch.toUpperCase()):'',
+      dayStatusT:se?(se.status==='done'?'Завершено':'Чернетка'):'Не заповнено',
+      dayStatusBg:se?(se.status==='done'?'var(--color-accent-2-200)':'var(--color-accent-100)'):'var(--color-neutral-200)',
+      dayStatusFg:se?(se.status==='done'?'var(--color-accent-2-800)':'var(--color-accent-800)'):'var(--color-neutral-800)',
+      dayHasEntry:!!se, dayNoEntry:!se, dayIsDraft:!!(se&&se.status==='draft'),
+      dayHasSum:!!(se&&se.status==='done'), daySum:se&&se.status==='done'?this.sum(se,sel):'',
+      dayRows,
+      dayHasNote:!!(se&&se.status==='done'&&se.note), dayNote:se&&se.note||'',
+      dayHasFlare:!!(se&&se.status==='done'&&se.flare),
+      dayFlareT:se&&se.flare?[se.flare.isNew?'новий або значно сильніший':'',se.flare.dur24?'триває понад 24 год':'',se.flare.temp?'була температура/перегрів':'',se.flare.note].filter(Boolean).join('; ')||'позначено':'',
+      dayFilledLater:!!(se&&se.filledLater),
+      dayHasMenses:!!(sel&&starts.includes(sel)),
+      dayEditL:se?(se.status==='done'?'Редагувати запис':'Продовжити чернетку'):'Заповнити цей день',
+      dayEdit:()=>this.startCheckin(sel,{back:'day'}),
+      dayCanFlare:!!(se&&se.status==='done'&&!se.flare),
+      dayFlareBtn:()=>{ const f=(se&&se.flare)||{isNew:false,dur24:false,temp:false,note:''}; this.setState({dialog:{type:'flare',iso:sel,f:{...f},had:!!(se&&se.flare)}}); },
+      dayDelete:()=>this.setState({dialog:{type:'delEntry',iso:sel}}),
+      dayDelMenses:()=>{ this.setState({data:{...st.data,cycleStarts:starts.filter(x=>x!==sel)}}); this.tset('Позначку прибрано, день циклу перераховано'); }
+    };
+  }
+  _vDlg(){
+    const st=this.state, dl=st.dialog;
+    const v={dlgOpen:!!dl,dMenses:false,dDelE:false,dDelD:false,dPdf:false,dFlare:false,
+      mensChips:[],mensDate:'',mensDateOn:()=>{},mensDup:false,mensConfirm:()=>{},mensCancel:()=>{},
+      delETxt:'',delEC:()=>{},delECancel:()=>{},
+      delCycle:()=>{},delAll:()=>{},restoreDemo:()=>{},delDCancel:()=>{},
+      pdfSave:()=>{},pdfShare:()=>{},pdfPrint:()=>{},pdfDlgClose:()=>{},
+      expCsv:()=>this.tset('Демо: CSV-експорт не реалізовано у прототипі'),
+      expJson:()=>this.tset('Демо: JSON-експорт не реалізовано у прототипі'),
+      dfChips:[],dfNote:'',dfNoteOn:()=>{},dfSave:()=>{},dfCancel:()=>{},dfDel:false,dfDelOn:()=>{}};
+    if(!dl) return v;
+    const close=()=>this.setState({dialog:null});
+    if(dl.type==='menses'){
+      v.dMenses=true;
+      const t=this.isoOff(0), yd=this.isoOff(-1);
+      v.mensChips=[this.ch('Сьогодні',dl.sel==='today',()=>this.setState({dialog:{...dl,sel:'today',dup:false}})),
+        this.ch('Вчора',dl.sel==='yest',()=>this.setState({dialog:{...dl,sel:'yest',dup:false}}))];
+      v.mensDate=dl.custom||t;
+      v.mensDateOn=e=>this.setState({dialog:{...dl,sel:'custom',custom:e.target.value,dup:false}});
+      v.mensDup=!!dl.dup;
+      v.mensCancel=close;
+      v.mensConfirm=()=>{
+        const date=dl.sel==='today'?t:(dl.sel==='yest'?yd:dl.custom);
+        if(!date) return;
+        if((st.data.cycleStarts||[]).includes(date)){ this.setState({dialog:{...dl,dup:true}}); return; }
+        this.setState({data:{...st.data,cycleStarts:[...(st.data.cycleStarts||[]),date].sort(),cycleOn:true},dialog:null});
+        this.tset('Початок циклу позначено: '+this.fmtShort(date));
+      };
+    }
+    if(dl.type==='delEntry'){
+      v.dDelE=true; v.delETxt=this.fmtLong(dl.iso).replace(/^./,c=>c.toUpperCase())+'.';
+      v.delECancel=close;
+      v.delEC=()=>{ const E={...st.data.entries}; delete E[dl.iso]; this.setState({data:{...st.data,entries:E},dialog:null}); this.tset('Запис видалено'); };
+    }
+    if(dl.type==='delData'){
+      v.dDelD=true; v.delDCancel=close;
+      v.delCycle=()=>{ this.setState({data:{...st.data,cycleStarts:[]},dialog:null}); this.tset('Дані циклу видалено'); };
+      v.delAll=()=>{ this.setState({data:{...st.data,entries:{},cycleStarts:[]},checkin:null,dialog:null}); this.tset('Усі записи видалено'); };
+      v.restoreDemo=()=>{ this.setState({data:this.genDemo(),checkin:null,dialog:null}); this.tset('Demo-дані відновлено'); };
+    }
+    if(dl.type==='pdf'){ v.dPdf=true; const t=()=>{ this.tset('Демо: справжній файл не створюється'); };
+      v.pdfSave=t; v.pdfShare=t; v.pdfPrint=t; v.pdfDlgClose=close;
+    }
+    if(dl.type==='flare'){
+      v.dFlare=true; const f=dl.f;
+      v.dfChips=[['isNew','Новий або значно сильніший'],['dur24','Триває понад 24 години'],['temp','Температура / інфекція / перегрів']].map(([k,tx])=>this.ch(tx,f[k],()=>this.setState({dialog:{...dl,f:{...f,[k]:!f[k]}}})));
+      v.dfNote=f.note||'';
+      v.dfNoteOn=e=>this.setState({dialog:{...dl,f:{...f,note:e.target.value}}});
+      v.dfCancel=close; v.dfDel=!!dl.had;
+      const put=(val)=>{ const e=st.data.entries[dl.iso]; if(!e) return close();
+        this.setState({data:{...st.data,entries:{...st.data.entries,[dl.iso]:{...e,flare:val}}},dialog:null}); };
+      v.dfSave=()=>{ put({...f}); this.tset('Позначку збережено'); };
+      v.dfDelOn=()=>{ put(null); this.tset('Позначку прибрано'); };
+    }
+    return v;
+  }
+  _vMisc(){ return Object.assign({},this._vDlg(),this._vMiscMain?this._vMiscMain():{}); }
+  ctxLine(e){
+    if(!e||!e.ctx) return '';
+    const c=e.ctx,p=[];
+    if(c.stress) p.push('стрес '+c.stress+'/5');
+    if(c.sleepQ) p.push('сон '+c.sleepQ+'/5'+(c.sleepH?' ('+c.sleepH+' год)':''));
+    if(c.heat) p.push('спека');
+    return p.join(' · ');
+  }
+  _vTrends(){
+    const st=this.state,tr=st.trends,per=tr.period||30;
+    const trChips=[7,30,90].map(p=>this.ch(p+' дн.',per===p,()=>this.setState({trends:{...tr,period:p,sel:null}})));
+    const cov=this.model('fatigue',per,100,100);
+    const trList=st.data.active.map(id=>{
+      const s=this.symDef(id); if(!s) return null;
+      const m=this.model(id,per,100,100);
+      const present=m.days.filter(d=>d.v>=1);
+      let line;
+      if(s.type==='scale'){
+        if(!present.length) line='не було у заповнені дні';
+        else{ const avg=present.reduce((a,d)=>a+d.v,0)/present.length; const mx=Math.max(...present.map(d=>d.v));
+          line=present.length+' дн. із симптомом · середня (лише у ці дні) '+avg.toFixed(1)+'/5 · макс. '+mx+'/5'; }
+      } else line=present.length+' із '+m.filled+' заповнених днів';
+      return {name:s.name,line,on:()=>this.setState({sub:'sym',trends:{...tr,sym:id,sel:null}})};
+    }).filter(Boolean);
+    const id=tr.sym||'fatigue', def=this.symDef(id)||{name:'',type:'scale'};
+    const m=this.model(id,per,308,150);
+    const marks=m.max===10?[2,4,6,8,10]:(m.max===1?[1]:[1,2,3,4,5]);
+    const half=(308-24)/Math.max(1,per-1)/2;
+    const selDayI=tr.sel;
+    const selD=(selDayI!=null&&m.days[selDayI])?m.days[selDayI]:null;
+    const present=m.days.filter(d=>d.v>=1);
+    const stats=[];
+    if(def.type==='scale'){
+      stats.push({k:'Днів із симптомом',v:String(present.length)});
+      stats.push({k:'Середня*',v:present.length?(present.reduce((a,d)=>a+d.v,0)/present.length).toFixed(1):'—'});
+      stats.push({k:'Максимум',v:present.length?String(Math.max(...present.map(d=>d.v))):'—'});
+    } else {
+      stats.push({k:'Днів із симптомом',v:String(present.length)});
+      stats.push({k:'Частота**',v:m.filled?Math.round(present.length/m.filled*100)+'%':'—'});
+      stats.push({k:'Заповнено',v:m.filled+'/'+per});
+    }
+    let tipVal='';
+    if(selD){ tipVal=selD.v===null?'День не заповнено':(selD.v===0?'Підтверджено: симптому не було':(def.type==='scale'?selD.v+'/5 — '+this.INT[selD.v]:'Симптом був')); }
+    const insight=(()=>{
+      const fm=id==='fatigue'?m:this.model('fatigue',per,100,100);
+      const hi=[],lo=[];
+      fm.days.forEach(d=>{ if(d.v>=1&&d.e&&d.e.ctx&&d.e.ctx.stress){ (d.e.ctx.stress>=4?hi:lo).push(d.v);} });
+      const avg=a=>a.reduce((x,z)=>x+z,0)/a.length;
+      if(hi.length>=3&&lo.length>=3&&avg(hi)>avg(lo)+0.4) return 'У заповнених записах втома частіше була вищою у дні з високим стресом.';
+      return 'У заповнених записах поки не видно виражених збігів між цим симптомом і контекстом.';
+    })();
+    return {
+      trChips,trCover:cov.cover,trList,
+      syBack:()=>this.setState({sub:null,tab:'trends'}),
+      syName:def.name, syCover:m.cover,
+      syModeChips:[this.ch('Графік',tr.mode!=='table',()=>this.setState({trends:{...tr,mode:'chart'}})),this.ch('Таблиця',tr.mode==='table',()=>this.setState({trends:{...tr,mode:'table'}}))],
+      syIsChart:tr.mode!=='table', syIsTable:tr.mode==='table',
+      syEmpty:m.filled<7, syHasData:m.filled>=7,
+      chGrid:marks.map(v=>({y:+m.y(v).toFixed(1),t:String(v)})),
+      chSegs:m.segs,
+      chPts:m.pts.map(p=>({...p,fill:p.v===0?'var(--color-bg)':'var(--color-accent)'})),
+      chHits:m.days.map((d,i)=>({x:+(m.x(i)-half).toFixed(1),w:+(half*2).toFixed(1),on:()=>this.setState({trends:{...tr,sel:i}})})),
+      chHeat:m.days.filter(d=>d.heat).map(d=>({x:+m.x(d.i).toFixed(1)})),
+      chMenses:m.days.filter(d=>d.menses).map(d=>({x:+m.x(d.i).toFixed(1)})),
+      chFlare:m.days.filter(d=>d.flare).map(d=>{const x=m.x(d.i);return {d:'M '+(x-4.5)+' 20 L '+(x+4.5)+' 20 L '+x+' 11 Z'};}),
+      chHasSel:!!selD, chSelX:selD?+m.x(selD.i).toFixed(1):0,
+      chTipOpen:selD?()=>this.setState({sub:'day',selDay:selD.iso,tab:'history'}):()=>{},
+      chTipDate:selD?this.fmtLong(selD.iso).replace(/^./,c=>c.toUpperCase()):'',
+      chTipVal:tipVal,
+      chTipCtx:selD?(this.ctxLine(selD.e)||(selD.v===null?'Пропущений день не означає відсутність симптому':'')):'',
+      chXl:this.fmtShort(m.days[0].iso), chXr:this.fmtShort(m.days[m.days.length-1].iso),
+      syStats:stats,
+      stSegs:this.model('stress',per,308,60).segs,
+      slSegs:this.model('sleepQ',per,308,60).segs,
+      syInsight:insight,
+      syTable:m.days.slice().reverse().filter(d=>d.e&&d.e.status==='done').map(d=>({d:this.fmtShort(d.iso),v:d.v===0?'не було':(d.v===null?'—':(def.type==='scale'?d.v+'/5':'був')),c:this.ctxLine(d.e),on:()=>this.setState({sub:'day',selDay:d.iso,tab:'history'})}))
+    };
+  }
+  _vReport(){
+    const st=this.state,r=st.report;
+    const today=this.isoOff(0);
+    const per=r.period||30;
+    const perLbl='Останні '+per+' днів: '+this.fmtShort(this.isoOff(-(per-1)))+' — '+this.fmtShort(today);
+    const m=this.model('fatigue',per,306,120);
+    const marks=[1,2,3,4,5];
+    const E=st.data.entries, starts=st.data.cycleStarts||[];
+    const daysDesc=[]; for(let o=0;o>-per;o--){ daysDesc.push(this.isoOff(o)); }
+    const rows=[]; let extra=0;
+    daysDesc.forEach(iso=>{ const e=E[iso]; if(!e||e.status!=='done') return;
+      Object.keys(e.sym||{}).forEach(sid=>{ if(!r.syms.includes(sid)) return;
+        const s=this.symDef(sid); if(!s) return; const v=e.sym[sid];
+        if(rows.length>=12){ extra++; return; }
+        rows.push({d:this.fmtShort(iso),s:s.name,i:s.type==='scale'?(v.int?v.int+'/5':'—'):'є',
+          l:[v.side,(v.extra||[]).join(', ')].filter(Boolean).join('; ')||'—',
+          c:[v.ep?v.ep+' еп.':'',v.impact||'',v.comment||''].filter(Boolean).join('; ')||'—'});
+      });
+    });
+    const sums=r.syms.map(sid=>{ const s=this.symDef(sid); if(!s) return null;
+      const mm=this.model(sid,per,100,100); const pr=mm.days.filter(d=>d.v>=1);
+      if(s.type==='scale'&&pr.length){ const avg=pr.reduce((a,d)=>a+d.v,0)/pr.length;
+        return {t:s.name+': '+pr.length+' дн., середня (у дні із симптомом) '+avg.toFixed(1)+'/5, макс. '+Math.max(...pr.map(d=>d.v))+'/5'}; }
+      return {t:s.name+': '+pr.length+' із '+mm.filled+' заповнених днів'};
+    }).filter(Boolean);
+    const top=daysDesc.map(iso=>{ const e=E[iso]; if(!e||e.status!=='done') return null;
+      let best=0,parts=[];
+      r.syms.forEach(sid=>{ const v=e.sym&&e.sym[sid]; const s=this.symDef(sid); if(!v||!s) return;
+        const iv=s.type==='scale'?(v.int||0):1; if(iv>best) best=iv;
+        if(iv>=3) parts.push(s.name.toLowerCase()+' '+iv+'/5'); });
+      return best>=3?{best,d:this.fmtShort(iso),t:parts.join(', ')}:null;
+    }).filter(Boolean).sort((a,b)=>b.best-a.best).slice(0,3);
+    const filledE=daysDesc.map(iso=>E[iso]).filter(e=>e&&e.status==='done');
+    const avgOf=k=>{ const a=filledE.map(e=>e.ctx&&e.ctx[k]).filter(Boolean); return a.length?(a.reduce((x,z)=>x+z,0)/a.length).toFixed(1):'—'; };
+    const flares=daysDesc.filter(iso=>E[iso]&&E[iso].status==='done'&&E[iso].flare).map(iso=>({d:this.fmtShort(iso),t:(E[iso].flare.note||'позначено користувачкою')}));
+    const notes=daysDesc.filter(iso=>E[iso]&&E[iso].status==='done'&&E[iso].note).map(iso=>({d:this.fmtShort(iso),t:E[iso].note}));
+    const cStarts=starts.filter(s=>s>=this.isoOff(-(per-1))&&s<=today);
+    const setR=p=>this.setState({report:{...r,...p}});
+    const dnow=new Date();
+    return {
+      r1:r.step===1,r2:r.step===2,r3:r.step===3,
+      repStepTxt:'Крок '+r.step+' із 3 · період → дані → PDF preview',
+      repPeriodChips:[7,30,90].map(p=>this.ch(p+' днів',per===p,()=>setR({period:p}))),
+      repPeriodLbl:perLbl,
+      repTo1:()=>setR({step:1}), repTo2:()=>setR({step:2}), repTo3:()=>setR({step:3}),
+      repSymList:st.data.active.map(sid=>{ const s=this.symDef(sid); return this.ch(s?s.name:sid,r.syms.includes(sid),()=>setR({syms:this.tog(r.syms,sid)})); }),
+      repTgRows:[
+        {k:'Контекстні фактори',d:'Стрес, сон, активність, спека',tg:this.tg(r.ctx,()=>setR({ctx:!r.ctx}))},
+        {k:'Можливі загострення',d:'Ваші ручні позначки',tg:this.tg(r.flares,()=>setR({flares:!r.flares}))},
+        {k:'День циклу',d:'Вимкнено за замовчуванням',tg:this.tg(r.cycle,()=>setR({cycle:!r.cycle}))},
+        {k:'Вільні нотатки',d:'Вимкнено за замовчуванням',tg:this.tg(r.notes,()=>setR({notes:!r.notes}))}
+      ],
+      repName:r.name||'', repNameOn:e=>setR({name:e.target.value}),
+      repDob:r.dob||'', repDobOn:e=>setR({dob:e.target.value}),
+      pdfPeriod:perLbl,
+      pdfGen:'Сформовано '+dnow.getDate()+'.'+this.p2(dnow.getMonth()+1)+'.'+dnow.getFullYear(),
+      pdfCover:'заповнено '+m.filled+' із '+per+' днів',
+      pdfHasName:!!(r.name||r.dob), pdfNameT:[r.name,r.dob?'нар. '+r.dob:''].filter(Boolean).join(' · '),
+      pdfSumRows:sums,
+      pdfGrid:marks.map(v=>({y:+m.y(v).toFixed(1)})),
+      pdfSegs:m.segs,
+      pdfPts:m.pts.map(p=>({...p,gfill:p.v===0?'#ffffff':'#444444'})),
+      pdfXl:this.fmtShort(m.days[0].iso), pdfXr:this.fmtShort(m.days[m.days.length-1].iso),
+      pdfTop:top.length?top:[{d:'—',t:'високих значень не було'}],
+      pdfRows:rows, pdfMoreF:extra>0, pdfMore:'+ ще '+extra+' записів у повному звіті',
+      pdfCtx:r.ctx?('Стрес: середній '+avgOf('stress')+'/5 · Сон: середня якість '+avgOf('sleepQ')+'/5 · Дуже спекотних днів: '+filledE.filter(e=>e.ctx&&e.ctx.heat).length):'Не включено у звіт',
+      pdfHasFlares:r.flares&&flares.length>0, pdfFlares:flares,
+      pdfHasCycle:r.cycle, pdfCycleT:cStarts.length?('Початок менструації: '+cStarts.map(s=>this.fmtShort(s)).join(', ')+'. День циклу рахується від останньої позначеної дати.'):'У цьому періоді позначених початків циклу немає.',
+      pdfHasNotes:r.notes&&notes.length>0, pdfNotes:notes,
+      pdfCreate:()=>this.setState({dialog:{type:'pdf'}})
+    };
+  }
+  renderVals(){
+    return Object.assign({},this.vCore(),this.vOb(),this.vToday(),this.vCheckin(),this.vHist(),this.vTrends(),this.vReport(),this.vMisc(),this.vDesk());
+  }
+}
+</script>
+</body>
+</html>
