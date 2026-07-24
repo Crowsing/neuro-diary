@@ -36,6 +36,11 @@ packages = ["app"]
 [tool.mypy]
 strict = true
 
+# Phase 1 DoD: the initData validator keeps 100% branch coverage. Enforcing it
+# here rather than in a CI command means it holds however pytest is invoked.
+[tool.pytest.ini_options]
+addopts = "--cov=app.infra.telegram.initdata --cov-branch --cov-fail-under=100 --cov-report=term-missing"
+
 [tool.importlinter]
 root_package = "app"
 include_external_packages = true    # інакше заборони fastapi/sqlalchemy не працюють
