@@ -457,6 +457,14 @@ step-up, consents і erasure акаунтів без активних згод. 
   (head → 0001 → head → base → head); `git log -- 0001_foundation.py` не має
   комітів після Фази 0.
 
+### CI
+
+Remote-прогін
+[30128995174](https://github.com/Crowsing/neuro-diary/actions/runs/30128995174)
+зелений для всіх чотирьох блокуючих jobs: `web` (1m20s), `api` (39s),
+`bot` (23s), `gitleaks` (12s). Інтеграційні тести з testcontainers проходять
+у CI без прапорця `TESTCONTAINERS_RYUK_DISABLED` — він потрібен лише локально.
+
 ### Незалежний code review
 
 Проведений субагентом із переданими privacy-правилами промпту. Знайдено і
