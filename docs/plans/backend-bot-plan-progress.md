@@ -3,10 +3,13 @@
 Джерело критеріїв: [backend-bot-plan.md](backend-bot-plan.md), §12.
 
 - Базовий стан: `779c112` (`initial: capture current local-only prototype`).
-- **Поточний етап: Gate D — дизайн-review.** Технічних робіт у черзі немає.
+- **Поточний етап: Фаза 1 реалізована; Gate D лишається блокером продакшену.**
 - Фаза 0: **завершена** — реалізація, remote CI і блокуючі checks закриті.
-- Gate D: **не пройдено**. Фази 1–4 заблоковані до підпису власника і
-  зовнішніх перевірок (юрист, клінічний фахівець, локалізаційний редактор).
+- Фаза 1: **реалізована** — усі пункти DoD закриті тестами. Продакшен
+  заблокований: тексти згод у версії `0.9`, і fail-closed guard відмовляє у
+  створенні згоди поза режимом розробки, доки контролер не названий.
+- Gate D: **не пройдено**. Підпис власника і зовнішні перевірки (юрист,
+  клінічний фахівець, локалізаційний редактор) лишаються відкритими.
 - Позначки: `[ ]` — не підтверджено; `[x]` — підтверджено артефактом або тестом.
 
 ## Наскрізні gate-и кожної фази
@@ -17,13 +20,17 @@
   Vite production build passed.
 - [x] Web Playwright зелений. Evidence: `pnpm e2e` — 56 tests passed
   (mobile + desktop).
-- [x] API pytest і Ruff зелені. Evidence: `uv run --locked pytest` — 21
-  passed; `ruff check .` — passed; `ruff format --check .` — 49 files
-  formatted; `mypy --strict app` — 44 source files без помилок.
+- [x] API pytest і Ruff зелені. Evidence: `uv run --locked pytest` — 263
+  passed; `ruff check .` — passed; `ruff format --check .` — 79 files
+  formatted; `mypy --strict app` — 56 source files без помилок;
+  `lint-imports` — 7 kept, 0 broken.
 - [x] Bot pytest і Ruff зелені. Evidence: 5 tests passed; Ruff passed;
   `mypy --strict bot` — 2 source files без помилок.
 - [x] Нова інфраструктура має інтеграційні, privacy та failure-mode тести.
-  Evidence: 5 PostgreSQL 16 integration tests перевіряють
+  Evidence (Фаза 1): 7 інтеграційних модулів на реальній PostgreSQL 16 під
+  роллю `api_rw` — три гілки §8, гонка паралельних grant, недоступний
+  erasure-журнал, строки sweeper і лог-капчур наскрізного флоу.
+  Evidence (Фаза 0): 5 PostgreSQL 16 integration tests перевіряють
   upgrade→downgrade→upgrade, реальні логіни ролей, дозволені DML,
   `SQLSTATE 42501`, ownership, відсутність cross-schema FK і fail-closed
   default privileges; API validation-response не віддзеркалює вхідне
@@ -368,41 +375,113 @@ Outbound-рядок лишається **рівно одним**: резервн
 | **Юрист / DPO** | DPIA за Art. 35 (виконуються щонайменше чотири критерії EDPB: особлива категорія, вразливі суб'єкти, інноваційне використання, систематична обробка); запис обробки за Art. 30; представник за Art. 27; повідомлення Уповноваженого ВР за ст. 9 ЗУ 2297-VI протягом 30 робочих днів. **Окремо — прийнятність відсутності вікового порогу** (§13.14). |
 | **Клінічний фахівець** | Текст нагадування і діапазон quiet hours у контексті мігрені та епілепсії; тональність текстів про втрату фрази й про видалення даних. |
 | **Локалізаційний редактор** | Усі consent copy; словник на 4096 слів для генератора парольної фрази — виключити омоформи, слова, що плутаються на слух, і будь-яку медичну семантику. Це найбільший важіль на реальну стійкість у всій криптомоделі: без генератора вона захищає фразу на ~30 бітів замість 72. |
-## Фаза 1 — Identity, Consent, Auth (заблокована Gate D)
+## Фаза 1 — Identity, Consent, Auth (реалізована, Gate D лишається блокером)
 
 Scope: Ed25519 initData, anti-replay, атомарний auth+grant, opaque-сесії,
 step-up, consents і erasure акаунтів без активних згод. Промпт під ключ —
 [phase-1-implementation.prompt.md](phase-1-implementation.prompt.md).
 
+Реалізація завершена й закрита тестами. **Продакшен лишається заблокованим:**
+тексти згод у версії `0.9`, контролер не названий, і fail-closed guard
+відмовляє у створенні згоди в будь-якій конфігурації, крім `APP_ENV=development`.
+
 ### DoD
 
-- [ ] Валідатор initData має 100% branch coverage. Evidence: _pending_.
-- [ ] Прострочений `auth_date` повертає `auth_stale`. Evidence: _pending_.
-- [ ] Повторний initData повертає 401. Evidence: _pending_.
-- [ ] Скасування діалогу згоди залишає нуль рядків у БД. Evidence: _pending_.
-- [ ] Конфіг API не містить `BOT_TOKEN`. Evidence: _pending_.
-- [ ] Репозиторії мають інтеграційні тести на реальній PostgreSQL через
-  testcontainers. Evidence: _pending_.
-- [ ] Log allowlist під тестом; initData і сирий `account_id` відсутні в логах.
-  Evidence: _pending_.
-- [ ] Медичних ендпоінтів у Фазі 1 немає. Evidence: _pending_.
+- [x] Валідатор initData має 100% branch coverage. Evidence:
+  `pytest tests/unit/test_initdata_validator.py --cov=app.infra.telegram.initdata
+  --cov-branch --cov-fail-under=100` — 113 stmts, 34 branches, 0 miss, 100%;
+  35 тестів. Прогін закріплено окремим кроком у `.github/workflows/ci.yml`.
+- [x] Прострочений `auth_date` повертає `auth_stale`. Evidence:
+  `test_initdata_validator.py::test_expired_auth_date_is_stale` (24 год + 1 с)
+  і `test_auth_date_at_the_ttl_boundary_still_passes`;
+  наскрізно — `test_auth_flow.py::test_stale_init_data_is_refused`.
+- [x] Повторний initData повертає 401. Evidence:
+  `test_auth_flow.py::test_the_same_init_data_buys_only_one_session`, а також
+  `test_review_regressions.py::test_an_appended_unsigned_field_cannot_buy_a_second_session`
+  і `::test_reordering_the_fields_cannot_buy_a_second_session` — дайджест
+  покриває канонічну підписану форму, а не сирий рядок.
+- [x] Скасування діалогу згоди залишає нуль рядків у БД. Evidence:
+  `test_auth_flow.py::test_first_sign_in_without_a_grant_leaves_the_server_knowing_nothing`
+  перевіряє нуль рядків у шести таблицях `diary`, включно з `auth_replay`;
+  `::test_a_refused_attempt_does_not_consume_the_init_data` доводить, що після
+  403 той самий initData ще придатний для повтору з grant.
+- [x] Конфіг API не містить `BOT_TOKEN`. Evidence:
+  `test_config.py::test_bot_token_in_the_environment_is_refused_under_any_flag`
+  (параметризовано станом HMAC-фолбека) і `::test_settings_cannot_hold_a_bot_token_field`.
+  Процес відмовляється стартувати, а значення не потрапляє в текст помилки.
+- [x] Репозиторії мають інтеграційні тести на реальній PostgreSQL через
+  testcontainers. Evidence: `tests/integration/` — 7 модулів; підключення роллю
+  `api_rw`, а не адміном, тож відсутній GRANT падає в тесті, а не в продакшені.
+- [x] Log allowlist під тестом; initData і сирий `account_id` відсутні в логах.
+  Evidence: `test_log_capture.py::test_a_full_flow_leaks_nothing_into_the_log`
+  (нуль initData, `account_id`, `telegram_user_id`, назв згод, IP і дат),
+  `::test_every_logged_field_is_on_the_allowlist`;
+  `test_review_regressions.py::test_an_internal_failure_never_puts_sql_or_identifiers_in_the_log`
+  закриває трасування необробленого винятку.
+- [x] Медичних ендпоінтів у Фазі 1 немає. Evidence:
+  `test_openapi_surface.py::test_the_published_surface_is_exactly_phase_one`
+  пінить повний перелік із семи path; `::test_there_are_no_medical_endpoints`.
 
 Додано рішеннями Gate D:
 
-- [ ] `text_sha256` показаного тексту збігається зі збереженим (снапшот-тест
-  проти реєстру згод). Evidence: _pending_.
-- [ ] Grant `cycle_sync` без активної `health_sync` → 409 `consent_precondition`.
-  Evidence: _pending_.
-- [ ] Grant `telegram_reminders` без `settings{time,timezone}` → 422 і нуль
-  рядків. Evidence: _pending_.
-- [ ] CI-тест по OpenAPI: жоден path-шаблон не містить назви згоди.
-  Evidence: _pending_.
-- [ ] Акаунт без активних згод стирається негайно при `revoke_reason='user'`
-  і через 30 діб при `bot_blocked_timeout`. Evidence: _pending_.
-- [ ] Відкликання згоди працює **без** step-up; повне видалення акаунта —
-  **зі** step-up. Evidence: _pending_.
-- [ ] Міграція `0002` застосовується і відкочується; `0001` не змінена.
-  Evidence: _pending_.
+- [x] `text_sha256` показаного тексту збігається зі збереженим (снапшот-тест
+  проти реєстру згод). Evidence:
+  `test_consents.py::test_stored_hash_matches_the_text_that_was_shown`;
+  сам реєстр — `test_consent_registry.py::test_every_recorded_hash_matches_the_text_that_is_shown`
+  (включно з текстом обіцянки видалення).
+- [x] Grant `cycle_sync` без активної `health_sync` → 409 `consent_precondition`.
+  Evidence: `test_consents.py::test_cycle_sync_requires_an_active_health_sync`
+  — 409 і нуль рядків.
+- [x] Grant `telegram_reminders` без `settings{time,timezone}` → 422 і нуль
+  рядків. Evidence:
+  `test_consents.py::test_reminders_without_settings_are_refused_and_write_nothing`;
+  зворотний бік — `::test_settings_on_a_consent_that_has_none_are_refused`.
+- [x] CI-тест по OpenAPI: жоден path-шаблон не містить назви згоди.
+  Evidence: `test_openapi_surface.py::test_no_path_template_carries_a_consent_name`
+  (параметризовано трьома `kind`) і `::test_nothing_travels_in_a_path_or_query_parameter`.
+- [x] Акаунт без активних згод стирається негайно при `revoke_reason='user'`
+  і через 30 діб при `bot_blocked_timeout`. Evidence:
+  `test_erasure.py::test_losing_the_last_consent_by_user_action_erases_immediately`;
+  `test_erasure_sweeper.py::test_an_account_blocked_for_29_days_is_still_recoverable`
+  і `::test_an_account_blocked_past_thirty_days_is_erased`.
+  Порядок «журнал перед стиранням» закритий
+  `test_erasure.py::test_an_unwritable_journal_stops_the_erasure`.
+- [x] Відкликання згоди працює **без** step-up; повне видалення акаунта —
+  **зі** step-up. Evidence:
+  `test_consents.py::test_revocation_needs_no_step_up` (сесія віком 6 год),
+  `test_sessions.py::test_deleting_an_account_needs_a_fresh_session` (11 хв → 403)
+  і `::test_a_fresh_session_may_delete_the_account` (9 хв → 200);
+  таблиця §8 дослівно — `test_identity_domain.py::test_step_up_table_is_exhaustive`.
+- [x] Міграція `0002` застосовується і відкочується; `0001` не змінена.
+  Evidence: `test_migration_0002.py::test_downgrade_restores_the_foundation_and_upgrade_replays`
+  (head → 0001 → head → base → head); `git log -- 0001_foundation.py` не має
+  комітів після Фази 0.
+
+### Незалежний code review
+
+Проведений субагентом із переданими privacy-правилами промпту. Знайдено і
+закрито дев'ять дефектів, кожен під власним тестом у
+`tests/integration/test_review_regressions.py`. Найважливіші два:
+
+1. **Anti-replay обходився тривіально.** Дайджест брався з сирого рядка
+   запиту, а підпис перевіряється над канонічною check-string, яка не залежить
+   від порядку полів і виключає `hash` та `signature`. Одне перехоплене
+   initData давало необмежену кількість «нових» ключів — досить було дописати
+   `&hash=0000…`. Дайджест тепер покриває підписаний вміст.
+2. **Паралельний grant виносив дані в лог.** Два одночасні `POST /v1/consents`
+   доходили до часткового унікального індексу як `IntegrityError` → 500 із
+   текстом `INSERT` і зв'язаними параметрами (`account_id`, `kind`,
+   `telegram_user_id`) у трасуванні `uvicorn.error`, повз allowlist §11.
+
+### Свідомо відкладене (не забуте)
+
+- Скидання лічильників `vault_revision` і 409 `confirm_required` при відкликанні
+  `health_sync` — це `vault_*`-код, заборонений промптом у Фазі 1; **Фаза 3**.
+- Колонка `consent.record_key_cycle` (§9.7): grant-контракт §9.2 її не містить,
+  а єдиний споживач — серверний hard-DELETE за названим ключем — **Фаза 3**.
+- Журнал стирання у Фазі 1 пише рядок `diary.erasure_job` окремою транзакцією
+  через порт `ErasureJournalPort`. Зовнішній append-only носій в іншого
+  провайдера (§6.4) — **Фаза 3**; порт існує саме щоб його підмінити.
 
 ## Фаза 2 — Vault і Sync (заблокована Gate D)
 
