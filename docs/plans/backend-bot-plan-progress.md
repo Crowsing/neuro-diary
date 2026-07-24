@@ -3,8 +3,8 @@
 Джерело критеріїв: [backend-bot-plan.md](backend-bot-plan.md), §12.
 
 - Базовий стан: `779c112` (`initial: capture current local-only prototype`).
-- Поточна фаза: **Фаза 0 — локальна реалізація готова; зовнішній CI DoD
-  очікує GitHub remote і branch protection**.
+- Поточна фаза: **Фаза 0 — реалізація й remote CI зелені; блокуючий
+  branch protection очікує GitHub Pro**.
 - Gate D: **не пройдено**. Фази 1–4 заблоковані до окремого
   privacy/security/clinical review дизайну.
 - Позначки: `[ ]` — не підтверджено; `[x]` — підтверджено артефактом або тестом.
@@ -42,12 +42,13 @@ CI, каркас шарів і контракти import-linter.
 
 - [ ] CI зелений і налаштований як блокуючий. Evidence:
   `.github/workflows/ci.yml` містить обов'язкові web/api/bot/gitleaks jobs
-  без `continue-on-error`; усі локальні еквіваленти, крім запуску
-  контейнерного gitleaks, зелені. У репозиторію немає GitHub remote, тому
-  неможливо чесно підтвердити зелений remote run або required branch check.
-  Gitleaks запуститься на повній історії після першого push; локально
-  `.env.example` перевірено на порожні значення, `.env` і generated exports
-  ігноруються, а пошук типових secret-сигнатур збігів не знайшов.
+  без `continue-on-error`; remote run
+  [30085202466](https://github.com/Crowsing/neuro-diary/actions/runs/30085202466)
+  зелений для `web`, `api`, `bot` і повного history scan `gitleaks`.
+  Увімкнення required checks `api`, `bot`, `gitleaks`, `web` для `main`
+  повернуло GitHub API `403`: приватний репозиторій на поточному plan
+  потребує GitHub Pro. Репозиторій не зроблено public через privacy-ризик,
+  тому blocking-частина DoD чесно лишається відкритою.
 - [x] Усі контракти import-linter з §5.2 активні. Evidence: 7 kept,
   0 broken; `allow_indirect_imports` відсутній.
 - [x] `GET /health` покритий тестом. Evidence:
