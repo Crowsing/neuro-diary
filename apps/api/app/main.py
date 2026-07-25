@@ -34,7 +34,7 @@ from app.infra.config import Settings
 from app.infra.consent_copy import FileConsentCopyRegistry
 from app.infra.db.engine import SqlUnitOfWorkFactory, build_engine
 from app.services.erasure_journal import DatabaseErasureJournal
-from app.infra.logging import configure_logging
+from app.infra.logging import ensure_configured, get_logger
 from app.infra.telegram.initdata import InitDataValidator
 from app.services.auth import AuthService
 from app.services.consent import ConsentService
@@ -65,7 +65,7 @@ class AppDependencies:
 def create_app(dependencies: AppDependencies) -> FastAPI:
     # Uvicorn's default access formatter includes the raw query string.
     logging.getLogger("uvicorn.access").disabled = True
-    configure_logging()
+    ensure_configured()
 
     settings = dependencies.settings
     erasure = ErasureService(dependencies.erasure_journal)
@@ -119,11 +119,33 @@ def create_app(dependencies: AppDependencies) -> FastAPI:
         secret=settings.log_account_ref_key,
     )
 
+    _disclose_copy_state(dependencies, settings)
+
     application.include_router(health_router)
     application.include_router(auth_router)
     application.include_router(consents_router)
     application.include_router(account_router)
     return application
+
+
+def _disclose_copy_state(
+    dependencies: AppDependencies,
+    settings: Settings,
+) -> None:
+    """Say at startup whether this process accepts draft consent copy.
+
+    Only a count is logged: `text_version` is `<kind>@<major>.<minor>`, and §11
+    keeps the consent name out of the log.
+    """
+    unfrozen = dependencies.consent_copy.unfrozen_versions()
+    if not unfrozen:
+        return
+    event = (
+        "consent_copy_unfrozen_accepted"
+        if settings.is_development
+        else "consent_copy_unfrozen_refused"
+    )
+    get_logger().warning(event, record_count=len(unfrozen))
 
 
 def build_dependencies(env: Mapping[str, str] | None = None) -> AppDependencies:
