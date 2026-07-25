@@ -9,25 +9,68 @@
 | Директорія | Що це |
 |---|---|
 | `apps/web` | React SPA (Vite + TypeScript). Дані щоденника зберігаються лише в `localStorage`; backend і фонова доставка відсутні. |
-| `apps/api` | Каркас FastAPI під майбутню опційну синхронізацію. Зараз — лише `/health` і Pydantic-схеми активного формату даних. |
+| `apps/api` | FastAPI: ідентичність, згоди й автентифікація Telegram Mini App (Фаза 1). Медичних ендпоінтів немає — синхронізації ще не існує. |
 | `apps/bot` | Мінімальний Telegram-бот (aiogram v3): приватний `/start` із кнопкою відкриття щоденника. Нагадування не надсилає. |
 | `docs/prototype` | Архівний дизайн-snapshot. Може містити застарілі стани й тексти та не є acceptance contract. |
 
 ## Запуск
 
-### Локальна інфраструктура PostgreSQL 16
+### Локальний стенд
 
 ```bash
-cp .env.example .env
-# Заповніть POSTGRES_DB, POSTGRES_ADMIN_USER, POSTGRES_ADMIN_PASSWORD
-# і MIGRATION_DATABASE_URL; файл .env не комітьте.
-docker compose up -d postgres
-(cd apps/api && uv sync --locked && uv run --locked --env-file ../../.env alembic upgrade head)
-docker compose ps
+./scripts/dev-stand.sh
 ```
 
-Це піднімає лише локальну БД і застосовує міграції. Web і далі повністю
-працює local-only; синхронізація та Telegram-нагадування ще недоступні.
+Один скрипт: піднімає PostgreSQL 16, застосовує міграції, генерує `.env` із
+випадковими паролями, виставляє паролі ролей `api_rw`/`reminder_worker` (міграція
+створює їх без паролів — інакше секрет опинився б у git) і збирає DSN. Далі:
+
+```bash
+set -a; . .env; set +a; unset BOT_TOKEN
+cd apps/api && uv run --locked uvicorn app.main:app_factory --factory --reload --no-access-log
+```
+
+```bash
+./scripts/dev-smoke.sh
+```
+
+`dev-smoke.sh` перевіряє **живий процес**, а не тести: що він стартує з реального
+`.env`, віддає `/health`, відхиляє невалідний initData, не має медичних
+ендпоінтів і не пише в лог ані запитаного шляху, ані вхідних значень, ані
+адреси. Тести з testcontainers цього не доводять.
+
+Web і далі повністю працює local-only: `apps/web` не робить жодного мережевого
+виклику, тож сервер під час звичайного користування не задіяний.
+
+### Стенд із реальним ботом і Telegram Mini App
+
+Mini App не відкриється з `http://localhost` — Telegram вимагає HTTPS. Порядок:
+
+```bash
+printf 'BOT_TOKEN=<токен від @BotFather>\nWEBAPP_URL=<https-URL тунелю>\n' > apps/bot/.env
+```
+
+```bash
+ngrok http 5173
+```
+
+Далі підставте виданий HTTPS-URL у `WEBAPP_URL` кореневого `.env` **і** в
+`apps/bot/.env`, вкажіть його ж у @BotFather (`/setmenubutton`) і перезапустіть
+`./scripts/dev-stand.sh` — він візьме `TELEGRAM_BOT_ID` із токена автоматично.
+
+```bash
+cd apps/bot && uv run --locked python -m bot.main
+```
+
+`BOT_TOKEN` живе **лише** в `apps/bot/.env`. У кореневий `.env` потрапляє тільки
+несекретний `TELEGRAM_BOT_ID` — числовий префікс токена; api-процес відмовляється
+стартувати, якщо бачить `BOT_TOKEN` у своєму оточенні (§5.3 плану).
+
+> **Стенд працює в `APP_ENV=development`, і лише тому приймає згоди.** Тексти
+> згод перебувають у версії `0.9` з плейсхолдером замість імені контролера
+> даних. У production-конфігурації той самий код віддає
+> `503 consent_copy_not_frozen` — це не обхід guard-а, а його штатна дія.
+> Стенд призначений для вигаданих даних.
 
 ### Застосунки
 
