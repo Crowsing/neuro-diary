@@ -14,12 +14,19 @@ test('initData не лишає слідів ані в адресі, ані в se
   await seedEmptyDiary(page, emptyAppState());
   // Telegram Web кладе initParams у sessionStorage; сюди їх записує сам
   // Telegram, тож тест мусить створити рівно ту саму умову.
+  //
+  // Разом із ними пишеться контрольний ключ, якого застосунок не чіпає. Без
+  // нього твердження «__telegram__initParams === null» проходило б і тоді, коли
+  // посів узагалі не відпрацював, — тобто перевіряло б нічого.
   await page.addInitScript((raw) => {
     sessionStorage.setItem('__telegram__initParams', JSON.stringify({ tgWebAppData: raw }));
+    sessionStorage.setItem('nd_e2e_control', 'present');
   }, initData);
 
   await page.goto(syncAppUrl(initData));
   await page.getByRole('heading', { name: 'Налаштування' }).waitFor();
+
+  expect(await page.evaluate(() => sessionStorage.getItem('nd_e2e_control'))).toBe('present');
 
   await expect
     .poll(async () => page.evaluate(() => window.location.hash))
