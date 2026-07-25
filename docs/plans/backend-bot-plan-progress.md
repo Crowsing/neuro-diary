@@ -18,7 +18,7 @@
 Числа — з останнього прогону (Фаза 3, блоки 0–3).
 
 - [x] Web unit-тести зелені. Evidence: `pnpm test` — 34 test files,
-  517 tests passed.
+  516 tests passed.
 - [x] Web production build зелений. Evidence: `pnpm build` — TypeScript і
   Vite production build passed.
 - [x] Web Playwright зелений. Evidence: `pnpm e2e` — 56 tests passed
