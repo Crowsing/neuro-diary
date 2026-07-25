@@ -291,6 +291,40 @@ def test_the_dispatcher_erases_an_account_whose_erasure_never_happened(
     assert row.completed_at is not None
 
 
+def test_confirming_a_journal_entry_twice_keeps_the_first_time(
+    session: Caller,
+    engine: Engine,
+    unit_of_work: SqlUnitOfWorkFactory,
+    clock: FrozenClock,
+) -> None:
+    """Two confirmations of one erasure are normal, so the write is idempotent.
+
+    The fast path confirms right after its commit; the dispatcher confirms
+    again from the redelivered event. `completed_at` must keep saying when the
+    erasure actually finished, not when someone last mentioned it.
+    """
+    session.post("/v1/consents/revoke", {"kind": "health_sync"})
+    with engine.connect() as connection:
+        reference = connection.execute(
+            text("SELECT id FROM diary.erasure_job")
+        ).scalar_one()
+    first = _completed_at(engine)
+    assert first == clock.now()
+
+    with unit_of_work() as unit:
+        unit.erasure.complete(reference, at=clock.now() + timedelta(hours=1))
+        unit.commit()
+
+    assert _completed_at(engine) == first
+
+
+def _completed_at(engine: Engine) -> datetime | None:
+    with engine.connect() as connection:
+        return connection.execute(
+            text("SELECT completed_at FROM diary.erasure_job")
+        ).scalar_one()
+
+
 def test_the_dispatcher_leaves_the_thirty_day_window_to_the_housekeeper(
     session: Caller,
     engine: Engine,

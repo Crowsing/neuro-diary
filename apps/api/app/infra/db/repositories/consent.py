@@ -274,8 +274,19 @@ class ErasureRepository:
         return job_id
 
     def complete(self, job_id: UUID, *, at: datetime) -> None:
+        """Idempotent: the first confirmation is the true one.
+
+        Two confirmations of one erasure are normal now that the dispatcher
+        acts as the safety net for the writer that never got to close its
+        entry — the fast path confirms right after the commit, and the
+        redelivered event confirms again. Without the guard the second call
+        would move `completed_at` forward and state that the erasure finished
+        later than it did.
+        """
         self._session.execute(
-            update(ErasureJob).where(ErasureJob.id == job_id).values(completed_at=at)
+            update(ErasureJob)
+            .where(ErasureJob.id == job_id, ErasureJob.completed_at.is_(None))
+            .values(completed_at=at)
         )
 
     def jobs_for(self, account_id: UUID) -> list[tuple[str, str, datetime | None]]:
