@@ -510,12 +510,16 @@ Remote-прогін
 застосунку. Тепер вони лежать на шляху коду: `apps/web/src/sync/vault.ts`
 (`VaultSession`), підключений до `SyncProvider`, `AppShell` і `SettingsTab`.
 
-Локальні прогони: `pnpm test` 500 зелені, `pnpm build` і `pnpm e2e`
+Гілка `phase-2-completion-prompt`,
+[PR #6](https://github.com/Crowsing/neuro-diary/pull/6), CI-прогін
+[30168346408](https://github.com/Crowsing/neuro-diary/actions/runs/30168346408)
+зелений: усі п'ять job-ів (`web`, `api`, `bot`, **`sync-e2e`**, `gitleaks`).
+
+Локальні прогони: `pnpm test` 513 зелені, `pnpm build` і `pnpm e2e`
 (56 сценаріїв) зелені, `SYNC_E2E=1 playwright test --project=sync` 7 зелені
 проти живого api з PostgreSQL, `pytest` 363 зелені,
 `ruff`/`ruff format`/`mypy --strict`/`lint-imports` (7 контрактів) чисті,
-покриття валідатора initData 100% гілок. Номер CI-прогону з'явиться після
-відкриття PR.
+покриття валідатора initData 100% гілок, `gitleaks` по всій історії чистий.
 
 ### DoD
 
@@ -568,7 +572,7 @@ Remote-прогін
   підписаними initData проти живого api: A створює → B бачить → B редагує → A
   бачить правку → A видаляє → B бачить видалення і **не** воскрешає запис навіть
   на другому синку. Прогін підтверджено серверним логом: push 32 записи, pull 32,
-  правка 2, надгробок 2. Job CI — `sync-e2e`.
+  правка 2, надгробок 2. Job CI — `sync-e2e`, прогін 30168346408.
 - [x] `location.hash` і `sessionStorage` очищені від initData (e2e). Evidence:
   `apps/web/e2e/sync-initdata-hygiene.spec.ts` — обидва сценарії на **зібраному**
   застосунку, включно з тим, що initData не потрапляє й у `localStorage`;
