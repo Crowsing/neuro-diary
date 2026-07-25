@@ -34,6 +34,7 @@ from app.domain.identity import ConsentKind
 
 CONSENT_REVOKED = "consent_revoked"
 ACCOUNT_ERASURE_REQUESTED = "account_erasure_requested"
+VAULT_ERASURE_REQUESTED = "vault_erasure_requested"
 
 
 @dataclass(frozen=True, slots=True)
@@ -84,12 +85,40 @@ class AccountErasureRequested:
         }
 
 
-DomainEvent = ConsentRevoked | AccountErasureRequested
+@dataclass(frozen=True, slots=True)
+class VaultErasureRequested:
+    """A vault was erased while its account went on living (§6.4 `sync_off`).
+
+    Same consumer and same reason as `AccountErasureRequested`: the journal
+    entry is opened before the deletion and closed after it, so the confirmation
+    is outside the transaction either way. Without this event the safety net
+    covered only half of the erasures the system performs — and the half it
+    missed is the more frequent one, because withdrawing `health_sync` while
+    keeping another consent leaves the account alive.
+    """
+
+    account_id: UUID
+    erasure_reference: UUID
+
+    @property
+    def event_type(self) -> str:
+        return VAULT_ERASURE_REQUESTED
+
+    def to_payload(self) -> dict[str, Any]:
+        return {
+            "account_id": str(self.account_id),
+            "erasure_reference": str(self.erasure_reference),
+        }
+
+
+DomainEvent = ConsentRevoked | AccountErasureRequested | VaultErasureRequested
 
 __all__ = [
     "ACCOUNT_ERASURE_REQUESTED",
     "CONSENT_REVOKED",
+    "VAULT_ERASURE_REQUESTED",
     "AccountErasureRequested",
     "ConsentRevoked",
     "DomainEvent",
+    "VaultErasureRequested",
 ]

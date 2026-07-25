@@ -66,6 +66,25 @@ class VaultRepository:
             consent_epoch=row.consent_epoch,
         )
 
+    def has_records_above(self, account_id: UUID, *, revision: int) -> bool:
+        """Is there a row this device has not seen yet (§8)?
+
+        Deliberately not `current_revision > revision`: the hard DELETE of §9.7
+        spends a revision without leaving a record behind, so a counter
+        comparison would answer "the server holds data you never saw" about a
+        deletion the device cannot fetch. Tombstones count — they are rows a
+        pull returns, and they are how the device learns of a deletion.
+        """
+        found = self._session.execute(
+            select(VaultRecord.record_key)
+            .where(
+                VaultRecord.account_id == account_id,
+                VaultRecord.revision > revision,
+            )
+            .limit(1)
+        ).first()
+        return found is not None
+
     def lock_counters(self, account_id: UUID) -> VaultCounters:
         """Step 3 of §9.1: per-account serialization of every write path.
 

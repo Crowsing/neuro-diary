@@ -9,7 +9,7 @@ from __future__ import annotations
 from datetime import datetime
 from uuid import UUID
 
-from app.domain.events import AccountErasureRequested
+from app.domain.events import AccountErasureRequested, VaultErasureRequested
 from app.services.ports import ErasureJournalPort, UnitOfWork
 
 ERASURE_FULL = "full"
@@ -95,6 +95,20 @@ class ErasureService:
         # diary back — no 409, no 410, no dialogue.
         counters = unit.vault.lock_counters(account_id)
         unit.vault.reset_counters(account_id, revision=counters.current_revision + 1)
+        # The same safety net a full erasure gets, and for the same reason: the
+        # journal entry is closed outside this transaction, so a process that
+        # dies right after the commit would otherwise leave `completed_at` NULL
+        # for good. Covering only the account erasure would leave the more
+        # frequent half — withdrawal while another consent remains — unguarded.
+        event = VaultErasureRequested(
+            account_id=account_id,
+            erasure_reference=reference,
+        )
+        unit.outbox.publish(
+            event_type=event.event_type,
+            payload=event.to_payload(),
+            now=now,
+        )
         return reference
 
     def confirm(self, reference: UUID, *, now: datetime) -> None:

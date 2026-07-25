@@ -6,13 +6,14 @@ import hashlib
 from datetime import datetime
 from uuid import UUID
 
+import psycopg
 import pytest
 from fastapi import FastAPI
 from sqlalchemy import Engine, text
 
 from app.infra.config import Settings
 from app.main import AppDependencies, create_app
-from conftest import REPO_ROOT, Caller, FrozenClock, sign_init_data
+from conftest import REPO_ROOT, Caller, Database, FrozenClock, sign_init_data
 
 HEALTH_SYNC_SHA = hashlib.sha256(
     (REPO_ROOT / "consent-copy" / "uk" / "health_sync" / "0.9.md").read_bytes()
@@ -124,7 +125,15 @@ def test_a_remaining_consent_keeps_the_account(
 def test_erasure_removes_the_reminder_rows_that_have_no_foreign_key(
     caller: Caller,
     engine: Engine,
+    identity_database: Database,
 ) -> None:
+    """§6.4 names *two* tables in this schema, so the test asserts on both.
+
+    `reminder_delivery` is written through the admin connection because §6.3
+    gives `api_rw` no INSERT there — phase 4's worker owns that write. Without
+    a row present, removing the DELETE from the repository left the whole suite
+    green, which is exactly how an unguarded promise survives to production.
+    """
     _sign_in(caller)
     caller.post(
         "/v1/consents",
@@ -135,12 +144,24 @@ def test_erasure_removes_the_reminder_rows_that_have_no_foreign_key(
             "settings": {"time": "20:00", "timezone": "Europe/Kyiv"},
         },
     )
+    with engine.connect() as connection:
+        account_id = connection.execute(
+            text("SELECT id FROM diary.account")
+        ).scalar_one()
+    with psycopg.connect(identity_database.admin_url, autocommit=True) as connection:
+        connection.execute(
+            "INSERT INTO reminders.reminder_delivery"
+            " (account_id, local_date, status, created_at)"
+            " VALUES (%s, DATE '2026-07-24', 'sent', now())",
+            (account_id,),
+        )
     caller.post("/v1/consents/revoke", {"kind": "telegram_reminders"})
 
     caller.post("/v1/consents/revoke", {"kind": "health_sync"})
 
     assert _count(engine, "diary.account") == 0
     assert _count(engine, "reminders.reminder_schedule") == 0
+    assert _count(engine, "reminders.reminder_delivery") == 0
 
 
 @pytest.fixture

@@ -39,9 +39,23 @@ export interface PresenceVerdict {
   readonly needsConfirmation: readonly string[];
 }
 
-/** Шляхи, що належать домену циклу; їхня згода — `cycle_sync`. */
-function consentFor(path: string): string | null {
-  return path === 'cycle' ? 'cycle_sync' : null;
+/**
+ * Домени, чий запис сервер має право вилучити за названим ключем (§9.7).
+ *
+ * Єдине джерело для трьох предикатів, які інакше розповзаються: чи входить шлях
+ * у manifest (§7), чи виключений він із правила авторитетності присутності
+ * (§9.4) і чи дозволено йому покидати пристрій без своєї згоди. Ключі цієї мапи
+ * мусять збігатися з `MANIFEST_EXCLUDED_PATHS` — це під тестом, бо саме
+ * розходження між ними повертає конфлікт §7 ↔ §9.7: кожен повний ресинк після
+ * штатного відкликання згоди знову ставав би помилкою цілісності.
+ */
+export const NAMED_KEY_CONSENTS: Readonly<Record<string, string>> = {
+  cycle: 'cycle_sync'
+};
+
+/** Назва згоди, без якої цей шлях не існує на сервері; `null` — якщо такої немає. */
+export function consentFor(path: string): string | null {
+  return NAMED_KEY_CONSENTS[path] ?? null;
 }
 
 /**

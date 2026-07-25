@@ -81,6 +81,16 @@ export async function payloadDigest(payload: Bytes): Promise<string> {
   return toHex(new Uint8Array(await crypto.subtle.digest('SHA-256', payload)));
 }
 
+/**
+ * Набір живих записів із набору, поданого за `record_key`.
+ *
+ * **У продакшн-шляху не використовується і `coveredByManifest` не застосовує**:
+ * вона працює за непрозорими ключами, а виняток §9.7 визначений над логічними
+ * шляхами. Manifest у застосунку будує `sync/engine.ts` і перевіряє
+ * `sync/vault.ts`, і обидва фільтрують шляхи самі. Ця функція лишається для
+ * тестів канонічного рядка; викликати її на реальному наборі означало б
+ * побудувати manifest, який покриває `cycle`.
+ */
 export async function liveEntries(
   records: readonly VaultSnapshotRecord[],
   manifestKeyHex: string

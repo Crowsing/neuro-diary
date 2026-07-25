@@ -16,7 +16,11 @@ import psycopg
 import pytest
 from sqlalchemy import Engine, text
 
-from app.domain.events import ACCOUNT_ERASURE_REQUESTED, CONSENT_REVOKED
+from app.domain.events import (
+    ACCOUNT_ERASURE_REQUESTED,
+    CONSENT_REVOKED,
+    VAULT_ERASURE_REQUESTED,
+)
 from app.infra.db.engine import SqlUnitOfWorkFactory
 from app.services.erasure import ErasureService
 from app.services.erasure_journal import DatabaseErasureJournal
@@ -203,6 +207,33 @@ def test_a_second_run_does_not_claim_an_event_it_already_settled(
     assert _events(engine)[0][2] == first
 
 
+def test_a_claimed_event_is_invisible_to_a_second_dispatcher(
+    session: Caller,
+    unit_of_work: SqlUnitOfWorkFactory,
+) -> None:
+    """The claim is a lease, not a hint — and only because it stays open.
+
+    Two replicas of the dispatcher are the ordinary way to keep the 15-minute
+    ceiling of §4.3. If the claim committed in a transaction of its own, every
+    row lock would be released before any work started and `SKIP LOCKED` would
+    hand the second replica the identical batch. Here the first transaction is
+    still open while the second one looks.
+    """
+    _grant_reminders(session)
+    session.post("/v1/consents/revoke", {"kind": "telegram_reminders"})
+
+    with unit_of_work() as first:
+        held = first.outbox.claim(limit=10)
+        assert len(held) == 1
+
+        with unit_of_work() as second:
+            assert second.outbox.claim(limit=10) == []
+
+    # The lease ends with the transaction, so the event is claimable again.
+    with unit_of_work() as after:
+        assert len(after.outbox.claim(limit=10)) == 1
+
+
 def test_marking_an_event_processed_twice_keeps_the_first_timestamp(
     session: Caller,
     engine: Engine,
@@ -289,6 +320,41 @@ def test_the_dispatcher_erases_an_account_whose_erasure_never_happened(
         ).one()
     assert row.scope == "full"
     assert row.completed_at is not None
+
+
+def test_a_partial_erasure_gets_the_same_journal_safety_net(
+    session: Caller,
+    engine: Engine,
+    dispatcher: OutboxDispatcher,
+    clock: FrozenClock,
+    identity_database: Database,
+) -> None:
+    """The half of the erasures that stays alive needs the net just as much.
+
+    Withdrawing `health_sync` while another consent remains erases the vault
+    and leaves the account. Its journal entry is closed by the route right
+    after the commit — and if that process dies, nothing else closed it until
+    `VaultErasureRequested` existed.
+    """
+    _grant_reminders(session)
+    session.post("/v1/consents/revoke", {"kind": "health_sync"})
+    assert [event[0] for event in _events(engine)] == [
+        CONSENT_REVOKED,
+        VAULT_ERASURE_REQUESTED,
+    ]
+    # Simulate the process dying between the commit and the confirmation.
+    with psycopg.connect(identity_database.api_url, autocommit=True) as connection:
+        connection.execute("UPDATE diary.erasure_job SET completed_at = NULL")
+
+    result = dispatcher.run_once()
+
+    assert result.journals_confirmed == 1
+    with engine.connect() as connection:
+        row = connection.execute(
+            text("SELECT scope, completed_at FROM diary.erasure_job")
+        ).one()
+    assert row.scope == "sync_off"
+    assert row.completed_at == clock.now()
 
 
 def test_confirming_a_journal_entry_twice_keeps_the_first_time(

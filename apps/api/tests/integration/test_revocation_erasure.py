@@ -22,7 +22,7 @@ from sqlalchemy import Engine, text
 
 from app.infra.config import Settings
 from app.main import AppDependencies, create_app
-from conftest import Database, REPO_ROOT, Caller, sign_init_data
+from conftest import Database, FrozenClock, REPO_ROOT, Caller, sign_init_data
 
 REGISTRY = REPO_ROOT / "consent-copy"
 HEALTH_SYNC_SHA = hashlib.sha256(
@@ -199,6 +199,7 @@ def test_a_full_erasure_takes_the_vault_and_the_envelope_with_the_account(
 def test_the_vault_erasure_is_journalled_before_it_happens(
     session: Caller,
     engine: Engine,
+    clock: FrozenClock,
 ) -> None:
     revision = _stocked_vault(session)
     _grant_reminders(session)
@@ -217,7 +218,9 @@ def test_the_vault_erasure_is_journalled_before_it_happens(
         ).one()
     assert row.scope == "sync_off"
     assert row.deletion_copy_version == "deletion@1.0"
-    assert row.requested_at is not None
+    # Against the frozen clock, not against NULL: the column is NOT NULL with a
+    # server default, so `is not None` could not fail on any state whatsoever.
+    assert row.requested_at == clock.now()
 
 
 def test_an_unwritable_journal_stops_the_vault_erasure(
@@ -358,6 +361,70 @@ def test_a_device_that_says_nothing_gets_the_question(
     _stocked_vault(session)
 
     refused = session.post("/v1/consents/revoke", {"kind": "health_sync"})
+
+    assert refused.status_code == 409
+    assert refused.json() == {"error": "confirm_required"}
+
+
+def test_a_revision_spent_on_a_deletion_does_not_trigger_the_question(
+    session: Caller,
+    engine: Engine,
+) -> None:
+    """§8 asks about rows, not about the counter.
+
+    Revoking `cycle_sync` hard-DELETEs a record and spends a revision without
+    leaving anything the device could pull. Reading the predicate as
+    `last_acked_revision < current_revision` would make the very ordinary
+    sequence "turn cycle sync off, then turn sync off" always answer 409 —
+    about data that no longer exists.
+    """
+    _write_envelope(session)
+    _grant_cycle(session)
+    revision = int(_push(session, 0, KEY_ENTRY, KEY_CYCLE).json()["new_revision"])
+    session.post("/v1/consents/revoke", {"kind": "cycle_sync"})
+    # The counter has moved past everything the device acknowledged...
+    assert _counters(engine)[0] == revision + 1
+
+    response = session.post(
+        "/v1/consents/revoke",
+        {"kind": "health_sync", "last_acked_revision": revision},
+    )
+
+    # ...but there is nothing above that revision to fetch, so nothing to ask.
+    assert response.status_code == 200, response.text
+    assert _scalar(engine, "SELECT count(*) FROM diary.account") == 0
+
+
+def test_a_tombstone_the_device_has_not_seen_still_triggers_the_question(
+    session: Caller,
+    engine: Engine,
+) -> None:
+    """The other side of the same predicate.
+
+    A tombstone is a row a pull returns, and it is how a device learns that
+    another device deleted something. Skipping tombstones would let the last
+    deletion vanish unacknowledged.
+    """
+    revision = _stocked_vault(session)
+    tombstone = session.post(
+        "/v1/sync/push",
+        {
+            "base_revision": revision,
+            "changes": [
+                {
+                    "record_key": KEY_ENTRY,
+                    "client_ts_ms": CLIENT_TS,
+                    "tombstone": True,
+                }
+            ],
+        },
+    )
+    assert tombstone.status_code == 200, tombstone.text
+
+    refused = session.post(
+        "/v1/consents/revoke",
+        {"kind": "health_sync", "last_acked_revision": revision},
+    )
 
     assert refused.status_code == 409
     assert refused.json() == {"error": "confirm_required"}

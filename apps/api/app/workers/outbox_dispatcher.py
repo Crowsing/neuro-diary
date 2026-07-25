@@ -19,9 +19,10 @@ the two moments where the work provably escapes a single transaction:
   on that column, and a permanently false negative there is a promise nobody
   can keep.
 
-Both handlers are idempotent because redelivery is normal: the claim, the work
-and the `processed_at` write share a transaction, so a crash before the commit
-returns the event to the queue.
+Both handlers are idempotent because redelivery is normal, and the claim, the
+work and the `processed_at` write genuinely share one transaction — the claim is
+taken per event inside it, so the row lock is a lease rather than a hint and a
+crash before the commit returns the event to the queue.
 """
 
 from __future__ import annotations
@@ -30,7 +31,11 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from uuid import UUID
 
-from app.domain.events import ACCOUNT_ERASURE_REQUESTED, CONSENT_REVOKED
+from app.domain.events import (
+    ACCOUNT_ERASURE_REQUESTED,
+    CONSENT_REVOKED,
+    VAULT_ERASURE_REQUESTED,
+)
 from app.domain.identity import RevokeReason
 from app.domain.records import PendingEvent
 from app.services.erasure import ErasureService
@@ -68,20 +73,35 @@ class OutboxDispatcher:
         processed = 0
         erased: list[UUID] = []
         confirmed: list[UUID] = []
+        cursor = 0
 
-        with self._unit_of_work() as unit:
-            claimed = unit.outbox.claim(limit=CLAIM_BATCH)
-            unit.commit()
-
-        for event in claimed:
-            # One transaction per event: an account whose erasure cannot
-            # complete must not cost every other event in the batch its turn.
+        for _ in range(CLAIM_BATCH):
+            # One transaction per event, and the claim lives inside it. That is
+            # what makes the row lock an actual lease: a second dispatcher skips
+            # what this one holds, and a crash before the commit returns the
+            # event to the queue. Claiming a batch in its own transaction would
+            # release every lock before any work started, and `SKIP LOCKED`
+            # would hand the next dispatcher the identical batch.
+            #
+            # One transaction per event also keeps an account whose erasure
+            # cannot complete from costing every other event its turn.
             with self._unit_of_work() as unit:
+                claimed = unit.outbox.claim(limit=1, after_id=cursor)
+                if not claimed:
+                    break
+                event = claimed[0]
+                # The cursor steps over anything this dispatcher leaves alone,
+                # so an unhandled event neither blocks the queue nor repeats.
+                cursor = event.id
+
                 if event.event_type == CONSENT_REVOKED:
                     reference = self._erase_if_orphaned(unit, event, now=now)
                     if reference is not None:
                         erased.append(reference)
-                elif event.event_type == ACCOUNT_ERASURE_REQUESTED:
+                elif event.event_type in (
+                    ACCOUNT_ERASURE_REQUESTED,
+                    VAULT_ERASURE_REQUESTED,
+                ):
                     reference = _reference_of(event)
                     if reference is not None:
                         confirmed.append(reference)

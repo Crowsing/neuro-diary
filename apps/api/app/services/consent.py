@@ -246,9 +246,18 @@ class ConsentService:
         The compensating control that stands in for the step-up Art. 7(3)
         forbids here. The server looks only at revisions and never at content —
         it could not look at content even if it wanted to.
+
+        The predicate asks whether a *row* above that revision exists, not
+        whether the counter moved past it. §8 states it as
+        `max(last_acked_revision) < current_revision`, and taken literally that
+        fires after the hard DELETE of §9.7: revoking `cycle_sync` spends a
+        revision without leaving anything behind, so the very ordinary sequence
+        "turn cycle sync off, then turn sync off" would always answer «there is
+        data here you have not seen» about data that does not exist. A control
+        that fires every time is a control the user learns to click through —
+        which is the same reason §8 rejects the per-session alternative.
         """
-        counters = unit.vault.counters(account_id)
-        if last_acked_revision < counters.current_revision:
+        if unit.vault.has_records_above(account_id, revision=last_acked_revision):
             raise ConfirmRequired()
 
     def _delete_named_cycle_records(

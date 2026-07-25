@@ -47,7 +47,7 @@ import {
   type SyncTransport,
   type VaultKeyView
 } from './client';
-import { needsMassDeleteConfirmation, presenceAuthority } from './guards';
+import { consentFor, needsMassDeleteConfirmation, presenceAuthority } from './guards';
 import { readInitDataOnce, type BrowserEnv } from './initdata';
 import { mergeRecord } from './merge';
 import {
@@ -941,7 +941,8 @@ export class VaultSession {
    * запис `cycle` не надсилається взагалі.
    */
   private mayLeave(path: string): boolean {
-    return path !== 'cycle' || this.consents.has('cycle_sync');
+    const required = consentFor(path);
+    return required === null || this.consents.has(required);
   }
 
   private withoutUnconsented(records: readonly PlainRecord[]): PlainRecord[] {

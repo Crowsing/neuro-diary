@@ -16,7 +16,7 @@ from datetime import datetime
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import delete, insert, select, update
+from sqlalchemy import delete, func, insert, select, update
 from sqlalchemy.orm import Session
 
 from app.domain.records import PendingEvent
@@ -44,11 +44,22 @@ class OutboxRepository:
         )
         self._session.flush()
 
-    def claim(self, *, limit: int) -> list[PendingEvent]:
-        """Oldest unprocessed events, locked for this transaction only."""
+    def claim(self, *, limit: int, after_id: int = 0) -> list[PendingEvent]:
+        """Oldest unprocessed events above `after_id`, locked by this transaction.
+
+        The lock lasts exactly as long as the caller's transaction, so it is a
+        real lease only if the caller does the work and closes the event inside
+        that same transaction — which is why the dispatcher claims one event at
+        a time. Committing the claim separately would release every lock before
+        any work began, and `SKIP LOCKED` would then hand a second dispatcher
+        the identical batch.
+
+        `after_id` is what lets the caller step over an event it cannot handle
+        without either marking it done or looping on it forever.
+        """
         rows = self._session.execute(
             select(Outbox.id, Outbox.event_type, Outbox.payload)
-            .where(Outbox.processed_at.is_(None))
+            .where(Outbox.processed_at.is_(None), Outbox.id > after_id)
             .order_by(Outbox.id)
             .limit(limit)
             .with_for_update(skip_locked=True)
@@ -59,11 +70,18 @@ class OutboxRepository:
         ]
 
     def mark_processed(self, event_id: int, *, at: datetime) -> bool:
-        """Idempotent close: an already-processed event keeps its timestamp."""
+        """Idempotent close: an already-processed event keeps its timestamp.
+
+        `GREATEST` is not decoration. The dispatcher reads its clock before it
+        borrows a connection, so an event inserted in that window carries a
+        `created_at` in the future relative to `at` — and
+        `ck_outbox_processing_order` would abort the whole batch on a row that
+        is perfectly legal.
+        """
         rows = self._session.execute(
             update(Outbox)
             .where(Outbox.id == event_id, Outbox.processed_at.is_(None))
-            .values(processed_at=at)
+            .values(processed_at=func.greatest(Outbox.created_at, at))
             .returning(Outbox.id)
         ).all()
         return len(rows) == 1
