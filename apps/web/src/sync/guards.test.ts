@@ -1,11 +1,26 @@
 import { describe, expect, it } from 'vitest';
+import { MANIFEST_EXCLUDED_PATHS } from '../crypto/manifest';
 import {
   MASS_DELETE_MINIMUM,
   MASS_DELETE_SHARE,
+  NAMED_KEY_CONSENTS,
   type LocalRecordState,
   needsMassDeleteConfirmation,
   presenceAuthority
 } from './guards';
+
+describe('домени з названим ключем описані в одному місці', () => {
+  it('перелік виключених із manifest збігається з переліком названих доменів', () => {
+    // Розходження між цими двома переліками повертає конфлікт §7 ↔ §9.7:
+    // шлях, який сервер вилучає за названим ключем, але який лишився в
+    // manifest, робить кожен повний ресинк після штатного відкликання згоди
+    // постійною помилкою цілісності. Другий домен з'явиться — і без цього
+    // тесту забути одне з місць буде найлегше.
+    expect(Object.keys(NAMED_KEY_CONSENTS).sort()).toEqual(
+      [...MANIFEST_EXCLUDED_PATHS].sort()
+    );
+  });
+});
 
 const acked = (path: string): LocalRecordState => ({ path, acked: true, dirty: false });
 const dirty = (path: string): LocalRecordState => ({ path, acked: true, dirty: true });

@@ -49,6 +49,19 @@ class PendingErasure:
 
 
 @dataclass(frozen=True, slots=True)
+class PendingEvent:
+    """One claimed outbox row (§4.4).
+
+    `payload` carries the account identifier and nothing that names a consent;
+    the consumer reads whatever else it needs from the database (§11, §13.12).
+    """
+
+    id: int
+    event_type: str
+    payload: dict[str, Any]
+
+
+@dataclass(frozen=True, slots=True)
 class ConsentText:
     """A registry entry: the text shown and the digest stored alongside it."""
 

@@ -97,6 +97,18 @@ class ConsentAlreadyActive(DomainError):
     code = "consent_already_active"
 
 
+class ConfirmRequired(DomainError):
+    """§8: the server holds data this device never acknowledged.
+
+    The compensating control that stands in for a step-up, which Art. 7(3)
+    forbids on withdrawal. The name of the consent is not in the code — the
+    caller already knows which one it asked to revoke, and an error code is one
+    of the three places §13.12 keeps the consent set out of.
+    """
+
+    code = "confirm_required"
+
+
 class ConsentTextMismatch(DomainError):
     code = "consent_text_mismatch"
 

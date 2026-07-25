@@ -115,6 +115,25 @@ class ConsentRepository:
         self._session.flush()
         return [ConsentKind(row.kind) for row in rows]
 
+    def latest_revoke_reason(self, account_id: UUID) -> RevokeReason | None:
+        """Why this account most recently lost a consent (§4.3).
+
+        The deadline for an account with no active consent depends on it: the
+        user's own decision means now, anything else means 30 days. Ordered by
+        `revoked_at` and then by `id`, because a cascade revokes two rows with
+        an identical timestamp and an unordered tie would answer at random.
+        """
+        row = self._session.execute(
+            select(Consent.revoke_reason)
+            .where(
+                Consent.account_id == account_id,
+                Consent.revoked_at.is_not(None),
+            )
+            .order_by(Consent.revoked_at.desc(), Consent.id.desc())
+            .limit(1)
+        ).scalar_one_or_none()
+        return None if row is None else RevokeReason(row)
+
     def delete_revoked_before(self, moment: datetime) -> int:
         """§4.3: a revoked row is proof of consent for 24 months, then it goes."""
         rows = self._session.execute(
@@ -212,6 +231,21 @@ class ReminderScheduleRepository:
             delete(ReminderSchedule).where(ReminderSchedule.account_id == account_id)
         )
 
+    def delete_deliveries_before(self, moment: datetime) -> int:
+        """§6.2: 14-day TTL, run by `api_rw`.
+
+        Deliberately not the reminder worker's job — §6.3 withholds `DELETE` on
+        this table from that role and keeps a negative test on it, so that the
+        first person to need housekeeping cannot quietly repair the GRANT and
+        dissolve the isolation test of phase 4.
+        """
+        rows = self._session.execute(
+            delete(ReminderDelivery)
+            .where(ReminderDelivery.created_at < moment)
+            .returning(ReminderDelivery.account_id)
+        ).all()
+        return len(rows)
+
 
 class ErasureRepository:
     def __init__(self, session: Session) -> None:
@@ -240,8 +274,19 @@ class ErasureRepository:
         return job_id
 
     def complete(self, job_id: UUID, *, at: datetime) -> None:
+        """Idempotent: the first confirmation is the true one.
+
+        Two confirmations of one erasure are normal now that the dispatcher
+        acts as the safety net for the writer that never got to close its
+        entry — the fast path confirms right after the commit, and the
+        redelivered event confirms again. Without the guard the second call
+        would move `completed_at` forward and state that the erasure finished
+        later than it did.
+        """
         self._session.execute(
-            update(ErasureJob).where(ErasureJob.id == job_id).values(completed_at=at)
+            update(ErasureJob)
+            .where(ErasureJob.id == job_id, ErasureJob.completed_at.is_(None))
+            .values(completed_at=at)
         )
 
     def jobs_for(self, account_id: UUID) -> list[tuple[str, str, datetime | None]]:

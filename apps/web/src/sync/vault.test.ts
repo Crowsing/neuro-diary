@@ -230,6 +230,48 @@ describe('§7 на шляху pull, а не лише в unit-тесті', () => 
     expect(local).toEqual(sample());
   });
 
+  it('проходить, коли сервер вилучив запис циклу за названим ключем (§9.7)', async () => {
+    // Конфлікт §7 ↔ §9.7. Manifest, зафіксований до відкликання, покривав би
+    // запис, якого сервер уже позбувся власним hard-DELETE, — і кожен наступний
+    // повний ресинк давав би помилку цілісності без жодної атаки. Пристрій тут
+    // саме новий: `highestSeenRevision = 0` — це і є онбординг §7, єдиний шлях,
+    // на якому перевірка manifest виконується гарантовано.
+    const { server } = await enabledPair(sample(), { cycleSync: true });
+    expect(server.recordKeyCycle).not.toBeNull();
+    const liveBefore = server.liveCount();
+
+    server.revokeConsent('cycle_sync');
+    expect(server.liveCount()).toBe(liveBefore - 1);
+
+    const fresh = newDevice(server, 'init-c');
+    await fresh.session.open({ passphrase: PASSPHRASE, nowMs: T0 + MINUTE });
+    const outcome = await fresh.session.pull({ data: emptyData(), nowMs: T0 + MINUTE });
+
+    // Ресинк проходить, щоденник цілий, циклу немає — бо його немає на сервері,
+    // а не тому, що клієнт його викинув.
+    expect(Object.keys(outcome.patch.entries ?? {})).toEqual(['2026-01-15', '2026-01-16']);
+    expect(outcome.patch.cycleStarts).toEqual([]);
+  });
+
+  it('усе одно падає, коли приховано живий запис домену з активною згодою', async () => {
+    // Друга гілка того самого винятку: він звужений рівно до named-key шляхів
+    // і не має перетворитися на дозвіл ховати будь-що. Запис циклу тут живий і
+    // згода на нього активна — приховати його сервер не може непомітно... а от
+    // може: саме це і є названа ціна §7. Тому перевіряється сусідній запис.
+    const { server, a } = await enabledPair(sample(), { cycleSync: true });
+    const cycleKey = await serverKeyOfPath(server, a.session, 'cycle');
+    const entryKey = [...server.records.entries()].find(
+      ([key, record]) => record.payloadB64 !== null && key !== cycleKey
+    )![0];
+    server.faults.withholdRecordKeys = [entryKey];
+
+    const fresh = newDevice(server, 'init-c');
+    await fresh.session.open({ passphrase: PASSPHRASE, nowMs: T0 + MINUTE });
+    await expect(
+      fresh.session.pull({ data: emptyData(), nowMs: T0 + MINUTE })
+    ).rejects.toMatchObject({ failure: 'stale_server_copy' });
+  });
+
   it('проходить, коли зник саме скомпактований надгробок', async () => {
     const { server, a, b } = await enabledPair();
 

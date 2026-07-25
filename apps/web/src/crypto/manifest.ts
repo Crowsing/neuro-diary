@@ -23,6 +23,34 @@ export const MANIFEST_PREFIX = 'ndv1-manifest';
 const UNIT = '\x1f';
 const RECORD = '\x1e';
 
+/**
+ * Шляхи, які сервер має право вилучити за названим ключем (§9.7).
+ *
+ * Другий виняток із manifest, симетричний винятку для надгробків, і з тієї
+ * самої причини: серверний hard-DELETE запису `cycle` при відкликанні
+ * `cycle_sync` робить серверний набір строгою підмножиною зафіксованого, і
+ * кожен наступний повний ресинк давав би помилку цілісності без жодної атаки.
+ * Самé себе це не лікує: перевірка виконується ДО застосування сторінки, тож
+ * pull не завершується, а push, який перевидав би manifest, у циклі
+ * pull → merge → push до виконання не доходить.
+ *
+ * Перелік — статична константа, а не сигнал із відповіді сервера. Варіант
+ * «перевидати manifest, побачивши `consent_state_changed`» віддав би серверу
+ * право вирішувати, коли клієнт пропустить перевірку цілісності — тобто
+ * вимикати anti-rollback для всього сейфа, а не для одного синглтона.
+ *
+ * Ціна названа в §7 і §13.5: запис `cycle` втрачає покриття manifest. Її
+ * звужують перевірка `HMAC(k_index, шлях) == record_key`, прив'язка AAD до
+ * `client_ts_ms`, LWW за автентифікованим `client_ts` і виняток §9.4 для
+ * неактивних згод.
+ */
+export const MANIFEST_EXCLUDED_PATHS: readonly string[] = ['cycle'];
+
+/** Чи входить цей логічний шлях до manifest — при побудові й при перевірці. */
+export function coveredByManifest(path: string): boolean {
+  return !MANIFEST_EXCLUDED_PATHS.includes(path);
+}
+
 /** Запис у тому вигляді, у якому його віддає сервер (payload — шифротекст). */
 export interface VaultSnapshotRecord {
   readonly recordKeyHex: string;
@@ -53,6 +81,16 @@ export async function payloadDigest(payload: Bytes): Promise<string> {
   return toHex(new Uint8Array(await crypto.subtle.digest('SHA-256', payload)));
 }
 
+/**
+ * Набір живих записів із набору, поданого за `record_key`.
+ *
+ * **У продакшн-шляху не використовується і `coveredByManifest` не застосовує**:
+ * вона працює за непрозорими ключами, а виняток §9.7 визначений над логічними
+ * шляхами. Manifest у застосунку будує `sync/engine.ts` і перевіряє
+ * `sync/vault.ts`, і обидва фільтрують шляхи самі. Ця функція лишається для
+ * тестів канонічного рядка; викликати її на реальному наборі означало б
+ * побудувати manifest, який покриває `cycle`.
+ */
 export async function liveEntries(
   records: readonly VaultSnapshotRecord[],
   manifestKeyHex: string

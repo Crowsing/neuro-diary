@@ -30,7 +30,12 @@ import {
   type KdfParams
 } from '../crypto/kdf/params';
 import { deriveSubkeys, generateRoot, type Subkeys } from '../crypto/keys';
-import { payloadDigest, verifyManifest, type ManifestEntry } from '../crypto/manifest';
+import {
+  coveredByManifest,
+  payloadDigest,
+  verifyManifest,
+  type ManifestEntry
+} from '../crypto/manifest';
 import { buildHmacTable, type HmacTable } from '../crypto/recordKey';
 import { unwrapRoot, wrapRoot } from '../crypto/wrap';
 import type { AppData, Entry } from '../lib/types';
@@ -42,7 +47,7 @@ import {
   type SyncTransport,
   type VaultKeyView
 } from './client';
-import { needsMassDeleteConfirmation, presenceAuthority } from './guards';
+import { consentFor, needsMassDeleteConfirmation, presenceAuthority } from './guards';
 import { readInitDataOnce, type BrowserEnv } from './initdata';
 import { mergeRecord } from './merge';
 import {
@@ -605,6 +610,10 @@ export class VaultSession {
     const live: ManifestEntry[] = [];
     for (const item of page.remote) {
       if (isTombstone(item.record)) continue;
+      // §7, другий виняток: те, що сервер має право вилучити за названим
+      // ключем (§9.7), не покривається manifest ані тут, ані при побудові.
+      // Асиметрія між двома боками зробила б перевірку невиконуваною назавжди.
+      if (!coveredByManifest(item.path)) continue;
       live.push({
         recordKeyHex: table.keyHexFor(item.path),
         clientTsMs: item.clientTs,
@@ -932,7 +941,8 @@ export class VaultSession {
    * запис `cycle` не надсилається взагалі.
    */
   private mayLeave(path: string): boolean {
-    return path !== 'cycle' || this.consents.has('cycle_sync');
+    const required = consentFor(path);
+    return required === null || this.consents.has(required);
   }
 
   private withoutUnconsented(records: readonly PlainRecord[]): PlainRecord[] {

@@ -1,8 +1,4 @@
-"""ORM models for the tables phases 1 and 2 touch.
-
-`outbox` stays unmapped on purpose: §4.4 removed `ConsentGranted`, and the only
-remaining event has its consumer in phase 3.
-"""
+"""ORM models for the tables phases 1 to 3 touch."""
 
 from __future__ import annotations
 
@@ -101,6 +97,26 @@ class ErasureJob(Base):
     deletion_copy_version: Mapped[str] = mapped_column(Text)
 
 
+class Outbox(Base):
+    """Transactional outbox (§4.4).
+
+    No foreign key to `account`, and deliberately so: `AccountErasureRequested`
+    is written in the very transaction that deletes the account row, and a
+    cascade would take the event with it. Erasure removes an account's rows by
+    the identifier inside `payload`, which is the entry §6.4 names for this
+    table.
+    """
+
+    __tablename__ = "outbox"
+    __table_args__ = {"schema": "diary"}
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    event_type: Mapped[str] = mapped_column(Text)
+    payload: Mapped[dict[str, Any]] = mapped_column(JSONB)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    processed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
 class ReminderSchedule(Base):
     __tablename__ = "reminder_schedule"
     __table_args__ = {"schema": "reminders"}
@@ -195,6 +211,7 @@ __all__ = [
     "Base",
     "Consent",
     "ErasureJob",
+    "Outbox",
     "RateWindow",
     "ReminderDelivery",
     "ReminderSchedule",

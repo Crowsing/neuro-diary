@@ -83,6 +83,8 @@ def revoke_consent(
             account_id=session.account_id,
             kind=ConsentKind(payload.kind),
             now=now,
+            last_acked_revision=payload.last_acked_revision,
+            acknowledge_incomplete=payload.acknowledge_incomplete,
         )
         unit.commit()
     if outcome.erasure_reference is not None:

@@ -14,7 +14,12 @@ import { buildAad, assertRecordPath } from '../crypto/aad';
 import { fromBase64, toBase64, toHex, utf8 } from '../crypto/bytes';
 import { encrypt } from '../crypto/envelope';
 import type { Subkeys } from '../crypto/keys';
-import { buildManifest, canonicalManifest, payloadDigest } from '../crypto/manifest';
+import {
+  buildManifest,
+  canonicalManifest,
+  coveredByManifest,
+  payloadDigest
+} from '../crypto/manifest';
 import { recordKey } from '../crypto/recordKey';
 import { type EncryptedChange, planChunks } from './chunks';
 import { SyncError, type SyncTransport } from './client';
@@ -193,8 +198,13 @@ export class SyncEngine {
     // Стан manifest на старті: те, що вже лежить на сервері й цього разу не
     // надсилається. Без цього manifest інкрементального push оголошував би
     // відсутніми всі незмінені записи.
+    //
+    // Шляхи, які сервер має право вилучити за названим ключем (§9.7), сюди не
+    // потрапляють узагалі — інакше відкликання `cycle_sync` лишало б на сервері
+    // manifest, що покриває запис, якого там уже немає (§7).
     const live = new Map<string, LiveEntry>();
     for (const [path, carried] of Object.entries(plan.carried)) {
+      if (!coveredByManifest(path)) continue;
       const key = await recordKey(this.deps.subkeys.index, assertRecordPath(path));
       live.set(path, {
         recordKeyHex: toHex(key),
@@ -223,11 +233,13 @@ export class SyncEngine {
       for (const change of chunk) {
         const update = byKey.get(change.recordKeyHex);
         if (update !== undefined) {
-          live.set(update.path, {
-            recordKeyHex: update.change.recordKeyHex,
-            clientTsMs: update.change.clientTsMs,
-            payloadSha256Hex: update.digest
-          });
+          if (coveredByManifest(update.path)) {
+            live.set(update.path, {
+              recordKeyHex: update.change.recordKeyHex,
+              clientTsMs: update.change.clientTsMs,
+              payloadSha256Hex: update.digest
+            });
+          }
           continue;
         }
         const gravePath = gravesByKey.get(change.recordKeyHex);
