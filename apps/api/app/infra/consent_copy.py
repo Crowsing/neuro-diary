@@ -42,6 +42,14 @@ class FileConsentCopyRegistry:
             body=(self._root / entry["file"]).read_text(encoding="utf-8"),
         )
 
+    def unfrozen_versions(self) -> list[str]:
+        """Grant texts still carrying a placeholder instead of a controller."""
+        return [
+            entry["text_version"]
+            for entry in self._grants.values()
+            if not entry["frozen"]
+        ]
+
     def deletion_copy_version(self) -> str:
         """The §6.4 promise in force right now, recorded on every erasure job."""
         version: str = self._deletion["text_version"]

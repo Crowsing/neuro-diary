@@ -87,5 +87,16 @@ def configure_logging(*, stream: TextIO | None = None) -> None:
     )
 
 
+def ensure_configured() -> None:
+    """Install the pipeline only if nothing configured one yet.
+
+    A composition root must never silently replace an existing configuration:
+    doing so would discard a caller's sink, and a caller that forgot to set one
+    would otherwise log without the allowlist. This resolves both directions.
+    """
+    if not structlog.is_configured():
+        configure_logging()
+
+
 def get_logger(**initial: Any) -> Any:
     return structlog.get_logger(**initial)
