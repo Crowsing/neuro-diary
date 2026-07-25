@@ -101,9 +101,11 @@ def _has_table_privilege(
 
 @pytest.fixture(scope="module")
 def database() -> Iterator[str]:
+    # Саме "0002", а не "head": цей модуль стверджує стан після своєї міграції,
+    # і кожна наступна ревізія інакше ламала б його без жодної помилки в коді.
     with PostgresContainer("postgres:16", driver=None) as postgres:
         admin_url = postgres.get_connection_url()
-        command.upgrade(_alembic_config(admin_url), "head")
+        command.upgrade(_alembic_config(admin_url), "0002")
         yield admin_url
 
 
@@ -230,7 +232,7 @@ def test_downgrade_restores_the_foundation_and_upgrade_replays() -> None:
         admin_url = postgres.get_connection_url()
         config = _alembic_config(admin_url)
 
-        command.upgrade(config, "head")
+        command.upgrade(config, "0002")
         command.downgrade(config, "0001")
         with psycopg.connect(admin_url) as connection:
             assert connection.execute(
@@ -250,7 +252,7 @@ def test_downgrade_restores_the_foundation_and_upgrade_replays() -> None:
 
             assert _columns(connection, "reminders", "message_cleanup") == {}
 
-        command.upgrade(config, "head")
+        command.upgrade(config, "0002")
         command.downgrade(config, "base")
         with psycopg.connect(admin_url) as connection:
             assert connection.execute(
@@ -261,4 +263,4 @@ def test_downgrade_restores_the_foundation_and_upgrade_replays() -> None:
                 """
             ).fetchone() == (0,)
 
-        command.upgrade(config, "head")
+        command.upgrade(config, "0002")

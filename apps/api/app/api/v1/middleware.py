@@ -57,6 +57,13 @@ class RequestContextMiddleware(BaseHTTPMiddleware):
         error_code = getattr(request.state, "error_code", None)
         if error_code:
             fields["error_code"] = error_code
+        # §11 allows both counters by name. They are what makes a sync
+        # debuggable without learning anything about what was synchronized:
+        # how many records moved, and to which revision.
+        for counter in ("record_count", "revision"):
+            value = getattr(request.state, counter, None)
+            if value is not None:
+                fields[counter] = value
         retry_after = response.headers.get("Retry-After")
         if retry_after:
             fields["retry_after"] = int(retry_after)

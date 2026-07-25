@@ -20,6 +20,17 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm test
       - run: pnpm build
+      # §9.6 і §13.3: перевіряється сам артефакт, а не намір. Прапорець збірки
+      # може зламатися мовчки, і тоді демо-дані або мережевий код опиняться в
+      # local-only бандлі без жодного червоного тесту.
+      - run: node apps/web/scripts/assert-bundle.mjs apps/web/dist
+      - name: Build the sync bundle and assert its shape
+        run: |
+          VITE_SYNC=on \
+          VITE_API_ORIGIN=http://localhost:8000 \
+          VITE_OUT_DIR=dist-sync \
+          pnpm build
+          node apps/web/scripts/assert-bundle.mjs apps/web/dist-sync --sync
       - run: pnpm --filter web exec playwright install --with-deps chromium
       - run: pnpm e2e
 
@@ -38,6 +49,8 @@ jobs:
       - run: uv run --locked ruff check .
       - run: uv run --locked mypy --strict app
       - run: uv run --locked pytest
+      # Phase 2 DoD: the fixtures both applications read must stay in step.
+      - run: uv run --locked pytest tests/contract
       # Phase 1 DoD: the initData validator keeps 100% branch coverage.
       - run: >-
           uv run --locked pytest tests/unit/test_initdata_validator.py

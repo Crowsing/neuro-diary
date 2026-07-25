@@ -230,6 +230,7 @@ def test_a_cascade_never_erases_the_same_account_twice(
                 text_version=f"{kind.value}@0.9",
                 text_sha256=bytes(range(32)),
                 text_locale="uk",
+                record_key_cycle=None,
                 now=revoked_at - timedelta(days=1),
             )
         unit.consents.revoke(

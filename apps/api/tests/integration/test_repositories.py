@@ -62,6 +62,7 @@ def test_only_one_active_consent_per_kind(
             text_version="health_sync@0.9",
             text_sha256=TEXT_SHA256,
             text_locale="uk",
+            record_key_cycle=None,
             now=NOW,
         )
         uow.commit()
@@ -73,6 +74,7 @@ def test_only_one_active_consent_per_kind(
             text_version="health_sync@0.9",
             text_sha256=TEXT_SHA256,
             text_locale="uk",
+            record_key_cycle=None,
             now=NOW,
         )
         uow.commit()
@@ -90,6 +92,7 @@ def test_revoking_frees_the_kind_for_a_new_grant(
             text_version="health_sync@0.9",
             text_sha256=TEXT_SHA256,
             text_locale="uk",
+            record_key_cycle=None,
             now=NOW,
         )
         uow.commit()
@@ -112,6 +115,7 @@ def test_revoking_frees_the_kind_for_a_new_grant(
             text_version="health_sync@0.9",
             text_sha256=TEXT_SHA256,
             text_locale="uk",
+            record_key_cycle=None,
             now=NOW + timedelta(hours=2),
         )
         uow.commit()
@@ -132,6 +136,7 @@ def test_active_consents_expose_the_stored_hash(
             text_version="cycle_sync@0.9",
             text_sha256=TEXT_SHA256,
             text_locale="uk",
+            record_key_cycle=None,
             now=NOW,
         )
         uow.commit()

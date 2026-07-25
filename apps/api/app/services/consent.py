@@ -41,6 +41,10 @@ class GrantRequest:
     text_version: str
     text_sha256: bytes
     settings: ReminderSettings | None = None
+    # §9.7: HMAC(k_index,'cycle'), named by the client when it grants
+    # `cycle_sync`. Only phase 3 deletes by it; phase 2 stores it and gates
+    # pushes on it.
+    record_key_cycle: bytes | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -113,12 +117,23 @@ class ConsentService:
                 now=now,
             )
 
+        # §9.7: pull повідомляє про зміну згод нейтральним прапорцем, і його
+        # джерело — лічильник у рядку сейфа, а не годинник. Без інкременту тут
+        # пристрій B ніколи не дізнався б про відкликання й отримував би вічний
+        # 409 без жодної підказки.
+        unit.vault.ensure_counters(account_id)
+        unit.vault.bump_consent_epoch(account_id)
         unit.consents.grant(
             account_id,
             kind=request.kind,
             text_version=text.text_version,
             text_sha256=text.sha256,
             text_locale=text.locale,
+            record_key_cycle=(
+                request.record_key_cycle
+                if request.kind is ConsentKind.CYCLE_SYNC
+                else None
+            ),
             now=now,
         )
 
@@ -151,6 +166,12 @@ class ConsentService:
         )
         if ConsentKind.TELEGRAM_REMINDERS in revoked:
             unit.schedules.delete(account_id)
+        if revoked:
+            # Той самий нейтральний сигнал, що й при grant: пристрій дізнається
+            # «щось зі згодами змінилося» і мусить перечитати їх ДО будь-якого
+            # pruning (§9.4), не дізнаючись із pull назви жодної згоди.
+            unit.vault.ensure_counters(account_id)
+            unit.vault.bump_consent_epoch(account_id)
 
         remaining = unit.consents.active_kinds(account_id)
         if remaining or reason is not RevokeReason.USER:

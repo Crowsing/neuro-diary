@@ -173,10 +173,17 @@ export interface GroupDeleteAction { type: 'GROUP_DELETE'; id: string; }
 export interface SymptomGroupsSetAction { type: 'SYMPTOM_GROUPS_SET'; id: string; groupIds: string[]; }
 export interface HistoryGroupSetAction { type: 'HISTORY_GROUP_SET'; groupId: string | null; }
 
-/** Патч верхньорівневих полів data (рядки 1274, 1299). */
+/**
+ * Патч верхньорівневих полів data (рядки 1274, 1299).
+ *
+ * Тип розширено до `Partial<AppData>`, щоб sync міг застосувати змерджений
+ * стан тією самою дією. Reducer при цьому не змінюється жодним рядком: він і
+ * раніше робив `{...state.data, ...action.patch}`, а тост показує лише при
+ * зміні `lock`.
+ */
 export interface DataPatchAction {
   type: 'DATA_PATCH';
-  patch: Partial<Pick<AppData, 'cycleOn' | 'lock'>>;
+  patch: Partial<AppData>;
 }
 
 // ---------------------------------------------------------------------------
@@ -322,6 +329,8 @@ export const groupDelete = (id: string): Action => ({ type: 'GROUP_DELETE', id }
 export const symptomGroupsSet = (id: string, groupIds: string[]): Action => ({ type: 'SYMPTOM_GROUPS_SET', id, groupIds });
 export const historyGroupSet = (groupId: string | null): Action => ({ type: 'HISTORY_GROUP_SET', groupId });
 export const dataPatch = (patch: DataPatchAction['patch']): Action => ({ type: 'DATA_PATCH', patch });
+/** Застосування змердженого стану із sync — та сама дія під власним іменем. */
+export const syncApply = (data: Partial<AppData>): Action => ({ type: 'DATA_PATCH', patch: data });
 export const histCalPrev = (): Action => ({ type: 'HIST_CAL_PREV' });
 export const histCalNext = (): Action => ({ type: 'HIST_CAL_NEXT' });
 export const histFilter = (filter: HistFilter): Action => ({ type: 'HIST_FILTER', filter });

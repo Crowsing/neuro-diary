@@ -15,6 +15,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 _TIME = re.compile(r"^([01]\d|2[0-3]):[0-5]\d$")
 _SHA256_HEX = re.compile(r"^[0-9a-f]{64}$")
+_RECORD_KEY_HEX = re.compile(r"^[0-9a-f]{64}$")
 
 ConsentKindLiteral = Literal["health_sync", "telegram_reminders", "cycle_sync"]
 
@@ -49,12 +50,22 @@ class GrantInput(ContractModel):
     text_version: str
     text_sha256: str
     settings: ReminderSettingsInput | None = None
+    #: §9.7: HMAC(k_index,'cycle'), яке клієнт називає лише при grant
+    #: `cycle_sync`. Сервер його не обчислює і перевірити не може.
+    record_key_cycle: str | None = None
 
     @field_validator("text_sha256")
     @classmethod
     def _validate_digest(cls, value: str) -> str:
         if not _SHA256_HEX.match(value):
             raise ValueError("text_sha256 must be lowercase hex")
+        return value
+
+    @field_validator("record_key_cycle")
+    @classmethod
+    def _validate_record_key(cls, value: str | None) -> str | None:
+        if value is not None and not _RECORD_KEY_HEX.match(value):
+            raise ValueError("record_key_cycle must be 32 lowercase hex bytes")
         return value
 
     @model_validator(mode="after")
@@ -64,6 +75,8 @@ class GrantInput(ContractModel):
             raise ValueError("telegram_reminders requires settings")
         if not needs_settings and self.settings is not None:
             raise ValueError("settings are only valid for telegram_reminders")
+        if self.record_key_cycle is not None and self.kind != "cycle_sync":
+            raise ValueError("record_key_cycle is only valid for cycle_sync")
         return self
 
 

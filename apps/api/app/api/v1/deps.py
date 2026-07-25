@@ -16,6 +16,7 @@ from app.services.auth import AuthService
 from app.services.consent import ConsentService
 from app.services.erasure import ErasureService
 from app.services.ports import ConsentCopyPort, UnitOfWorkFactory
+from app.services.sync import SyncService
 
 BEARER_PREFIX = "Bearer "
 
@@ -27,6 +28,8 @@ class Services:
     erasure: ErasureService
     consent_copy: ConsentCopyPort
     unit_of_work: UnitOfWorkFactory
+    sync: SyncService
+    app_env: str
 
 
 def get_services(request: Request) -> Services:

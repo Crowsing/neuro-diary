@@ -183,8 +183,16 @@ class AuthService:
         """
         if not requires_step_up(operation):
             return
-        if self._clock.now() - session.created_at > STEP_UP_FRESHNESS:
+        if not self.is_stepped_up(session):
             raise StepUpRequired()
+
+    def is_stepped_up(self, session: SessionRecord) -> bool:
+        """The same freshness test, asked rather than enforced.
+
+        `GET /v1/sync/key` needs it as a question: an ordinary read succeeds
+        without step-up, and only the previous envelope of §7 is withheld.
+        """
+        return self._clock.now() - session.created_at <= STEP_UP_FRESHNESS
 
 
 __all__ = [

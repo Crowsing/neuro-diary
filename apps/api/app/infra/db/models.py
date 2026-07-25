@@ -1,13 +1,13 @@
-"""ORM models for the tables phase 1 touches.
+"""ORM models for the tables phases 1 and 2 touch.
 
-`vault_*` is deliberately absent: phase 1 has no vault code beyond the DDL, and
-a mapped class would be an invitation to write some. Deleting an account still
-clears those rows — the foreign keys of migration 0001 cascade.
+`outbox` stays unmapped on purpose: §4.4 removed `ConsentGranted`, and the only
+remaining event has its consumer in phase 3.
 """
 
 from __future__ import annotations
 
 from datetime import date, datetime, time
+from typing import Any
 from uuid import UUID
 
 from sqlalchemy import (
@@ -16,11 +16,13 @@ from sqlalchemy import (
     Date,
     DateTime,
     ForeignKey,
+    Integer,
     LargeBinary,
     Text,
     Time,
     Uuid,
 )
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -60,6 +62,10 @@ class Consent(Base):
     text_sha256: Mapped[bytes] = mapped_column(LargeBinary)
     text_locale: Mapped[str] = mapped_column(Text)
     revoke_reason: Mapped[str | None] = mapped_column(Text)
+    # §9.7: the client names HMAC(k_index,'cycle') when it grants `cycle_sync`.
+    # Phase 2 stores it and gates pushes on it; the hard DELETE it enables
+    # belongs to phase 3.
+    record_key_cycle: Mapped[bytes | None] = mapped_column(LargeBinary)
 
 
 class SessionToken(Base):
@@ -120,8 +126,68 @@ class ReminderDelivery(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
 
-# `outbox` is mapped nowhere on purpose: §4.4 removed `ConsentGranted`, and the
-# only remaining event has its consumer in phase 3.
+class VaultKey(Base):
+    __tablename__ = "vault_key"
+    __table_args__ = {"schema": "diary"}
+
+    account_id: Mapped[UUID] = mapped_column(
+        Uuid, ForeignKey("diary.account.id"), primary_key=True
+    )
+    wrapped_dek: Mapped[bytes] = mapped_column(LargeBinary)
+    kdf: Mapped[str] = mapped_column(Text)
+    kdf_params: Mapped[dict[str, Any]] = mapped_column(JSONB)
+    key_version: Mapped[int] = mapped_column(Integer)
+    # CAS runs on `wrap_version`, not `key_version` (§7): a re-wrap leaves the
+    # key version alone, so two concurrent re-wraps would both pass a CAS on it
+    # and one of the new passphrases would be lost silently.
+    wrap_version: Mapped[int] = mapped_column(Integer)
+    wrapped_dek_prev: Mapped[bytes | None] = mapped_column(LargeBinary)
+    wrap_version_prev: Mapped[int | None] = mapped_column(Integer)
+    prev_written_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class VaultRevision(Base):
+    __tablename__ = "vault_revision"
+    __table_args__ = {"schema": "diary"}
+
+    account_id: Mapped[UUID] = mapped_column(
+        Uuid, ForeignKey("diary.account.id"), primary_key=True
+    )
+    current_revision: Mapped[int] = mapped_column(BigInteger)
+    compacted_up_to: Mapped[int] = mapped_column(BigInteger)
+    reset_revision: Mapped[int] = mapped_column(BigInteger)
+    consent_epoch: Mapped[int] = mapped_column(BigInteger)
+
+
+class VaultRecord(Base):
+    __tablename__ = "vault_record"
+    __table_args__ = {"schema": "diary"}
+
+    account_id: Mapped[UUID] = mapped_column(
+        Uuid, ForeignKey("diary.account.id"), primary_key=True
+    )
+    record_key: Mapped[bytes] = mapped_column(LargeBinary, primary_key=True)
+    payload: Mapped[bytes | None] = mapped_column(LargeBinary)
+    payload_size: Mapped[int] = mapped_column(Integer)
+    revision: Mapped[int] = mapped_column(BigInteger)
+    deleted: Mapped[bool] = mapped_column(Boolean)
+    # bigint, not timestamptz: the AAD of §7 binds to a decimal integer of UTC
+    # milliseconds, and a round trip through timestamptz is not byte-stable.
+    client_ts_ms: Mapped[int] = mapped_column(BigInteger)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class RateWindow(Base):
+    __tablename__ = "rate_window"
+    __table_args__ = {"schema": "diary"}
+
+    account_id: Mapped[UUID] = mapped_column(
+        Uuid, ForeignKey("diary.account.id"), primary_key=True
+    )
+    bucket: Mapped[str] = mapped_column(Text, primary_key=True)
+    window_start: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    used: Mapped[int] = mapped_column(BigInteger)
+
 
 __all__ = [
     "Account",
@@ -129,8 +195,12 @@ __all__ = [
     "Base",
     "Consent",
     "ErasureJob",
+    "RateWindow",
     "ReminderDelivery",
     "ReminderSchedule",
     "SessionToken",
     "TelegramIdentity",
+    "VaultKey",
+    "VaultRecord",
+    "VaultRevision",
 ]

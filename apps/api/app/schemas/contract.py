@@ -4,6 +4,8 @@ There are intentionally no synchronization endpoints. The models mirror exported
 web state so a future opt-in transport cannot silently reinterpret observations.
 """
 
+from __future__ import annotations
+
 from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -71,6 +73,20 @@ class DoneEntry(ContractModel):
     noSymptoms: bool = False
     legacyNoSymptoms: bool | None = None
     filledLater: bool = False
+
+    @model_validator(mode="after")
+    def _present_never_overlaps_absent(self) -> DoneEntry:
+        """§13.13: `sym ∩ absent = ∅`, the tri-state invariant of §4.3.
+
+        The asymmetry with the client is deliberate and documented: `apps/web`
+        repairs such an entry on read (it must never lose a diary to a bad
+        write), while the active contract refuses it — a value that is both
+        present and explicitly absent has no meaning to agree on.
+        """
+        overlap = set(self.absent) & set(self.sym)
+        if overlap:
+            raise ValueError("absent must not intersect sym")
+        return self
 
 
 class CheckinDraft(ContractModel):
