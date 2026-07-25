@@ -16,6 +16,7 @@
 import type { EncryptedChange } from '../chunks';
 import {
   SyncError,
+  type AuthResult,
   type ConsentView,
   type GrantBody,
   type KeyWriteBody,
@@ -182,15 +183,21 @@ export class FakeVaultTransport implements SyncTransport {
     }
   }
 
-  async authenticate(initData: string, grant?: GrantBody): Promise<string> {
+  async authenticate(initData: string, grant?: GrantBody): Promise<AuthResult> {
     this.server.calls.push('authenticate');
+    if (!this.server.accountExists && grant === undefined) {
+      // Гілка 2 §8: нуль рядків і initData НЕ витрачається — саме тому клієнт
+      // має право повторити виклик із grant тим самим рядком.
+      throw new SyncError('no_account');
+    }
     if (this.server.usedInitData.has(initData)) {
       // Anti-replay §8: сесія видається щонайбільше один раз на конкретний
       // initData. Без цього тест двох пристроїв був би нечесним.
       throw new SyncError('unauthenticated');
     }
-    if (!this.server.accountExists && grant === undefined) {
-      throw new SyncError('no_account');
+    if (grant !== undefined && this.server.consents.has(grant.kind)) {
+      // §4.3: повторний grant активної згоди — 409, а не тихий no-op.
+      throw new SyncError('conflict');
     }
     this.server.usedInitData.add(initData);
     if (grant !== undefined) {
@@ -199,7 +206,7 @@ export class FakeVaultTransport implements SyncTransport {
       this.server.consentEpoch += 1;
     }
     this.token = this.server.issueToken();
-    return this.token;
+    return { token: this.token, consents: await this.listConsents() };
   }
 
   async listConsents(): Promise<readonly ConsentView[]> {

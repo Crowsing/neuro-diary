@@ -30,7 +30,8 @@ jobs:
           VITE_API_ORIGIN=http://localhost:8000 \
           VITE_OUT_DIR=dist-sync \
           pnpm build
-          node apps/web/scripts/assert-bundle.mjs apps/web/dist-sync --sync
+          node apps/web/scripts/assert-bundle.mjs apps/web/dist-sync --sync \
+            --api=http://localhost:8000
       - run: pnpm --filter web exec playwright install --with-deps chromium
       - run: pnpm e2e
 
@@ -73,6 +74,84 @@ jobs:
       - run: uv run --locked ruff check .
       - run: uv run --locked mypy --strict bot
       - run: uv run --locked pytest
+
+  # DoD Фази 2: два браузерні профілі синхронізуються через локальний api.
+  #
+  # Job окремий і блокуючий. Він не може бути частиною `web`: для нього потрібні
+  # PostgreSQL, міграції й живий api, а наскрізний gate `pnpm e2e` мусить
+  # лишатися запускним на будь-якій машині без стенду — саме тому sync-проєкт
+  # Playwright вмикається лише змінною SYNC_E2E.
+  sync-e2e:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16.14-alpine
+        env:
+          POSTGRES_DB: neuro
+          POSTGRES_USER: neuro_admin
+          POSTGRES_PASSWORD: ci_admin_password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U neuro_admin -d neuro"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      # Тексти згод — версія 0.9 з плейсхолдером замість імені контролера, тож
+      # у production-конфігурації сервер відмовляє у створенні згоди. Стенд
+      # працює в development, і банер про це видимий в UI (перевіряється e2e).
+      APP_ENV: development
+      WEBAPP_URL: http://localhost:4174
+      TELEGRAM_BOT_ID: "1234567890"
+      # Публічний ключ детермінованої тестової пари з
+      # apps/api/tests/integration/conftest.py (насіння — байти 0..31).
+      # Секретом не є: приватна половина відтворюється в e2e-хелпері.
+      TELEGRAM_ED25519_PUBLIC_KEY: 03a107bff3ce10be1d70dd18e74bc09967e4d6309ba50d5f1ddc8664125531b8
+      MIGRATION_DATABASE_URL: postgresql://neuro_admin:ci_admin_password@127.0.0.1:5432/neuro
+      API_DATABASE_URL: postgresql://api_rw:ci_api_password@127.0.0.1:5432/neuro
+    steps:
+      - uses: actions/checkout@v6
+      # §11: `k_log` має епоху й знищується при ротації, тож літерал у git був би
+      # і зайвим, і хибним за змістом. Заразом gitleaks не має що ловити:
+      # 64 hex-символи виглядають як ключ незалежно від того, чим вони є.
+      - name: Mint a per-run log pseudonymisation key
+        run: echo "LOG_ACCOUNT_REF_KEY=$(openssl rand -hex 32)" >> "$GITHUB_ENV"
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+          cache: pnpm
+      - uses: astral-sh/setup-uv@v9.0.0
+        with:
+          python-version: "3.11"
+          enable-cache: true
+      - run: pnpm install --frozen-lockfile
+      - run: uv sync --locked
+        working-directory: apps/api
+      - run: uv run --locked alembic upgrade head
+        working-directory: apps/api
+      # Міграція створює ролі без паролів, щоб секрет не опинився в git.
+      - name: Give the application role its CI password
+        run: >-
+          PGPASSWORD=ci_admin_password psql -h 127.0.0.1 -U neuro_admin -d neuro
+          -c "ALTER ROLE api_rw PASSWORD 'ci_api_password';"
+      - name: Start the api
+        working-directory: apps/api
+        run: |
+          uv run --locked uvicorn app.main:app_factory --factory \
+            --no-access-log --port 8000 > /tmp/api.log 2>&1 &
+          for attempt in $(seq 1 60); do
+            curl -sf http://localhost:8000/health && break
+            sleep 1
+          done
+          curl -sf http://localhost:8000/health
+      - run: pnpm --filter web exec playwright install --with-deps chromium
+      - name: Two browser profiles through the local api
+        run: SYNC_E2E=1 pnpm --filter web exec playwright test --project=sync
+      - name: Api log on failure
+        if: failure()
+        run: tail -100 /tmp/api.log
 
   gitleaks:
     runs-on: ubuntu-latest

@@ -68,6 +68,31 @@ if (syncBuild) {
 // 3. CSP присутня в index.html і дозволяє WASM, не дозволяючи eval.
 const html = bundle.find((entry) => entry.path.endsWith('index.html'));
 refuse(html === undefined, 'no index.html in the bundle');
+
+/**
+ * Політика саме з CSP-мета, а не з першого-ліпшого `content=`.
+ *
+ * Попередня редакція брала `/content="([^"]*)"/` по всьому файлу — і ловила
+ * `<meta name="viewport">`, який стоїть вище. Через це `script-src` виходив
+ * порожнім, а обидві асерції про `'unsafe-eval'` і inline-скрипт були
+ * порожніми: вони не могли впасти навіть на політиці, що прямо їх дозволяє.
+ */
+function cspPolicy(text) {
+  const tag = /<meta[^>]*http-equiv="Content-Security-Policy"[^>]*>/i.exec(text)?.[0] ?? '';
+  return /content="([^"]*)"/.exec(tag)?.[1] ?? '';
+}
+
+function sourcesOf(policy, directive) {
+  return (
+    policy
+      .split(';')
+      .map((item) => item.trim())
+      .find((item) => item.startsWith(`${directive} `) || item === directive)
+      ?.split(/\s+/)
+      .slice(1) ?? []
+  );
+}
+
 if (html !== undefined) {
   refuse(
     !html.text.includes('Content-Security-Policy'),
@@ -77,22 +102,40 @@ if (html !== undefined) {
     !html.text.includes("'wasm-unsafe-eval'"),
     "CSP does not allow 'wasm-unsafe-eval'; Argon2id would silently fall back"
   );
+  const policy = cspPolicy(html.text);
+  refuse(policy === '', 'the Content-Security-Policy meta tag carries no policy');
   // Токен, а не підрядок: 'wasm-unsafe-eval' містить 'unsafe-eval' усередині,
   // тож наївна перевірка підрядком мовчала б і на справжньому 'unsafe-eval'.
-  const policy = /content="([^"]*)"/.exec(html.text)?.[1] ?? '';
-  const scriptSrc =
-    policy
-      .split(';')
-      .map((directive) => directive.trim())
-      .find((directive) => directive.startsWith('script-src'))
-      ?.split(/\s+/)
-      .slice(1) ?? [];
+  const scriptSrc = sourcesOf(policy, 'script-src');
+  refuse(scriptSrc.length === 0, 'CSP has no script-src');
   refuse(scriptSrc.includes("'unsafe-eval'"), "CSP allows 'unsafe-eval'");
   refuse(scriptSrc.includes("'unsafe-inline'"), "CSP allows inline script");
   refuse(
     html.text.includes('frame-ancestors'),
     'frame-ancestors belongs to the HTTP header; a meta tag ignores it'
   );
+
+  // 3b. Sync-збірка ходить ЛИШЕ на той api, який їй призначено.
+  //
+  // §9.6 вимагає, щоб спеціальна sync-e2e збірка спілкувалася лише з локальним
+  // тестовим api. Намір тут не перевіряється: перевіряється `connect-src` самого
+  // артефакта — саме він і є межею, за яку браузер не випустить запит.
+  const expected = flags
+    .find((flag) => flag.startsWith('--api='))
+    ?.slice('--api='.length);
+  if (syncBuild && expected !== undefined) {
+    const connect = sourcesOf(policy, 'connect-src');
+    const allowed = new Set(["'self'", expected]);
+    const extra = connect.filter((source) => !allowed.has(source));
+    refuse(
+      !connect.includes(expected),
+      `connect-src does not allow the expected api origin ${expected}`
+    );
+    refuse(
+      extra.length > 0,
+      `connect-src allows origins beyond the test api: ${extra.join(' ')}`
+    );
+  }
 }
 
 // 4. Argon2 живе в окремому чанку, а не у вхідному графі.

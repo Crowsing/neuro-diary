@@ -21,7 +21,11 @@ export function buildDirectives(apiOrigin: string): Directives {
     // Інлайнові стилі — наслідок локальної геометрії в компонентах; вони не
     // виконують коду. `unsafe-inline` для script-src не з'являється ніде.
     'style-src': ["'self'", "'unsafe-inline'"],
-    'font-src': ["'self'"],
+    // `data:` тут не послаблення, а необхідність: збірка інлайнить дрібні
+    // шрифтові файли в data-URI, і без цього джерела браузер їх блокує —
+    // застосунок мовчки втрачає типографіку. Знайдено e2e, який слухає
+    // `securitypolicyviolation`, бо жодна інша перевірка цього не бачила.
+    'font-src': ["'self'", 'data:'],
     'img-src': ["'self'", 'data:'],
     'connect-src': ["'self'", apiOrigin].filter((value) => value !== ''),
     'base-uri': ["'none'"],

@@ -66,9 +66,15 @@ export interface ConsentView {
   readonly textVersion: string;
 }
 
+export interface AuthResult {
+  readonly token: string;
+  /** Відповідь §8 і так їх несе, тож окремий `GET /v1/consents` тут зайвий. */
+  readonly consents: readonly ConsentView[];
+}
+
 /** Порт транспорту: движок не знає ані про fetch, ані про URL. */
 export interface SyncTransport {
-  authenticate(initData: string, grant?: GrantBody): Promise<string>;
+  authenticate(initData: string, grant?: GrantBody): Promise<AuthResult>;
   listConsents(): Promise<readonly ConsentView[]>;
   grantConsent(grant: GrantBody): Promise<readonly ConsentView[]>;
   push(baseRevision: number, changes: readonly EncryptedChange[]): Promise<PushResult>;
@@ -119,10 +125,18 @@ const CODE_BY_FORBIDDEN_REASON: Record<string, SyncErrorCode> = {
 export class HttpSyncTransport implements SyncTransport {
   private token: string | null = null;
 
+  private readonly fetchImpl: typeof fetch;
+
   constructor(
     private readonly baseUrl: string,
-    private readonly fetchImpl: typeof fetch = fetch
-  ) {}
+    fetchImpl?: typeof fetch
+  ) {
+    // Обгортка, а не `= fetch` у параметрі: збережений як властивість, `fetch`
+    // викликався б із `this === transport`, і браузер кидав би «Illegal
+    // invocation». Поки в модуля не було жодного споживача, цього не було видно
+    // ані тестами (в них підставляється власний fetch), ані очима.
+    this.fetchImpl = fetchImpl ?? ((input, init) => globalThis.fetch(input, init));
+  }
 
   setToken(token: string | null): void {
     this.token = token;
@@ -184,16 +198,24 @@ export class HttpSyncTransport implements SyncTransport {
     );
   }
 
-  async authenticate(initData: string, grant?: GrantBody): Promise<string> {
-    const body = await this.call<{ session_token: string }>(
+  async authenticate(initData: string, grant?: GrantBody): Promise<AuthResult> {
+    const body = await this.call<{
+      session_token: string;
+      consents: { kind: string; granted_at: string; text_version: string }[];
+    }>(
       'POST',
       '/v1/auth/telegram',
-      grant === undefined
-        ? { init_data: initData }
-        : { init_data: initData, grant }
+      grant === undefined ? { init_data: initData } : { init_data: initData, grant }
     );
     this.token = body.session_token;
-    return body.session_token;
+    return {
+      token: body.session_token,
+      consents: body.consents.map((item) => ({
+        kind: item.kind,
+        grantedAt: item.granted_at,
+        textVersion: item.text_version
+      }))
+    };
   }
 
   async listConsents(): Promise<readonly ConsentView[]> {

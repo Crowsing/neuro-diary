@@ -115,6 +115,9 @@ export function SyncProvider({ children }: { children: ReactNode }) {
 
   const session = useRef<VaultSession | null>(null);
   const grant = useRef<ConsentGrant | null>(null);
+  // Що робити з введеною фразою: створювати/відкривати сейф після згоди — чи
+  // просто розблокувати вже налаштований пристрій після перезавантаження.
+  const phraseMode = useRef<'enable' | 'unlock'>('enable');
   const deferred = useRef<Record<string, unknown>>({});
   // Асинхронні колбеки інакше захопили б стан того рендеру, у якому їх
   // створили, і push відправляв би застарілий щоденник.
@@ -162,6 +165,17 @@ export function SyncProvider({ children }: { children: ReactNode }) {
       }
     });
     return session.current;
+  }, []);
+
+  // Пристрій, який уже синхронізувався, після перезавантаження не має виглядати
+  // так, ніби синхронізації не було: підключі не персистяться, а факт
+  // налаштування — так.
+  useEffect(() => {
+    if (!SYNC_ENABLED) return;
+    void import('./meta').then(({ loadMeta, newDeviceId }) => {
+      const meta = loadMeta(window.localStorage, newDeviceId());
+      if (meta.lastSuccessfulSyncAt !== null) setActive(true);
+    });
   }, []);
 
   const fail = useCallback((error: unknown) => {
@@ -216,6 +230,7 @@ export function SyncProvider({ children }: { children: ReactNode }) {
     if (!SYNC_ENABLED) return;
     setLastError(null);
     setConsentKind(kind);
+    phraseMode.current = 'enable';
     setStage('consent');
   }, []);
 
@@ -256,11 +271,15 @@ export function SyncProvider({ children }: { children: ReactNode }) {
       void (async () => {
         try {
           const vault = await openSession();
-          await vault.finishEnable({
-            passphrase,
-            data: data.current,
-            nowMs: Date.now()
-          });
+          if (phraseMode.current === 'unlock') {
+            await vault.open({ passphrase, nowMs: Date.now() });
+          } else {
+            await vault.finishEnable({
+              passphrase,
+              data: data.current,
+              nowMs: Date.now()
+            });
+          }
           setActive(true);
           await runSync();
           setStage((current) => (current === 'working' ? 'idle' : current));
@@ -277,13 +296,22 @@ export function SyncProvider({ children }: { children: ReactNode }) {
     setStage('working');
     void (async () => {
       try {
+        const vault = await openSession();
+        if (!vault.unlocked) {
+          // Підключі живуть лише в пам'яті, тож після перезавантаження вкладки
+          // синхронізація починається з фрази, а не з нової згоди.
+          phraseMode.current = 'unlock';
+          setPurpose('unlock');
+          setStage('passphrase');
+          return;
+        }
         await runSync();
         setStage((current) => (current === 'working' ? 'idle' : current));
       } catch (error) {
         fail(error);
       }
     })();
-  }, [fail, runSync]);
+  }, [fail, openSession, runSync]);
 
   const confirmPending = useCallback(
     (apply: boolean) => {

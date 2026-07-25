@@ -255,7 +255,25 @@ export class VaultSession {
     const initData = readInitDataOnce(this.deps.browser);
     if (initData === null) throw new VaultError('unauthenticated');
     try {
-      await this.deps.transport.authenticate(initData, grant);
+      // Спершу БЕЗ grant. Порядок обов'язковий: акаунт із уже наданою згодою
+      // відповів би 409 `consent_already_active`, тобто другий пристрій не міг
+      // би увійти взагалі. Гілка 2 §8 гарантує, що відмова `no_account` не
+      // лишає жодного рядка й не витрачає initData, тож повтор із grant
+      // легальний — і саме він створює акаунт разом із першою згодою.
+      let session;
+      try {
+        session = await this.deps.transport.authenticate(initData);
+      } catch (error) {
+        if (!(error instanceof SyncError) || error.code !== 'no_account') throw error;
+        session = await this.deps.transport.authenticate(initData, grant);
+      }
+
+      if (!session.consents.some((item) => item.kind === grant.kind)) {
+        // Акаунт існує, але саме цієї згоди в нього немає (наприклад, лишилася
+        // тільки згода на нагадування). Без неї push повернув би 403.
+        await this.deps.transport.grantConsent(grant);
+      }
+
       this.pendingKey = await this.deps.transport.readKey();
       return this.pendingKey === null ? 'create' : 'open';
     } catch (error) {

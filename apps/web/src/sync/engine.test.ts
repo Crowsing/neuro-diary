@@ -63,8 +63,8 @@ class RecordingTransport implements SyncTransport {
     return { newRevision: this.revision };
   }
 
-  async authenticate(): Promise<string> {
-    return 'token';
+  async authenticate() {
+    return { token: 'token', consents: [] };
   }
   async listConsents() {
     return [];
