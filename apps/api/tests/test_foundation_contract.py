@@ -82,6 +82,8 @@ def test_ci_contains_every_phase_zero_gate() -> None:
         "uv run --locked ruff check .",
         "uv run --locked mypy --strict",
         "uv run --locked lint-imports",
+        "uv run --locked ruff format --check .",
+        "--cov-fail-under=100",
         "gitleaks",
     ):
         assert command in workflow

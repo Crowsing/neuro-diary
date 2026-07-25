@@ -81,7 +81,9 @@ def database() -> Iterator[Database]:
         admin_url = postgres.get_connection_url()
         config = _alembic_config(admin_url)
 
-        command.upgrade(config, "head")
+        # Pinned to the foundation revision on purpose: this module asserts the
+        # state 0001 leaves behind, and later revisions have their own suites.
+        command.upgrade(config, "0001")
         command.downgrade(config, "base")
         with psycopg.connect(admin_url) as connection:
             count = connection.execute(
@@ -92,7 +94,7 @@ def database() -> Iterator[Database]:
                 """
             ).fetchone()
             assert count == (0,)
-        command.upgrade(config, "head")
+        command.upgrade(config, "0001")
 
         api_password = secrets.token_urlsafe(24)
         worker_password = secrets.token_urlsafe(24)

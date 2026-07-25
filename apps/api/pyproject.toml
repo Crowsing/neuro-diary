@@ -5,10 +5,13 @@ description = "Neuro Diary API — плейсхолдер під майбутн�
 requires-python = ">=3.11"
 dependencies = [
     "alembic==1.18.5",
+    "cryptography==49.0.0",
     "fastapi==0.139.2",
     "psycopg[binary]==3.3.4",
     "pydantic==2.13.4",
     "sqlalchemy==2.0.51",
+    "structlog==26.1.0",
+    "tzdata==2026.3",
     "uvicorn[standard]==0.51.0",
 ]
 
@@ -18,6 +21,7 @@ dev = [
     "import-linter==2.13",
     "mypy==2.3.0",
     "pytest==9.1.1",
+    "pytest-cov==7.1.0",
     "ruff==0.15.22",
     "testcontainers[postgres]==4.14.2",
 ]
