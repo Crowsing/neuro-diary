@@ -144,6 +144,31 @@ export class FakeVaultServer {
     if (Number.isFinite(lowest)) this.compactedUpTo = Math.max(this.compactedUpTo, lowest);
   }
 
+  /**
+   * Серверне відкликання згоди — рівно те, що робить `ConsentService.revoke`.
+   *
+   * Для `cycle_sync` це §9.7: hard DELETE за названим ключем, **без надгробка**,
+   * з інкрементом ревізії, у тій самій транзакції, що й `revoked_at`. Надгробок
+   * тут деанонімізував би `record_key` саме тоді, коли сервер бачить свіже
+   * `revoked_at('cycle_sync')`.
+   *
+   * Викликати `records.delete` руками — не те саме: без інкременту ревізії й
+   * без підняття `consent_epoch` тест не проходив би тим шляхом, яким піде
+   * справжній клієнт.
+   */
+  revokeConsent(kind: string): void {
+    if (!this.consents.delete(kind)) return;
+    if (kind === 'health_sync') this.consents.delete('cycle_sync');
+    if (
+      (kind === 'cycle_sync' || kind === 'health_sync') &&
+      this.recordKeyCycle !== null &&
+      this.records.delete(this.recordKeyCycle)
+    ) {
+      this.currentRevision += 1;
+    }
+    this.consentEpoch += 1;
+  }
+
   /** Компакшн: викидає надгробки й піднімає горизонт (§6.4). */
   compact(): void {
     let highest = this.compactedUpTo;
