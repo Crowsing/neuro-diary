@@ -9,8 +9,13 @@ import { describe, expect, it } from 'vitest';
 // можна додати з дефолтним значенням, і всі поведінкові тести лишаться зеленими.
 const ROOT = fileURLToPath(new URL('.', import.meta.url));
 
-/** Файли, яким випадковість потрібна за призначенням (nonce, R, device_id). */
-const RANDOMNESS_ALLOWED = ['envelope.ts', 'keys.ts', 'passphrase/generate.ts'];
+/** Файли, яким випадковість потрібна за призначенням: nonce, R, сіль KDF, фраза. */
+const RANDOMNESS_ALLOWED = [
+  'envelope.ts',
+  'keys.ts',
+  'kdf/params.ts',
+  'passphrase/generate.ts'
+];
 
 function sources(dir: string): string[] {
   return readdirSync(dir, { withFileTypes: true }).flatMap((item) => {
