@@ -100,7 +100,20 @@ if [[ -z "${TELEGRAM_BOT_ID:-}" ]]; then
   USING_FIXTURE_BOT=1
 fi
 
-if [[ -z "${WEBAPP_URL:-}" ]]; then
+# WEBAPP_URL=https://… ./scripts/dev-stand.sh пропише URL в обидва .env одразу:
+# боту він потрібен для кнопки, api — для CORS-allowlist, і вони мусять збігатися.
+if [[ -n "${WEBAPP_URL:-}" ]]; then
+  sed -i.bak "s|^WEBAPP_URL=.*|WEBAPP_URL=$WEBAPP_URL|" "$ENV_FILE"
+  rm -f "$ENV_FILE.bak"
+  if [[ -f "$BOT_ENV_FILE" ]]; then
+    sed -i.bak "s|^WEBAPP_URL=.*|WEBAPP_URL=$WEBAPP_URL|" "$BOT_ENV_FILE"
+    rm -f "$BOT_ENV_FILE.bak"
+  fi
+  say "WEBAPP_URL записано в обидва .env: $WEBAPP_URL"
+  if [[ "$WEBAPP_URL" != https://* ]]; then
+    warn "Telegram відкриває Mini App лише через HTTPS — цей URL не підійде."
+  fi
+elif [[ -z "$(grep -E '^WEBAPP_URL=' "$ENV_FILE" | cut -d= -f2-)" ]]; then
   sed -i.bak "s|^WEBAPP_URL=.*|WEBAPP_URL=http://localhost:5173|" "$ENV_FILE"
   rm -f "$ENV_FILE.bak"
   WEBAPP_URL="http://localhost:5173"

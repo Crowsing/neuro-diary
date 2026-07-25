@@ -9,6 +9,9 @@ dist/
 *.local
 *.log
 
+# Локальний стенд
+.dev-logs/
+
 # Тести
 test-results/
 playwright-report/
