@@ -493,33 +493,116 @@ Remote-прогін
   через порт `ErasureJournalPort`. Зовнішній append-only носій в іншого
   провайдера (§6.4) — **Фаза 3**; порт існує саме щоб його підмінити.
 
-## Фаза 2 — Vault і Sync (наступна; Gate D лишається блокером продакшену)
+## Фаза 2 — Vault і Sync (етапи A–C виконані; D–E попереду)
 
-Scope: клієнтське E2E, push/pull, ревізії, tombstones, компакшн, 409/410/reset,
-chunked upload і key CAS. Промпт під ключ —
-[phase-2-implementation.prompt.md](phase-2-implementation.prompt.md).
+Scope сесії за рішенням власника — етапи **A, B, C** промпту
+[phase-2-implementation.prompt.md](phase-2-implementation.prompt.md). Етап D
+(клієнтський флоу re-key/re-wrap, бенчмарк KDF, демо build-флаги понад наявні) і
+етап E (повний набір наскрізних тестів) лишаються наступній сесії.
+
+Гілка `phase-2-vault-sync`. Локальні прогони: `pnpm test` 472 зелені,
+`pnpm build` і `pnpm e2e` (56 сценаріїв) зелені, `pytest` 363 зелені,
+`ruff`/`mypy --strict`/`lint-imports` (7 контрактів) чисті. Номер CI-прогону
+з'явиться після відкриття PR.
 
 ### DoD
 
-- [ ] Два конкурентні push одного `record_key` з однаковим `base_revision`
-  дають рівно один 200 і один 409 на реальній PostgreSQL. Evidence: _pending_.
-- [ ] Property-тест на реальній PostgreSQL підтверджує, що tombstone не
-  перезаписується мовчки. Evidence: _pending_.
-- [ ] Property-тест на реальній PostgreSQL підтверджує монотонність ревізій.
-  Evidence: _pending_.
-- [ ] Застарілий pull після компакшну повертає 410. Evidence: _pending_.
-- [ ] Застарілий push після компакшну повертає 410. Evidence: _pending_.
-- [ ] Після повного ресинку видалений ключ не воскресає. Evidence: _pending_.
-- [ ] Клієнт відхиляє payload під чужим `record_key`. Evidence: _pending_.
-- [ ] Повторне шифрування дає різні nonce і ciphertext. Evidence: _pending_.
-- [ ] Спільні JSON-фікстури web↔api перевіряють контракт, включно з
-  `sym ∩ absent = ∅`. Evidence: _pending_.
-- [ ] Cycle merge для delete/offline-add/re-add збігається за ≤2 раунди.
-  Evidence: _pending_.
+- [x] Два конкурентні push одного `record_key` з однаковим `base_revision`
+  дають рівно один 200 і один 409 на реальній PostgreSQL. Evidence:
+  `tests/integration/test_sync_concurrency.py::test_two_concurrent_pushes_of_one_key_give_exactly_one_200_and_one_409`.
+- [x] Property-тест на реальній PostgreSQL підтверджує, що tombstone не
+  перезаписується мовчки. Evidence:
+  `tests/integration/test_sync_push.py::test_a_tombstone_is_not_silently_overwritten_by_an_older_update`.
+- [x] Монотонність ревізій. Evidence:
+  `tests/integration/test_sync_push.py::test_revisions_are_strictly_increasing_across_many_pushes`
+  і `::test_every_record_in_one_push_gets_its_own_revision`.
+- [x] Застарілий pull після компакшну повертає 410. Evidence:
+  `tests/integration/test_sync_pull.py::test_pull_below_the_compaction_horizon_is_gone`.
+- [x] Застарілий push після компакшну повертає 410. Evidence:
+  `tests/integration/test_vault_compaction.py::test_a_push_below_the_horizon_is_gone`.
+- [x] Після повного ресинку видалений ключ не воскресає. Evidence:
+  `tests/integration/test_sync_pull.py::test_a_full_resync_does_not_resurrect_a_deleted_key`
+  і `test_vault_compaction.py::test_a_new_device_can_still_download_the_vault_after_compaction`.
+- [x] Клієнт відхиляє payload під чужим `record_key`. Evidence:
+  `apps/web/src/crypto/recordKey.test.ts`, блок «a payload served under a
+  foreign record_key is refused (DoD)» — три сценарії підміни з боку сервера.
+- [x] Повторне шифрування дає різні nonce і ciphertext. Evidence:
+  `apps/web/src/crypto/envelope.test.ts::produces a different nonce and a
+  different ciphertext every time` (64 ітерації) плюс `api.test.ts`, який читає
+  вихідний текст модуля й вимагає відсутності параметра `nonce`.
+- [x] Спільні JSON-фікстури web↔api, включно з `sym ∩ absent = ∅`. Evidence:
+  `fixtures/contract/**`, `apps/api/tests/contract/test_shared_fixtures.py`,
+  `apps/web/src/sync/fixtures.test.ts`.
+- [x] Cycle merge для delete/offline-add/re-add збігається за ≤2 раунди.
+  Evidence: `apps/web/src/sync/merge.test.ts::converges on delete /
+  offline-add / re-add within two rounds` і фікстура
+  `fixtures/contract/merge/cycle-reconvergence.json`, яку читають обидві
+  сторони; регресія воскресіння — `apps/web/src/sync/resurrection.test.ts`.
+- [x] Дамп БД не містить plaintext контрольних нотаток **і** жоден байтовий
+  рядок `vault_record` не парситься як ISO-дата або ім'я синглтона. Evidence:
+  `tests/integration/test_vault_privacy.py`.
+- [x] Manifest — обидві гілки. Evidence:
+  `apps/web/src/crypto/manifest.test.ts::fails when a live record was withheld
+  by the server (DoD)` і `::passes when a compacted tombstone disappeared (DoD)`.
+- [x] Два конкурентні re-wrap → рівно один 200 і один 409 по `wrap_version`.
+  Evidence:
+  `tests/integration/test_sync_concurrency.py::test_two_concurrent_rewraps_give_exactly_one_200_and_one_409_on_wrap_version`.
+- [x] Запис у `/v1/sync/key` без step-up → 403. Evidence:
+  `tests/integration/test_sync_key.py::test_a_write_without_step_up_is_refused`
+  (обидва режими, з перевіркою нуля рядків).
 - [ ] Playwright синхронізує два браузерні профілі через локальний API.
-  Evidence: _pending_.
-- [ ] Дамп БД не містить plaintext контрольних нотаток. Evidence: _pending_.
-- [ ] `location.hash` і `sessionStorage` очищені від initData. Evidence: _pending_.
+  Evidence: _pending_ — **не зроблено цією сесією**, див. «Що лишилося».
+- [ ] `location.hash` і `sessionStorage` очищені від initData (e2e). Evidence:
+  часткова — `apps/web/src/sync/initdata.test.ts` покриває правило на рівні
+  модуля; e2e-assert на зібраному застосунку _pending_.
+
+### Зафіксовані рішення
+
+- **Бенчмарк KDF недоступний**: еталонного low-end Android для виміру в WebView
+  Telegram немає, тож правило прийняття §7 (`p95 ≤ 3000 мс`) не перевірене.
+  Активним дефолтом лишається **PBKDF2-HMAC-SHA256** (ціль 1 000 000, підлога
+  600 000). Argon2id реалізований і покритий KAT-вектором, звіреним із
+  незалежною реалізацією (OpenSSL 3.6.1 `openssl kdf ARGON2ID`), але **жоден
+  шлях коду його не обирає**.
+- **Словник фрази — кандидатний.** Зібраний із перетину двох відкритих джерел:
+  LibreOffice `uk_UA.dic` (MPL 1.1) дає питомість, FrequencyWords `uk_full.txt`
+  (MIT) — уживаність. `REVIEWED_BY_LOCALIZATION_EDITOR = false`, і це під
+  тестом. **UI не оголошує ентропію фрази й не показує індикатор сили.**
+  Незалежний review показав, що механічний стоп-список промпту пропускав пласт
+  побутової медичної лексики («аневризма», «астма», «діабет»); список
+  розширено, словник перегенеровано — але це лише посилює механічну частину й
+  не заміняє редакторську.
+- **Серверна перевірка KDF-параметрів свідомо обмежена** закритим переліком
+  `kdf` і довжиною солі; числові пороги лишаються клієнту (§7 покладає перевірку
+  підлоги саме на нього).
+- Три відхилення від нормативного плану зафіксовані окремим комітом у
+  `backend-bot-plan.md`: семантика прапорця AAD (§7), колонки `record_key_cycle`
+  і `consent_epoch` та таблиця `rate_window` (§6.2), курсор pull у request line
+  (§9.2).
+- **Четверте відхилення, знайдене на коді:** горизонт компакшну не просувається
+  вище за найнижчу живу ревізію. §6.4 буквально каже
+  `compacted_up_to = GREATEST(compacted_up_to, max(revision видалених))`, але
+  ревізії видаються на кожен запис, а не на ключ, тож така формула оголошує
+  недосяжними живі записи з нижчими ревізіями — і повний ресинк §9.2 не має що
+  повернути. Обіцянка, що мала значення (tombstone за TTL зникає і проти нього
+  не можна пушити), збережена.
+
+### Що лишилося за людиною і за наступною сесією
+
+- **Бенчмарк KDF** на еталонному low-end Android у WebView Telegram — без нього
+  Argon2id не вмикається (§7, блокер 1 §13).
+- **Локалізаційний review словника** — без нього UI не має права оголошувати
+  стійкість фрази (блокер 2 промпту Фази 2).
+- **Етап D**: клієнтський флоу re-key і зміни фрази, вимір §13.18 (час життя
+  сховища у WebView), демо-збірка sync-e2e.
+- **Етап E**: e2e з двома браузерними профілями через локальний api, e2e-assert
+  гігієни initData на зібраному застосунку, job `sync-e2e` у CI.
+- **Наскрізний UI-флоу синхронізації** доведений до кроку «згода → фраза →
+  перший upload» (`apps/web/src/sync/session.ts`), але екрани ще не підключені
+  до Налаштувань, а шлях pull/merge/apply у провайдері не замкнений. Модулі
+  merge, guards і крипто покриті тестами й готові до підключення.
+- Ім'я контролера і заморожування текстів згод до `1.0` — блокер продакшену,
+  не цієї фази.
 
 ## Фаза 3 — Erasure і відкликання згод (заблокована Gate D)
 
