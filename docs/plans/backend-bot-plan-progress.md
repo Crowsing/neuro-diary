@@ -486,15 +486,18 @@ Remote-прогін
 - Скидання лічильників `vault_revision` і 409 `confirm_required` при відкликанні
   `health_sync` — це `vault_*`-код, заборонений промптом у Фазі 1; **Фаза 3**.
 - Колонка `consent.record_key_cycle` (§9.7): grant-контракт §9.2 її не містить,
-  а єдиний споживач — серверний hard-DELETE за названим ключем — **Фаза 3**.
+  а клієнт уперше вміє обчислити `HMAC(k_index,'cycle')` лише у **Фазі 2**, коли
+  з'являється `k_index`. Колонка й приймання значення — Фаза 2; серверний
+  hard-DELETE за названим ключем — **Фаза 3**.
 - Журнал стирання у Фазі 1 пише рядок `diary.erasure_job` окремою транзакцією
   через порт `ErasureJournalPort`. Зовнішній append-only носій в іншого
   провайдера (§6.4) — **Фаза 3**; порт існує саме щоб його підмінити.
 
-## Фаза 2 — Vault і Sync (заблокована Gate D)
+## Фаза 2 — Vault і Sync (наступна; Gate D лишається блокером продакшену)
 
 Scope: клієнтське E2E, push/pull, ревізії, tombstones, компакшн, 409/410/reset,
-chunked upload і key CAS.
+chunked upload і key CAS. Промпт під ключ —
+[phase-2-implementation.prompt.md](phase-2-implementation.prompt.md).
 
 ### DoD
 
