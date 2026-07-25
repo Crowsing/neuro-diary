@@ -320,9 +320,17 @@ export function SyncProvider({ children }: { children: ReactNode }) {
       setStage('working');
       void (async () => {
         try {
+          // Патч треба накласти на дані ЯВНО, а не читати `data.current` після
+          // dispatch: React ще не перерендерив, тож там лежить стан ДО
+          // підтвердження — і push повернув би на сервер саме ті записи, які
+          // користувачка щойно погодилася видалити.
+          const next =
+            apply && decision !== null
+              ? { ...data.current, ...decision.confirmedPatch }
+              : data.current;
           if (apply && decision !== null) dispatch(syncApply(decision.confirmedPatch));
           const vault = await openSession();
-          await vault.push({ data: data.current, nowMs: Date.now() });
+          await vault.push({ data: next, nowMs: Date.now() });
           setStage('idle');
         } catch (error) {
           fail(error);
