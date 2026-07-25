@@ -41,6 +41,10 @@ class GrantRequest:
     text_version: str
     text_sha256: bytes
     settings: ReminderSettings | None = None
+    # §9.7: HMAC(k_index,'cycle'), named by the client when it grants
+    # `cycle_sync`. Only phase 3 deletes by it; phase 2 stores it and gates
+    # pushes on it.
+    record_key_cycle: bytes | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -119,6 +123,11 @@ class ConsentService:
             text_version=text.text_version,
             text_sha256=text.sha256,
             text_locale=text.locale,
+            record_key_cycle=(
+                request.record_key_cycle
+                if request.kind is ConsentKind.CYCLE_SYNC
+                else None
+            ),
             now=now,
         )
 

@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from contextlib import AbstractContextManager
 from datetime import datetime, time
-from typing import Protocol
+from typing import Any, Protocol
 from uuid import UUID
 
 from app.domain.identity import ConsentKind, RevokeReason
@@ -17,8 +17,13 @@ from app.domain.records import (
     ConsentRecord,
     ConsentText,
     PendingErasure,
+    RateVerdict,
+    RecordWrite,
     SessionRecord,
     SessionSummary,
+    StoredRecord,
+    StoredVaultKey,
+    VaultCounters,
 )
 
 
@@ -72,8 +77,10 @@ class ConsentRepositoryPort(Protocol):
         text_version: str,
         text_sha256: bytes,
         text_locale: str,
+        record_key_cycle: bytes | None,
         now: datetime,
     ) -> None: ...
+    def named_cycle_key(self, account_id: UUID) -> bytes | None: ...
     def active(self, account_id: UUID) -> list[ConsentRecord]: ...
     def active_kinds(self, account_id: UUID) -> set[ConsentKind]: ...
     def revoke(
@@ -117,6 +124,70 @@ class ErasureRepositoryPort(Protocol):
     def complete(self, job_id: UUID, *, at: datetime) -> None: ...
 
 
+class VaultRepositoryPort(Protocol):
+    """Everything the push transaction of §9.1 needs, in its own order.
+
+    `lock_counters` is the second lock of the transaction and must never be
+    taken before `accounts.lock`: a fixed lock order is what keeps two pushes
+    of one account from deadlocking instead of serializing.
+    """
+
+    def ensure_counters(self, account_id: UUID) -> None: ...
+    def counters(self, account_id: UUID) -> VaultCounters: ...
+    def lock_counters(self, account_id: UUID) -> VaultCounters: ...
+    def revisions_for(
+        self, account_id: UUID, keys: list[bytes]
+    ) -> dict[bytes, int]: ...
+    def upsert(
+        self,
+        account_id: UUID,
+        *,
+        writes: list[RecordWrite],
+        first_revision: int,
+        now: datetime,
+    ) -> None: ...
+    def set_current_revision(self, account_id: UUID, *, value: int) -> None: ...
+    def page(
+        self, account_id: UUID, *, since: int, limit: int
+    ) -> list[StoredRecord]: ...
+    def delete_all(self, account_id: UUID) -> int: ...
+    def mark_reset(self, account_id: UUID, *, revision: int) -> None: ...
+    def accounts_with_stale_tombstones(
+        self, *, older_than: datetime, limit: int
+    ) -> list[UUID]: ...
+    def compact(self, account_id: UUID, *, older_than: datetime) -> int: ...
+
+
+class VaultKeyRepositoryPort(Protocol):
+    def read(self, account_id: UUID) -> StoredVaultKey | None: ...
+    def lock(self, account_id: UUID) -> StoredVaultKey | None: ...
+    def write(
+        self,
+        account_id: UUID,
+        *,
+        wrapped_dek: bytes,
+        kdf: str,
+        kdf_params: dict[str, Any],
+        key_version: int,
+        wrap_version: int,
+        keep_previous: bool,
+        now: datetime,
+    ) -> None: ...
+
+
+class RateWindowRepositoryPort(Protocol):
+    def consume(
+        self,
+        account_id: UUID,
+        *,
+        bucket: str,
+        cost: int,
+        limit: int,
+        window_start: datetime,
+        window_seconds: int,
+    ) -> RateVerdict: ...
+
+
 class UnitOfWork(Protocol):
     """Read-only properties, not attributes.
 
@@ -138,6 +209,12 @@ class UnitOfWork(Protocol):
     def schedules(self) -> ReminderScheduleRepositoryPort: ...
     @property
     def erasure(self) -> ErasureRepositoryPort: ...
+    @property
+    def vault(self) -> VaultRepositoryPort: ...
+    @property
+    def vault_keys(self) -> VaultKeyRepositoryPort: ...
+    @property
+    def rate_windows(self) -> RateWindowRepositoryPort: ...
 
     def commit(self) -> None: ...
     def rollback(self) -> None: ...
@@ -196,12 +273,20 @@ __all__ = [
     "ErasureRepositoryPort",
     "InitDataValidatorPort",
     "PendingErasure",
+    "RateVerdict",
+    "RateWindowRepositoryPort",
+    "RecordWrite",
     "ReminderScheduleRepositoryPort",
     "SessionRecord",
     "SessionRepositoryPort",
     "SessionSummary",
+    "StoredRecord",
+    "StoredVaultKey",
     "TelegramIdentityRepositoryPort",
     "UnitOfWork",
     "UnitOfWorkFactory",
     "ValidatedInitDataLike",
+    "VaultCounters",
+    "VaultKeyRepositoryPort",
+    "VaultRepositoryPort",
 ]

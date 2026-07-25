@@ -25,6 +25,11 @@ from app.infra.db.repositories.identity import (
     SessionRepository,
     TelegramIdentityRepository,
 )
+from app.infra.db.repositories.vault import (
+    RateWindowRepository,
+    VaultKeyRepository,
+    VaultRepository,
+)
 
 
 def build_engine(database_url: str) -> Engine:
@@ -41,6 +46,9 @@ class SqlUnitOfWork:
         self.consents = ConsentRepository(session)
         self.schedules = ReminderScheduleRepository(session)
         self.erasure = ErasureRepository(session)
+        self.vault = VaultRepository(session)
+        self.vault_keys = VaultKeyRepository(session)
+        self.rate_windows = RateWindowRepository(session)
 
     def commit(self) -> None:
         self._session.commit()

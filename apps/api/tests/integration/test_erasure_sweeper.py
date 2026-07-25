@@ -46,6 +46,7 @@ def _abandoned_account(
             text_version="telegram_reminders@0.9",
             text_sha256=TEXT_SHA256,
             text_locale="uk",
+            record_key_cycle=None,
             now=granted,
         )
         unit.consents.revoke(
@@ -149,6 +150,7 @@ def test_an_account_with_an_active_consent_is_untouched(
             text_version="health_sync@0.9",
             text_sha256=TEXT_SHA256,
             text_locale="uk",
+            record_key_cycle=None,
             now=clock.now(),
         )
         unit.commit()
@@ -196,6 +198,7 @@ def test_revoked_consents_are_kept_for_two_years_then_dropped(
             text_version="health_sync@0.9",
             text_sha256=TEXT_SHA256,
             text_locale="uk",
+            record_key_cycle=None,
             now=long_ago,
         )
         unit.consents.revoke(

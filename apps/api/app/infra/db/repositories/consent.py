@@ -30,6 +30,7 @@ class ConsentRepository:
         text_version: str,
         text_sha256: bytes,
         text_locale: str,
+        record_key_cycle: bytes | None,
         now: datetime,
     ) -> None:
         self._session.execute(
@@ -43,9 +44,28 @@ class ConsentRepository:
                 text_sha256=text_sha256,
                 text_locale=text_locale,
                 revoke_reason=None,
+                record_key_cycle=record_key_cycle,
             )
         )
         self._session.flush()
+
+    def named_cycle_key(self, account_id: UUID) -> bytes | None:
+        """The record_key the client named when granting `cycle_sync` (§9.7).
+
+        Read regardless of `revoked_at`: the push gate needs the key of a
+        revoked consent, and that is exactly when it matters.
+        """
+        row = self._session.execute(
+            select(Consent.record_key_cycle)
+            .where(
+                Consent.account_id == account_id,
+                Consent.kind == ConsentKind.CYCLE_SYNC.value,
+                Consent.record_key_cycle.is_not(None),
+            )
+            .order_by(Consent.granted_at.desc())
+            .limit(1)
+        ).scalar_one_or_none()
+        return None if row is None else bytes(row)
 
     def active(self, account_id: UUID) -> list[ConsentRecord]:
         rows = self._session.execute(
