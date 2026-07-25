@@ -210,6 +210,44 @@ class VaultRepository:
             .values(current_revision=revision, reset_revision=revision)
         )
 
+    def delete_named_key(self, account_id: UUID, *, record_key: bytes) -> int:
+        """§9.7: hard DELETE of one named record, without a tombstone.
+
+        A tombstone on the singleton `cycle`, appearing exactly when the server
+        has a fresh `revoked_at('cycle_sync')`, would deanonymize that
+        `record_key` and retroactively its whole update history — the one thing
+        the opaque-key scheme exists to prevent.
+        """
+        rows = self._session.execute(
+            delete(VaultRecord)
+            .where(
+                VaultRecord.account_id == account_id,
+                VaultRecord.record_key == record_key,
+            )
+            .returning(VaultRecord.record_key)
+        ).all()
+        return len(rows)
+
+    def reset_counters(self, account_id: UUID, *, revision: int) -> None:
+        """§4.3: all three counters move together when the vault is emptied.
+
+        Not the same statement as `mark_reset`, which deliberately leaves the
+        compaction horizon alone so that `reset: true` stays reachable on pull.
+        Here the vault has no records left at all, so there is nothing for a
+        cursor below the horizon to return, and §4.3 asks for the horizon to
+        move as well: a device that reconnects after a re-grant must be sent to
+        a full resync rather than handed an empty page.
+        """
+        self._session.execute(
+            update(VaultRevision)
+            .where(VaultRevision.account_id == account_id)
+            .values(
+                current_revision=revision,
+                compacted_up_to=revision,
+                reset_revision=revision,
+            )
+        )
+
     def accounts_with_stale_tombstones(
         self,
         *,
@@ -339,6 +377,20 @@ class VaultKeyRepository:
             .values(account_id=account_id, **columns)
             .on_conflict_do_update(index_elements=["account_id"], set_=columns)
         )
+
+    def delete(self, account_id: UUID) -> int:
+        """Crypto-erasure (§6.4): the envelope goes with the records.
+
+        Old backups keep the old envelope — this strengthens the TTL promise
+        rather than replacing it, and saying otherwise would make the deletion
+        copy untrue.
+        """
+        rows = self._session.execute(
+            delete(VaultKey)
+            .where(VaultKey.account_id == account_id)
+            .returning(VaultKey.account_id)
+        ).all()
+        return len(rows)
 
     def clear_expired_previous(self, account_id: UUID, *, older_than: datetime) -> None:
         self._session.execute(

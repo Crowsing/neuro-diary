@@ -88,7 +88,9 @@ def _has_table_privilege(
 def database() -> Iterator[str]:
     with PostgresContainer("postgres:16", driver=None) as postgres:
         admin_url = postgres.get_connection_url()
-        command.upgrade(_alembic_config(admin_url), "head")
+        # Саме "0003", а не "head": цей модуль стверджує стан після своєї
+        # міграції, і наступна фаза не має його червонити.
+        command.upgrade(_alembic_config(admin_url), "0003")
         yield admin_url
 
 
@@ -221,7 +223,7 @@ def test_downgrade_restores_0002_and_upgrade_replays() -> None:
         admin_url = postgres.get_connection_url()
         config = _alembic_config(admin_url)
 
-        command.upgrade(config, "head")
+        command.upgrade(config, "0003")
         command.downgrade(config, "0002")
         with psycopg.connect(admin_url) as connection:
             assert connection.execute(
@@ -234,7 +236,7 @@ def test_downgrade_restores_0002_and_upgrade_replays() -> None:
             assert _columns(connection, "diary", "rate_window") == {}
             assert not (NEW_CONSTRAINTS & _constraints(connection))
 
-        command.upgrade(config, "head")
+        command.upgrade(config, "0003")
         with psycopg.connect(admin_url) as connection:
             assert connection.execute(
                 "SELECT version_num FROM public.alembic_version"

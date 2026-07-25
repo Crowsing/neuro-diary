@@ -109,7 +109,16 @@ def test_a_remaining_consent_keeps_the_account(
 
     assert response.json() == {"account_erased": False}
     assert _count(engine, "diary.account") == 1
-    assert _count(engine, "diary.erasure_job") == 0
+    # The account survives, but its vault does not: §6.4 gives that partial
+    # erasure its own journal code, and the entry is written before the
+    # deletion exactly as a full erasure's is.
+    with engine.connect() as connection:
+        scopes = (
+            connection.execute(text("SELECT scope FROM diary.erasure_job"))
+            .scalars()
+            .all()
+        )
+    assert scopes == ["sync_off"]
 
 
 def test_erasure_removes_the_reminder_rows_that_have_no_foreign_key(

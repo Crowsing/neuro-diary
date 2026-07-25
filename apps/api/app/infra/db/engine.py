@@ -19,6 +19,7 @@ from app.infra.db.repositories.consent import (
     ErasureRepository,
     ReminderScheduleRepository,
 )
+from app.infra.db.repositories.outbox import OutboxRepository
 from app.infra.db.repositories.identity import (
     AccountRepository,
     AuthReplayRepository,
@@ -46,6 +47,7 @@ class SqlUnitOfWork:
         self.consents = ConsentRepository(session)
         self.schedules = ReminderScheduleRepository(session)
         self.erasure = ErasureRepository(session)
+        self.outbox = OutboxRepository(session)
         self.vault = VaultRepository(session)
         self.vault_keys = VaultKeyRepository(session)
         self.rate_windows = RateWindowRepository(session)

@@ -44,8 +44,11 @@ def reset_vault(
 ) -> VaultResetResponse:
     """Drop the server copy and move all three counters past it (§9.4).
 
-    `vault_key` is left alone on purpose: the new envelope arrives through
-    `POST /v1/sync/key {mode:"rekey"}`, and crypto-erasure belongs to phase 3.
+    `vault_key` is left alone on purpose, and it stays that way now that
+    crypto-erasure exists: a vault-reset is the first half of a re-key (§7), and
+    the new envelope arrives right after through `POST /v1/sync/key`. Deleting
+    the envelope here would break the very flow this endpoint serves. Erasing it
+    belongs to revocation, where no new envelope follows.
     """
     with services.unit_of_work() as unit:
         session = require_session(services, unit, token)

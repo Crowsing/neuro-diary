@@ -86,9 +86,22 @@ class AuthRequest(ContractModel):
 
 
 class RevokeRequest(ContractModel):
-    """The kind travels in the body; a path would leak it to the proxy log."""
+    """The kind travels in the body; a path would leak it to the proxy log.
+
+    `last_acked_revision` and `acknowledge_incomplete` implement the
+    compensating control of §8. The predicate §8 states —
+    `max(last_acked_revision) < current_revision` — reads a value that lives on
+    the client (`SyncMeta`), so the client has to state it; the deviation and
+    the reasons for not deriving it server-side are recorded in the plan.
+
+    Omitting `last_acked_revision` is read as zero, which is the fail-closed
+    side: a device that says nothing gets the question rather than a silent
+    deletion.
+    """
 
     kind: ConsentKindLiteral
+    last_acked_revision: int = Field(default=0, ge=0)
+    acknowledge_incomplete: bool = False
 
 
 class ConsentOutput(ContractModel):
