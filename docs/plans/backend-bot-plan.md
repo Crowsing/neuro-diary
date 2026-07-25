@@ -472,6 +472,10 @@ backup-бакетах: без нього delete-маркери лишають no
   | Будь-який запис у `/v1/sync/key` | **Так** | §7: сервер не може перевірити конверт, помилковий запис незворотний |
 
   Компенсаційний захід замість step-up на відкликання `health_sync` — **серверний**, а не «rate limit 1/хв» (останній фіктивний: руйнівний ефект досягається першим викликом). Якщо `max(last_acked_revision) < current_revision`, тобто на сервері є дані, яких немає на цьому пристрої, revoke повертає 409 `confirm_required` і потребує повторного виклику з `acknowledge_incomplete=true`. Сервер тут дивиться лише на ревізії й не аналізує вміст.
+
+  **Джерело `last_acked_revision` (уточнено у Фазі 3).** Попередня редакція називала предикат, не називаючи, звідки сервер бере його ліву частину: `last_acked_revision` живе на клієнті (`SyncMeta`), і серверу невідомий. Тому тіло revoke розширюється двома полями — `last_acked_revision` (ціле, за замовчуванням 0) і `acknowledge_incomplete` (булеве, за замовчуванням `false`). Значення підконтрольне клієнту, і це прийнятно: захід захищає від власної помилки користувачки, а не від зловмисника — власник Bearer-токена і так відкликає згоду без step-up, бо Art. 7(3) його тут забороняє. Пропущене поле читається як 0, тобто fail-closed: пристрій, який мовчить, отримує питання, а не тихе видалення.
+
+  Альтернативу «сервер веде per-session high-water mark із `base_revision` пушів і `since` пулів» відхилено: сесія не дорівнює пристрою. Після перезавантаження вкладки клієнт отримує нову сесію з нульовим лічильником (відкритий ризик Фази 2), тож revoke систематично відповідав би 409 навіть щойно синхронізованому пристрою — а захід, який спрацьовує завжди, користувачка навчається прокликувати не читаючи. Ціна відхиленого варіанта до того ж включала запис у `session_token` на кожному push і pull.
 - **`min_auth_date` — конфігураційний прапорець валідатора initData.** Після відновлення з бекапа таблиця `auth_replay` теж відкочується, тож раніше використані initData знову стають «новими». Прапорець відсікає все, що старше за момент відновлення, і є обов'язковим кроком runbook (§6.4).
 - **Клієнтська гігієна initData** (вимоги до `apps/web/src/sync/`): initData читається один раз, тримається в пам'яті модуля (не в state/persist/localStorage); одразу після читання — `history.replaceState` для зачистки `#tgWebAppData` та видалення `__telegram__initParams` із sessionStorage; клієнтська лог-дисципліна дзеркалить серверний allowlist (заборона `location.href`/hash/initData у будь-якому логері/error-handler).
 - initData не логується й не персистується.
@@ -507,7 +511,9 @@ POST /v1/sync/key    {mode:"rewrap"|"rekey", expected_wrap_version, wrapped_dek,
 POST /v1/account/vault-reset    (step-up; атомарно: DELETE всіх vault_record + reset_revision = нова current_revision)
 GET  /v1/consents               (без параметрів)
 POST /v1/consents               {kind, text_version, text_sha256, settings?}
-POST /v1/consents/revoke        {kind}   -- kind у ТІЛІ, ніколи в URL
+POST /v1/consents/revoke        {kind, last_acked_revision?, acknowledge_incomplete?}
+                                -- kind у ТІЛІ, ніколи в URL; два останні поля — §8
+                     → 200 | 409 {error:"confirm_required"}   (лише для health_sync)
 ```
 
 **Курсор pull — єдині параметри, яким дозволено потрапити в request line.**
