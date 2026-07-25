@@ -4,7 +4,13 @@ import { emptyCtx } from '../lib/checkin';
 import type { AppData, DoneEntry } from '../lib/types';
 import { emptyData } from '../state/persist';
 import { JOURNAL_TTL_MS } from './journals';
-import { SINGLETON_PATHS, fromRecords, journalsAfter, toRecords } from './serialize';
+import {
+  SINGLETON_PATHS,
+  fromRecords,
+  journalsAfter,
+  snapshotOf,
+  toRecords
+} from './serialize';
 import { EMPTY_JOURNALS, type Journals } from './types';
 
 const T0 = 1_768_435_200_000;
@@ -205,5 +211,31 @@ describe('journalsAfter — deletions are detected at the serialization boundary
 
   it('records nothing without a previous snapshot', () => {
     expect(journalsAfter(null, sample(), EMPTY_JOURNALS, T0)).toEqual(EMPTY_JOURNALS);
+  });
+});
+
+describe('snapshotOf — мітка порядку відображення', () => {
+  it('не перештампується, коли нічого не змінилося', () => {
+    // `sample()` має симптом, що належить групі, тож його id трапляється і в
+    // `active`, і в ключах `symptomGroupIds`. Порівняння з попереднім знімком
+    // мусить це витримати: інакше `orderAt` дорівнює `now` на кожній
+    // серіалізації, обидва синглтони назавжди «змінені», і порядок
+    // відображення дістається тому пристрою, який синхронізувався останнім.
+    const data = sample();
+    const first = snapshotOf(data, null, T0);
+    const second = snapshotOf(data, first, T0 + 60_000);
+    expect(second.orderAt).toBe(T0);
+
+    const third = snapshotOf(data, second, T0 + 120_000);
+    expect(third.orderAt).toBe(T0);
+  });
+
+  it('перештампується, коли склад каталогу справді змінився', () => {
+    const data = sample();
+    const first = snapshotOf(data, null, T0);
+    // Саме новий id: `tremor` уже лежить в `archived`, тож дедуплікований набір
+    // від його додавання в `active` не змінився б — і це правильно.
+    const grown = snapshotOf({ ...data, active: [...data.active, 'dizziness'] }, first, T0 + 60_000);
+    expect(grown.orderAt).toBe(T0 + 60_000);
   });
 });

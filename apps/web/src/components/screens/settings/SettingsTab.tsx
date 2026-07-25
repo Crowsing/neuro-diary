@@ -1,6 +1,7 @@
 import { useApp } from '../../../state/store';
 import { dataPatch, dialogOpen, navSub } from '../../../state/actions';
 import Toggle from '../../ui/Toggle';
+import SyncSettings from '../../../sync/ui/SyncSettings';
 
 export default function SettingsTab() {
   const { state, dispatch } = useApp();
@@ -53,6 +54,8 @@ export default function SettingsTab() {
         <span style={{ fontSize: 14.5, fontWeight: 700 }}>Нагадування недоступні</span>
         <span style={{ fontSize: 12.5 }} className="text-muted">Застосунок зараз не надсилає фонових повідомлень. Майбутні зовнішні нагадування можливі лише через Telegram і вимагатимуть нової явної згоди.</span>
       </div>
+
+      <SyncSettings />
 
       <button
         className="card"

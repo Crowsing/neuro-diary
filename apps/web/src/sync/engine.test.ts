@@ -63,8 +63,8 @@ class RecordingTransport implements SyncTransport {
     return { newRevision: this.revision };
   }
 
-  async authenticate(): Promise<string> {
-    return 'token';
+  async authenticate() {
+    return { token: 'token', consents: [] };
   }
   async listConsents() {
     return [];
@@ -89,6 +89,9 @@ class RecordingTransport implements SyncTransport {
   }
   async vaultReset() {
     return { newRevision: 1 };
+  }
+  async revokeOtherSessions() {
+    return { revoked: 0 };
   }
 }
 
@@ -208,7 +211,7 @@ describe('initialUpload', () => {
     }
   });
 
-  it('does not retry a conflict — it needs a pull, not persistence', async () => {
+  it('still refuses a real conflict — one whose content is not ours', async () => {
     class ConflictingTransport extends RecordingTransport {
       override async push(): Promise<PushResult> {
         throw new SyncError('conflict', null, ['aa'.repeat(32)]);

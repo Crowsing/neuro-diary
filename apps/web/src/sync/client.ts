@@ -10,6 +10,8 @@ export type SyncErrorCode =
   | 'offline'
   | 'unauthenticated'
   | 'consent_required'
+  | 'no_account'
+  | 'step_up_required'
   | 'conflict'
   | 'vault_reset'
   | 'gone'
@@ -64,16 +66,24 @@ export interface ConsentView {
   readonly textVersion: string;
 }
 
+export interface AuthResult {
+  readonly token: string;
+  /** Відповідь §8 і так їх несе, тож окремий `GET /v1/consents` тут зайвий. */
+  readonly consents: readonly ConsentView[];
+}
+
 /** Порт транспорту: движок не знає ані про fetch, ані про URL. */
 export interface SyncTransport {
-  authenticate(initData: string, grant?: GrantBody): Promise<string>;
+  authenticate(initData: string, grant?: GrantBody): Promise<AuthResult>;
   listConsents(): Promise<readonly ConsentView[]>;
   grantConsent(grant: GrantBody): Promise<readonly ConsentView[]>;
   push(baseRevision: number, changes: readonly EncryptedChange[]): Promise<PushResult>;
-  pull(since: number, consentEpoch: number): Promise<PullResult>;
+  pull(since: number, consentEpoch: number, limit?: number): Promise<PullResult>;
   readKey(): Promise<VaultKeyView | null>;
   writeKey(body: KeyWriteBody): Promise<{ keyVersion: number; wrapVersion: number }>;
   vaultReset(): Promise<{ newRevision: number }>;
+  /** Re-key при компрометації завершується ревокацією інших сесій (§7). */
+  revokeOtherSessions(): Promise<{ revoked: number }>;
 }
 
 export interface GrantBody {
@@ -101,13 +111,32 @@ const CODE_BY_STATUS: Record<number, SyncErrorCode> = {
   429: 'rate_limited'
 };
 
+/**
+ * Під 403 сервер віддає три різні речі, і плутати їх не можна: `no_account`
+ * веде на «увімкніть синхронізацію на першому пристрої», `step_up_required` —
+ * на «перезапустіть застосунок через кнопку бота», а згода — на власний текст.
+ * Стабільний ASCII-код лежить у полі `error` (§11), тіла з текстом немає.
+ */
+const CODE_BY_FORBIDDEN_REASON: Record<string, SyncErrorCode> = {
+  no_account: 'no_account',
+  step_up_required: 'step_up_required'
+};
+
 export class HttpSyncTransport implements SyncTransport {
   private token: string | null = null;
 
+  private readonly fetchImpl: typeof fetch;
+
   constructor(
     private readonly baseUrl: string,
-    private readonly fetchImpl: typeof fetch = fetch
-  ) {}
+    fetchImpl?: typeof fetch
+  ) {
+    // Обгортка, а не `= fetch` у параметрі: збережений як властивість, `fetch`
+    // викликався б із `this === transport`, і браузер кидав би «Illegal
+    // invocation». Поки в модуля не було жодного споживача, цього не було видно
+    // ані тестами (в них підставляється власний fetch), ані очима.
+    this.fetchImpl = fetchImpl ?? ((input, init) => globalThis.fetch(input, init));
+  }
 
   setToken(token: string | null): void {
     this.token = token;
@@ -157,6 +186,11 @@ export class HttpSyncTransport implements SyncTransport {
       );
     }
 
+    if (response.status === 403) {
+      const reason = typeof payload.error === 'string' ? payload.error : '';
+      throw new SyncError(CODE_BY_FORBIDDEN_REASON[reason] ?? 'consent_required');
+    }
+
     const retryAfter = response.headers.get('Retry-After');
     throw new SyncError(
       CODE_BY_STATUS[response.status] ?? 'server',
@@ -164,16 +198,24 @@ export class HttpSyncTransport implements SyncTransport {
     );
   }
 
-  async authenticate(initData: string, grant?: GrantBody): Promise<string> {
-    const body = await this.call<{ session_token: string }>(
+  async authenticate(initData: string, grant?: GrantBody): Promise<AuthResult> {
+    const body = await this.call<{
+      session_token: string;
+      consents: { kind: string; granted_at: string; text_version: string }[];
+    }>(
       'POST',
       '/v1/auth/telegram',
-      grant === undefined
-        ? { init_data: initData }
-        : { init_data: initData, grant }
+      grant === undefined ? { init_data: initData } : { init_data: initData, grant }
     );
     this.token = body.session_token;
-    return body.session_token;
+    return {
+      token: body.session_token,
+      consents: body.consents.map((item) => ({
+        kind: item.kind,
+        grantedAt: item.granted_at,
+        textVersion: item.text_version
+      }))
+    };
   }
 
   async listConsents(): Promise<readonly ConsentView[]> {
@@ -214,7 +256,7 @@ export class HttpSyncTransport implements SyncTransport {
     return { newRevision: body.new_revision };
   }
 
-  async pull(since: number, consentEpoch: number): Promise<PullResult> {
+  async pull(since: number, consentEpoch: number, limit = 500): Promise<PullResult> {
     const body = await this.call<{
       records: {
         record_key: string;
@@ -227,7 +269,12 @@ export class HttpSyncTransport implements SyncTransport {
       current_revision: number;
       reset: boolean;
       consent_state_changed: boolean;
-    }>('GET', `/v1/sync/pull?since=${since}&consent_epoch=${consentEpoch}`);
+    }>(
+      'GET',
+      // §9.2: у request line дозволені лише цілі `since`, `limit` і
+      // `consent_epoch` — жодного значення, що вказує на вміст.
+      `/v1/sync/pull?since=${since}&limit=${limit}&consent_epoch=${consentEpoch}`
+    );
     return {
       records: body.records.map((item) => ({
         recordKeyHex: item.record_key,
@@ -284,5 +331,13 @@ export class HttpSyncTransport implements SyncTransport {
       '/v1/account/vault-reset'
     );
     return { newRevision: body.new_revision };
+  }
+
+  async revokeOtherSessions(): Promise<{ revoked: number }> {
+    const body = await this.call<{ revoked: number }>(
+      'POST',
+      '/v1/sessions/revoke-others'
+    );
+    return { revoked: body.revoked };
   }
 }
