@@ -294,11 +294,20 @@ export function snapshotOf(
   const stamped = (ids: readonly string[], known: StampedIds | undefined): StampedIds =>
     Object.fromEntries(ids.map((id) => [id, stampOf(known, id, nowMs)]));
 
+  // Дедуплікація обов'язкова, а не косметична: id симптома, який належить
+  // групі, трапляється і в `active`, і в ключах `symptomGroupIds`. Попередній
+  // знімок — об'єкт, тож дублікати в ньому вже згорнуті, і порівняння списку з
+  // дублікатами проти списку без них давало «змінилося» ЗАВЖДИ. Наслідок був
+  // не косметичний: `orderAt` дорівнював `now` на кожній серіалізації, тож
+  // `catalog` і `groups` вічно вважалися зміненими й порядок відображення
+  // дістававався тому пристрою, який синхронізувався останнім.
   const catalogIds = [
-    ...data.active,
-    ...data.archived,
-    ...data.custom.map((def) => def.id),
-    ...Object.keys(data.symptomGroupIds)
+    ...new Set([
+      ...data.active,
+      ...data.archived,
+      ...data.custom.map((def) => def.id),
+      ...Object.keys(data.symptomGroupIds)
+    ])
   ];
   const orderChanged =
     previous === null ||

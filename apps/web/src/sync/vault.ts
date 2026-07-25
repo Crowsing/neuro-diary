@@ -51,6 +51,7 @@ import {
   loadMeta,
   newDeviceId,
   saveMeta,
+  type DomainIds,
   type RecordMeta,
   type StorageLike,
   type SyncMeta
@@ -118,6 +119,8 @@ export interface PullOutcome {
   /** Acked, локально відредаговані, на сервері відсутні — окреме рішення. */
   readonly conflictPaths: readonly string[];
   readonly massDelete: boolean;
+  /** Серверну копію очищено (§9.4): застосування вимагає підтвердження. */
+  readonly vaultWasReset: boolean;
   readonly consentStateChanged: boolean;
   readonly fullResync: boolean;
 }
@@ -144,6 +147,9 @@ const TABLE_FORWARD_DAYS = 366;
 /** Стеля §7: сорок років щоденника. Ширшої таблиці не існує. */
 const TABLE_WIDE_BACK_DAYS = 30 * 366;
 const TABLE_WIDE_FORWARD_DAYS = 10 * 366 - 1;
+
+/** Мітка «нічого не втрачати»: найнижча, яку приймає AAD §7 (`> 0`). */
+const LOWEST_CLIENT_TS = 1;
 
 function isoOffset(nowMs: number, days: number): string {
   return new Date(nowMs + days * 86_400_000).toISOString().slice(0, 10);
@@ -179,6 +185,14 @@ export class VaultSession {
   private wrapVersion = 0;
   /** Конверт, прочитаний між двома кроками увімкнення. */
   private pendingKey: VaultKeyView | null = null;
+  /**
+   * Активні згоди, як їх назвав сервер.
+   *
+   * Порожня множина означає «ще не знаємо», і це навмисно збігається з «немає
+   * згоди»: фільтрація за згодою на push — клієнтська (§9.7), тож єдиний
+   * безпечний дефолт тут fail-closed.
+   */
+  private consents = new Set<string>();
 
   private constructor(
     private readonly deps: VaultDeps,
@@ -268,10 +282,12 @@ export class VaultSession {
         session = await this.deps.transport.authenticate(initData, grant);
       }
 
-      if (!session.consents.some((item) => item.kind === grant.kind)) {
+      this.consents = new Set(session.consents.map((item) => item.kind));
+      if (!this.consents.has(grant.kind)) {
         // Акаунт існує, але саме цієї згоди в нього немає (наприклад, лишилася
         // тільки згода на нагадування). Без неї push повернув би 403.
         await this.deps.transport.grantConsent(grant);
+        this.consents.add(grant.kind);
       }
 
       this.pendingKey = await this.deps.transport.readKey();
@@ -339,7 +355,8 @@ export class VaultSession {
     if (initData === null) throw new VaultError('unauthenticated');
 
     try {
-      await this.deps.transport.authenticate(initData);
+      const session = await this.deps.transport.authenticate(initData);
+      this.consents = new Set(session.consents.map((item) => item.kind));
       const view = await this.deps.transport.readKey();
       if (view === null) throw new VaultError('no_vault_key');
       await this.openWith(view, input.passphrase, input.nowMs);
@@ -423,6 +440,7 @@ export class VaultSession {
       const consentKinds = fullResync
         ? (await this.deps.transport.listConsents()).map((item) => item.kind)
         : [];
+      if (fullResync) this.consents = new Set(consentKinds);
 
       return await this.applyPage({ ...page, fullResync, consentKinds }, keys, input);
     } catch (error) {
@@ -438,6 +456,7 @@ export class VaultSession {
     rejected: number;
     currentRevision: number;
     consentStateChanged: boolean;
+    reset: boolean;
   }> {
     const keys = this.requireKeys();
     const table = this.requireTable();
@@ -449,11 +468,16 @@ export class VaultSession {
     let cursor = since;
     let currentRevision = since;
     let consentStateChanged = false;
+    let reset = false;
 
     for (let guard = 0; guard < 1000; guard += 1) {
       const result = await this.deps.transport.pull(cursor, this.meta.consentEpoch);
       currentRevision = result.currentRevision;
       consentStateChanged = consentStateChanged || result.consentStateChanged;
+      // §9.4: `reset:true` означає, що серверну копію очищено. Клієнт
+      // зобов'язаний показати підтвердження очищення на пристрої і лише після
+      // рішення користувачки пушити — тож прапорець доводиться аж до виходу.
+      reset = reset || result.reset;
 
       for (const item of result.records) {
         const path = await this.resolvePath(item.recordKeyHex);
@@ -518,7 +542,8 @@ export class VaultSession {
       manifestKeyHex,
       rejected,
       currentRevision,
-      consentStateChanged
+      consentStateChanged,
+      reset
     };
   }
 
@@ -558,8 +583,10 @@ export class VaultSession {
     const keys = this.requireKeys();
     const table = this.requireTable();
     if (page.manifest === null) {
-      // Сейф без manifest — це або порожній сервер, або приховування самого
-      // manifest. Порожній серверний набір нешкідливий: локальні дані первинні.
+      // Сейф без manifest — це або справді порожній сервер, або приховування
+      // самого manifest. Порожній набір не помилка цілісності, але й не привід
+      // щось видаляти: рішення про локальні записи, яких там немає, ухвалює
+      // правило авторитетності присутності — і лише з підтвердженням (§9.4).
       if (page.remote.length === 0) return;
       throw new VaultError('stale_server_copy');
     }
@@ -598,6 +625,7 @@ export class VaultSession {
       rejected: number;
       currentRevision: number;
       consentStateChanged: boolean;
+      reset: boolean;
       fullResync: boolean;
       consentKinds: readonly string[];
     },
@@ -610,21 +638,26 @@ export class VaultSession {
     const merged = new Map<string, SyncRecord>();
     for (const item of local.records) merged.set(item.path, item);
 
+    const localPaths = new Set(local.records.map((item) => item.path));
     let tombstoned = 0;
     for (const item of page.remote) {
       const before = merged.get(item.path) ?? null;
       const after = mergeRecord(before, item.record);
       if (after !== null) merged.set(item.path, after);
-      if (isTombstone(item.record)) tombstoned += 1;
+      if (isTombstone(item.record) && localPaths.has(item.path)) tombstoned += 1;
     }
 
-    // Захист від масового видалення вкраденою сесією (§9.4).
+    // Захист від масового видалення вкраденою сесією (§9.4). Рахуються лише
+    // надгробки на ті шляхи, які на цьому пристрої СПРАВДІ є: на повному
+    // ресинку приходять усі нескомпактовані надгробки акаунта, і без цього
+    // фільтра діалог підтвердження показувався б майже завжди — тобто привчав
+    // би клікати «так» на видалення.
     const massDelete = needsMassDeleteConfirmation(local.records.length, tombstoned);
 
     const serverPaths = new Set(
       page.remote.filter((item) => !isTombstone(item.record)).map((item) => item.path as string)
     );
-    const verdict = page.fullResync
+    const raw = page.fullResync
       ? presenceAuthority({
           local: local.records.map((item) => ({
             path: item.path,
@@ -639,6 +672,18 @@ export class VaultSession {
           pullRevision: page.currentRevision
         })
       : { prune: [], keep: [], needsConfirmation: [] };
+    // Порожній перелік згод — це не «жодна не активна», а «сервер відповів
+    // дивно»: акаунт існує лише разом із ≥1 згодою (§4.3). Автоматичний
+    // pruning на такій відповіді видаляв би й дані циклу, тож усе, що він
+    // запропонував, переводиться в явне рішення користувачки — fail-closed, як
+    // і фільтрація на push.
+    const verdict =
+      page.consentKinds.length === 0
+        ? {
+            prune: [] as readonly string[],
+            needsConfirmation: [...raw.prune, ...raw.needsConfirmation] as readonly string[]
+          }
+        : { prune: raw.prune, needsConfirmation: raw.needsConfirmation };
 
     const survivors = [...merged.values()];
     const deferredPaths = new Set<string>();
@@ -656,21 +701,41 @@ export class VaultSession {
       }
     }
 
-    // Безпечний патч не виконує жодного видалення, яке потребує рішення
-    // користувачки, і не чіпає дати, яку зараз заповнюють: там лишається саме
-    // локальна версія, а не порожнеча.
+    // `drop` ВИДАЛЯЄ шлях із патча, а `DATA_PATCH` підставляє поля цілком, тож
+    // виключення шляху — це видалення запису з щоденника. Звідси й напрямок:
+    // безпечний патч, який застосовується одразу і без діалогу, не виключає
+    // НІЧОГО, а лише повертає на місце локальні версії тих шляхів, щодо яких
+    // рішення ще не ухвалене. Видаляє — виключно підтверджений патч.
+    // Очищена серверна копія (§9.4) робить кожне видалення предметом того
+    // самого підтвердження: доки користувачка не вирішила, локальні версії
+    // лишаються на місці.
+    const holdDeletions = massDelete || page.reset;
+    const undecided = [
+      ...verdict.prune,
+      ...verdict.needsConfirmation,
+      ...(holdDeletions ? tombstonedPaths(page.remote) : [])
+    ];
     const patch = this.toPatch(survivors, {
-      drop: new Set([...verdict.prune, ...verdict.needsConfirmation]),
-      keepLocal: [...deferredPaths, ...(massDelete ? tombstonedPaths(page.remote) : [])],
+      drop: new Set(),
+      keepLocal: [...deferredPaths, ...undecided],
       local: local.records
     });
     const confirmedPatch = this.toPatch(survivors, {
-      drop: new Set(),
+      drop: new Set([...verdict.prune, ...verdict.needsConfirmation]),
       keepLocal: [...deferredPaths],
       local: local.records
     });
 
-    this.persistAfterPull(page, local, merged, input.nowMs);
+    // Журнали злиття читаються з тих самих тіл, які поїдуть у домен: це
+    // єдине місце, де вони існують після merge, бо `toPatch` їх відкидає.
+    const settled = fromRecords([...merged.values()]);
+    this.persistAfterPull(
+      page,
+      local,
+      merged,
+      { journals: settled.journals, domainIds: domainIdsOf(settled.data) },
+      input.nowMs
+    );
 
     return {
       patch,
@@ -679,6 +744,7 @@ export class VaultSession {
       prunePaths: verdict.prune,
       conflictPaths: verdict.needsConfirmation,
       massDelete,
+      vaultWasReset: page.reset,
       consentStateChanged: page.consentStateChanged,
       fullResync: page.fullResync
     };
@@ -729,6 +795,7 @@ export class VaultSession {
     },
     local: LocalView,
     merged: ReadonlyMap<string, SyncRecord>,
+    merge: { journals: Journals; domainIds: DomainIds },
     nowMs: number
   ): void {
     const records: Record<string, RecordMeta> = { ...this.meta.records };
@@ -765,9 +832,21 @@ export class VaultSession {
         ? page.currentRevision
         : this.meta.consentsFetchedAtRevision,
       lastSuccessfulSyncAt: nowMs,
+      // `consent_epoch` — курсор, а не назва згоди (§9.2). Не оновлювати його
+      // означало б назавжди питати з нуля і назавжди отримувати
+      // `consent_state_changed: true`, тобто перетворити нейтральний сигнал на
+      // константу.
+      consentEpoch: page.consentStateChanged
+        ? this.meta.consentEpoch + 1
+        : this.meta.consentEpoch,
       records,
-      journals: local.journals,
-      domainIds: local.domainIds,
+      // Журнали й попередні множини — з РЕЗУЛЬТАТУ злиття, а не з
+      // доpatch-ового стану. Інакше наступна серіалізація бачила б «id був,
+      // тепер немає» для елемента, який зник унаслідок чужого видалення, і
+      // штампувала б власну, значно пізнішу мітку — а вона перебивала б
+      // законне повторне додавання з іншого пристрою.
+      journals: merge.journals,
+      domainIds: merge.domainIds,
       snapshot: local.snapshot
     });
   }
@@ -781,15 +860,23 @@ export class VaultSession {
     const keys = this.requireKeys();
     const local = this.localRecords(input.data, input.nowMs);
 
-    const updates = local.records.filter((item) => local.dirty.has(item.path));
-    const graves = [
-      ...new Set([
+    const outgoing = this.withoutUnconsented(local.records);
+    const gravePaths = new Set(
+      [
         ...this.meta.pendingTombstones,
         ...Object.keys(this.meta.records).filter(
-          (path) => !local.records.some((item) => item.path === path)
+          (path) => !outgoing.some((item) => item.path === path)
         )
-      ])
-    ].map((path) => ({ path, clientTs: input.nowMs }));
+      ].filter((path) => this.mayLeave(path))
+    );
+    // Надгробок і оновлення того самого `record_key` в одному push дали б два
+    // елементи з однаковим первинним ключем: реальний UPSERT відповів би 500, а
+    // manifest, який рахується по мапі оновлень, оголосив би запис живим — і
+    // розходження з сервером не самовідновилося б жодним наступним push.
+    const updates = outgoing.filter(
+      (item) => local.dirty.has(item.path) && !gravePaths.has(item.path)
+    );
+    const graves = [...gravePaths].map((path) => ({ path, clientTs: input.nowMs }));
 
     if (updates.length === 0 && graves.length === 0) {
       this.persist({ ...this.meta, journals: local.journals, domainIds: local.domainIds });
@@ -797,8 +884,8 @@ export class VaultSession {
     }
 
     const carried: Record<string, { sha256: string; clientTs: number }> = {};
-    for (const item of local.records) {
-      if (local.dirty.has(item.path)) continue;
+    for (const item of outgoing) {
+      if (local.dirty.has(item.path) || gravePaths.has(item.path)) continue;
       const known = this.meta.records[item.path];
       if (known === undefined) continue;
       carried[item.path] = { sha256: known.sha256, clientTs: known.clientTs };
@@ -826,6 +913,21 @@ export class VaultSession {
     }
   }
 
+  /**
+   * Чи дозволено цьому шляху покидати пристрій.
+   *
+   * §9.7: сервер не бачить, який ciphertext є циклом, тож фільтрація за згодою
+   * можлива лише тут. Дефолт fail-closed — доки згода не названа сервером,
+   * запис `cycle` не надсилається взагалі.
+   */
+  private mayLeave(path: string): boolean {
+    return path !== 'cycle' || this.consents.has('cycle_sync');
+  }
+
+  private withoutUnconsented(records: readonly PlainRecord[]): PlainRecord[] {
+    return records.filter((item) => this.mayLeave(item.path));
+  }
+
   /** Повне вивантаження снапшоту — увімкнення і re-key. */
   private async uploadEverything(
     data: AppData,
@@ -841,7 +943,7 @@ export class VaultSession {
     });
     const report = await engine.upload({
       baseRevision,
-      updates: local.records,
+      updates: this.withoutUnconsented(local.records),
       tombstones: [],
       carried: {},
       vaultSeq: this.meta.vaultSeq,
@@ -921,7 +1023,11 @@ export class VaultSession {
       const changed = everythingDirty || known === undefined || known.plain !== digest;
       if (changed) dirty.add(item.path);
       if (blank) {
-        records.push({ ...item, clientTs: 0 });
+        // Найнижча ДОДАТНА мітка, а не нуль: AAD §7 вимагає додатного
+        // `client_ts_ms`, тож нуль зривав би шифрування ще до першого запиту —
+        // і саме на тому пристрої, де щоденник іще порожній, тобто на
+        // онбордингу, який не вимагає обрати жоден симптом.
+        records.push({ ...item, clientTs: LOWEST_CLIENT_TS });
         continue;
       }
       records.push(changed ? item : { ...item, clientTs: known.clientTs });
@@ -1020,13 +1126,17 @@ export class VaultSession {
     try {
       await this.deps.transport.vaultReset();
     } catch (error) {
+      // Метадані чистяться ЛИШЕ після успіху. Раніше це стояло у `finally`, і
+      // при збої серверна копія лишалася на місці, а пристрій уже не знав ані
+      // її ревізії, ані дайджестів — тобто не міг ані добити скидання, ані
+      // синхронізуватися далі.
       throw asFailure(error);
-    } finally {
-      clearMeta(this.deps.storage);
-      this.meta = emptyMeta(this.meta.deviceId);
-      this.subkeys = null;
-      this.table = null;
     }
+    clearMeta(this.deps.storage);
+    this.meta = emptyMeta(this.meta.deviceId);
+    this.subkeys = null;
+    this.table = null;
+    this.consents = new Set();
   }
 
   /**
@@ -1045,6 +1155,7 @@ export class VaultSession {
         ...grant,
         record_key_cycle: table.keyHexFor(assertRecordPath('cycle'))
       });
+      this.consents.add(grant.kind);
     } catch (error) {
       throw asFailure(error);
     }

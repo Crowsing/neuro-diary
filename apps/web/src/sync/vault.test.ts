@@ -96,10 +96,26 @@ function newDevice(server: FakeVaultServer, initData: string) {
   };
 }
 
-async function enabledPair(data: AppData = sample()) {
+const CYCLE_GRANT: GrantBody = {
+  kind: 'cycle_sync',
+  text_version: '0.9',
+  text_sha256: 'b'.repeat(64)
+};
+
+/**
+ * Пара пристроїв зі увімкненою синхронізацією.
+ *
+ * `cycleSync` за замовчуванням вимкнена — це штатний стан §4.3, і саме тому
+ * записи циклу за замовчуванням не покидають пристрій (§9.7).
+ */
+async function enabledPair(data: AppData = sample(), options: { cycleSync?: boolean } = {}) {
   const server = new FakeVaultServer();
   const a = newDevice(server, 'init-a');
   await a.session.enable({ grant: GRANT, passphrase: PASSPHRASE, data, nowMs: T0 });
+  if (options.cycleSync === true) {
+    await a.session.grantCycleSync(CYCLE_GRANT);
+    await a.session.push({ data, nowMs: T0 + 1000 });
+  }
   const b = newDevice(server, 'init-b');
   return { server, a, b };
 }
@@ -107,7 +123,9 @@ async function enabledPair(data: AppData = sample()) {
 describe('два пристрої сходяться через справжній сервер', () => {
   it('другий пристрій відновлює щоденник першого', async () => {
     const data = sample();
-    const { b } = await enabledPair(data);
+    // Обидві згоди — інакше цикл законно не покидає пристрій (§9.7), і тест
+    // перевіряв би менше, ніж заявляє в назві.
+    const { b } = await enabledPair(data, { cycleSync: true });
 
     await b.session.open({ passphrase: PASSPHRASE, nowMs: T0 + MINUTE });
     const outcome = await b.session.pull({ data: emptyData(), nowMs: T0 + MINUTE });
@@ -235,7 +253,10 @@ describe('§9.4 на реальному флоу', () => {
       data: sample(),
       nowMs: T0
     });
-    server.consents.add('cycle_sync');
+    // Згода дається справжнім шляхом: інакше A законно не надіслав би цикл, і
+    // тест перевіряв би відсутність даних замість їхнього збереження.
+    await a.session.grantCycleSync(CYCLE_GRANT);
+    await a.session.push({ data: sample(), nowMs: T0 + 1000 });
 
     const b = newDevice(server, 'init-b');
     await b.session.open({ passphrase: PASSPHRASE, nowMs: T0 + MINUTE });
@@ -306,7 +327,164 @@ describe('§9.4 на реальному флоу', () => {
   });
 });
 
+describe('§9.4: правило авторитетності присутності не видаляє без підтвердження', () => {
+  /**
+   * Найтяжчий сценарій: запис acked і clean, на сервері його немає, надгробка
+   * теж немає (сервер переписали з нуля). Правило §9.4 називає це «видалено
+   * віддалено» — але ЛИШЕ з підтвердженням на пристрої.
+   */
+  async function prunable() {
+    const { server, a, b } = await enabledPair();
+    await b.session.open({ passphrase: PASSPHRASE, nowMs: T0 + MINUTE });
+    await b.session.pull({ data: emptyData(), nowMs: T0 + MINUTE });
+
+    // A видаляє день (надгробок), потім переписує решту сейфа, і лише тоді
+    // компактор має право прибрати надгробок і підняти горизонт. Так на сервері
+    // законно з'являється стан «запису немає, і надгробка на нього теж» — рівно
+    // той вхід, для якого §9.4 і вводить правило авторитетності присутності.
+    const withoutDay: AppData = { ...sample(), entries: { '2026-01-15': done() } };
+    await a.session.push({ data: withoutDay, nowMs: T0 + 2 * MINUTE });
+
+    const allChanged: AppData = {
+      ...withoutDay,
+      entries: { '2026-01-15': done('переписано') },
+      cycleStarts: ['2026-01-02', '2026-01-20'],
+      active: ['fatigue', 'nausea', 'tremor'],
+      archived: [],
+      groups: [{ id: 'g1', name: 'Інша назва', archived: false }],
+      cycleOn: false
+    };
+    await a.session.push({ data: allChanged, nowMs: T0 + 3 * MINUTE });
+    server.compact();
+
+    return { server, a, b };
+  }
+
+  it('безпечний патч ЛИШАЄ локальний запис, якого немає на сервері', async () => {
+    const { b } = await prunable();
+    const local = sample();
+    const outcome = await b.session.pull({ data: local, nowMs: T0 + 3 * MINUTE });
+
+    expect(outcome.prunePaths).toContain('entry:2026-01-16');
+    // Патч застосовується одразу, до будь-якого діалогу, тож видалення тут —
+    // це видалення без підтвердження.
+    expect(Object.keys(outcome.patch.entries ?? {})).toContain('2026-01-16');
+  });
+
+  it('підтверджений патч видаляє його — і лише він', async () => {
+    const { b } = await prunable();
+    const outcome = await b.session.pull({ data: sample(), nowMs: T0 + 3 * MINUTE });
+
+    expect(Object.keys(outcome.confirmedPatch.entries ?? {})).not.toContain('2026-01-16');
+    expect(Object.keys(outcome.confirmedPatch.entries ?? {})).toContain('2026-01-15');
+  });
+
+  it('порожній серверний набір не витирає щоденник без підтвердження', async () => {
+    const { server, b } = await enabledPair();
+    await b.session.open({ passphrase: PASSPHRASE, nowMs: T0 + MINUTE });
+    await b.session.pull({ data: emptyData(), nowMs: T0 + MINUTE });
+
+    // Сервер після невдалого відновлення бекапа: записів немає, ревізія висока.
+    server.records.clear();
+    server.currentRevision += 1;
+    server.compactedUpTo = server.currentRevision;
+
+    const outcome = await b.session.pull({ data: sample(), nowMs: T0 + 2 * MINUTE });
+
+    expect(Object.keys(outcome.patch.entries ?? {})).toEqual(['2026-01-15', '2026-01-16']);
+    expect(outcome.prunePaths.length).toBeGreaterThan(0);
+  });
+});
+
+describe('§9.4: надгробок синглтона й очищення сейфа', () => {
+  it('надгробок cycle не змагається з оновленням того самого ключа', async () => {
+    const { a, b } = await enabledPair(sample(), { cycleSync: true });
+
+    // «Видалити лише дані циклу»: намір фіксується явно, бо порожня множина
+    // виглядає так само, як прибрані по одній позначки.
+    a.session.markTombstone('cycle');
+    const withoutCycle: AppData = { ...sample(), cycleStarts: [] };
+    await a.session.push({ data: withoutCycle, nowMs: T0 + MINUTE });
+
+    // Manifest мусить лишитися узгодженим із сервером: інакше будь-який
+    // повний ресинк давав би «серверна копія виглядає застарілою» назавжди.
+    await b.session.open({ passphrase: PASSPHRASE, nowMs: T0 + 2 * MINUTE });
+    const outcome = await b.session.pull({ data: emptyData(), nowMs: T0 + 2 * MINUTE });
+    expect(outcome.patch.cycleStarts).toEqual([]);
+  });
+
+  it('очищення серверної копії не застосовується без підтвердження', async () => {
+    const { server, a, b } = await enabledPair();
+    await b.session.open({ passphrase: PASSPHRASE, nowMs: T0 + MINUTE });
+    await b.session.pull({ data: emptyData(), nowMs: T0 + MINUTE });
+
+    await a.session.resetVault();
+    void server;
+
+    const outcome = await b.session.pull({ data: sample(), nowMs: T0 + 2 * MINUTE });
+    expect(outcome.vaultWasReset).toBe(true);
+    expect(Object.keys(outcome.patch.entries ?? {})).toEqual(['2026-01-15', '2026-01-16']);
+  });
+});
+
+describe('крайові стани домену', () => {
+  it('порожній щоденник теж вмикає синхронізацію', async () => {
+    // Онбординг не вимагає обрати жоден симптом, тож це не екзотика. Мітка
+    // «нічого не втрачати» не має бути нулем: AAD §7 вимагає додатного
+    // `client_ts_ms`, і нуль ламав би шифрування ще до першого запиту — вже
+    // ПІСЛЯ того, як конверт записано на сервер.
+    const server = new FakeVaultServer();
+    const a = newDevice(server, 'init-empty');
+
+    await a.session.enable({
+      grant: GRANT,
+      passphrase: PASSPHRASE,
+      data: emptyData(),
+      nowMs: T0
+    });
+
+    expect(server.liveCount()).toBeGreaterThan(0);
+    expect(a.session.unlocked).toBe(true);
+  });
+
+  it('порожній щоденник не перемагає серверну копію в LWW', async () => {
+    const { b } = await enabledPair(sample(), { cycleSync: true });
+    await b.session.open({ passphrase: PASSPHRASE, nowMs: T0 + MINUTE });
+    const outcome = await b.session.pull({ data: emptyData(), nowMs: T0 + MINUTE });
+    expect(outcome.patch.cycleOn).toBe(true);
+  });
+});
+
 describe('§9.7: згода на синхронізацію циклу', () => {
+  /**
+   * Фільтрація за згодою — клієнтська, і це не деталь реалізації: сервер не
+   * бачить, який ciphertext є циклом, тож якщо клієнт включить `cycle` у push,
+   * дані домену, згоди на синхронізацію якого не давали, опиняться в серверній
+   * копії — і сервер навіть не матиме чим їх адресувати при відкликанні.
+   */
+  it('без згоди cycle_sync запис cycle не потрапляє на сервер', async () => {
+    const { server, a } = await enabledPair();
+
+    expect(server.consents.has('cycle_sync')).toBe(false);
+    // Два дні, три синглтони (без `cycle`) і manifest.
+    expect(server.liveCount()).toBe(6);
+    expect(a.session.snapshotMeta.records.cycle).toBeUndefined();
+  });
+
+  it('після згоди cycle потрапляє на сервер наступним push', async () => {
+    const { server, a } = await enabledPair();
+
+    await a.session.grantCycleSync({
+      kind: 'cycle_sync',
+      text_version: '0.9',
+      text_sha256: 'b'.repeat(64)
+    });
+    await a.session.push({ data: sample(), nowMs: T0 + MINUTE });
+
+    expect(server.liveCount()).toBe(7);
+    expect(a.session.snapshotMeta.records.cycle).toBeDefined();
+  });
+
   it('надсилає record_key_cycle, і це саме HMAC(k_index, «cycle»)', async () => {
     const { server, a } = await enabledPair();
 
@@ -315,6 +493,7 @@ describe('§9.7: згода на синхронізацію циклу', () => {
       text_version: '0.9',
       text_sha256: 'b'.repeat(64)
     });
+    await a.session.push({ data: sample(), nowMs: T0 + MINUTE });
 
     // Сервер отримав саме той ключ, під яким лежить запис `cycle`, — інакше
     // hard-DELETE Фази 3 видаляв би не те. Порівняння йде через дайджест
@@ -372,9 +551,10 @@ describe('§9.5: ретрай чанка після втраченої відп�
       nowMs: T0
     });
 
-    // Записів рівно стільки, скільки одиниць зберігання: два дні, чотири
-    // синглтони й manifest. Дубля немає, бо чанк розпізнано як застосований.
-    expect(server.liveCount()).toBe(7);
+    // Записів рівно стільки, скільки одиниць зберігання поїхало: два дні, три
+    // синглтони (`cycle` лишився на пристрої без своєї згоди, §9.7) і manifest.
+    // Дубля немає, бо чанк розпізнано як застосований.
+    expect(server.liveCount()).toBe(6);
   });
 });
 

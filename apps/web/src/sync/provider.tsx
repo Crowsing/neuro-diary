@@ -193,13 +193,15 @@ export function SyncProvider({ children }: { children: ReactNode }) {
       prunePaths: readonly string[];
       conflictPaths: readonly string[];
       massDelete: boolean;
+      vaultWasReset: boolean;
     }) => {
       dispatch(syncApply(outcome.patch));
       deferred.current = { ...deferred.current, ...outcome.deferredEntries };
       const count =
         outcome.prunePaths.length +
         outcome.conflictPaths.length +
-        (outcome.massDelete ? 1 : 0);
+        (outcome.massDelete ? 1 : 0) +
+        (outcome.vaultWasReset ? 1 : 0);
       if (count > 0) {
         setPending({ confirmedPatch: outcome.confirmedPatch, count });
         setStage('confirm');
@@ -213,17 +215,30 @@ export function SyncProvider({ children }: { children: ReactNode }) {
   const runSync = useCallback(async () => {
     const vault = await openSession();
     if (!vault.unlocked) return;
-    const outcome = await vault.pull({
-      data: data.current,
-      nowMs: Date.now(),
-      checkinDate: checkinDate.current
-    });
-    const clean = applyOutcome(outcome);
-    // Push відкладається до рішення користувачки: інакше пристрій закріпив би
-    // на сервері той стан, який вона ще не підтвердила.
-    if (!clean) return;
-    await vault.push({ data: { ...data.current, ...outcome.patch }, nowMs: Date.now() });
-    setStage('idle');
+
+    // §9.3: сервер не вміє мерджити, тож 409 — не помилка, а штатний крок
+    // протоколу. Він гарантований щоразу, коли інший пристрій щось записав:
+    // manifest іде в кожному push і має власний `record_key`, тож конфліктує
+    // завжди. Цикл повторюється, а не показує «спробуйте ще раз».
+    for (let round = 0; round < 3; round += 1) {
+      const outcome = await vault.pull({
+        data: data.current,
+        nowMs: Date.now(),
+        checkinDate: checkinDate.current
+      });
+      const clean = applyOutcome(outcome);
+      // Push відкладається до рішення користувачки: інакше пристрій закріпив би
+      // на сервері той стан, який вона ще не підтвердила.
+      if (!clean) return;
+      try {
+        await vault.push({ data: { ...data.current, ...outcome.patch }, nowMs: Date.now() });
+        setStage('idle');
+        return;
+      } catch (error) {
+        if ((error as { failure?: string }).failure !== 'conflict') throw error;
+      }
+    }
+    throw new Error('sync_conflict_unresolved');
   }, [applyOutcome, openSession]);
 
   const openConsent = useCallback((kind: 'health_sync' | 'cycle_sync' = 'health_sync') => {

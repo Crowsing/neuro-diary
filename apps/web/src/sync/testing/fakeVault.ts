@@ -245,6 +245,19 @@ export class FakeVaultTransport implements SyncTransport {
     this.server.calls.push('push');
     this.requireHealthSync();
 
+    // Два елементи з однаковим `record_key` в одному push — це два рядки з
+    // однаковим первинним ключем в одному UPSERT. Реальна PostgreSQL відповіла
+    // б «cannot affect row a second time», тож двійник мусить бути так само
+    // непримиренним: інакше клієнт може роками надсилати таке, а тести —
+    // мовчати.
+    const seen = new Set<string>();
+    for (const change of changes) {
+      if (seen.has(change.recordKeyHex)) {
+        throw new SyncError('server');
+      }
+      seen.add(change.recordKeyHex);
+    }
+
     if (baseRevision < this.server.resetRevision) {
       throw new SyncError('vault_reset');
     }
