@@ -812,7 +812,14 @@ Remote-прогін
 Scope: outbox, erasure worker, vault reset, crypto-erasure, erasure-журнал і
 retention/backup runbook.
 
-Гілка `phase-3-erasure`. **Блок 4 (зовнішній append-only журнал, runbook після
+Гілка `phase-3-erasure`,
+[PR #7](https://github.com/Crowsing/neuro-diary/pull/7), змерджано в `main`;
+CI-прогін
+[30171798280](https://github.com/Crowsing/neuro-diary/actions/runs/30171798280)
+зелений — усі п'ять job-ів (`web`, `api`, `bot`, `sync-e2e`, `gitleaks`).
+Продовження — [phase-3-completion.prompt.md](phase-3-completion.prompt.md).
+
+**Блок 4 (зовнішній append-only журнал, runbook після
 restore, retention і restore drills) у цій сесії свідомо не виконувався** —
 обсяг сесії був заданий як блоки 0–3, і жоден із бакетів, ключів чи механізмів
 відновлення не був доступний. Що з нього лишилося — нижче окремим переліком.
