@@ -723,8 +723,10 @@ Remote-прогін
 
 - Серверний hard-DELETE записів циклу при відкликанні `cycle_sync`: колонка
   `consent.record_key_cycle` заведена міграцією `0003`, і клієнт **надсилає** в
-  неї `HMAC(k_index,'cycle')` при grant (`VaultSession.grantCycleSync`), але
-  споживач значення — сама операція видалення — належить Фазі 3.
+  неї `HMAC(k_index,'cycle')` при grant (`VaultSession.grantCycleSync`; Evidence:
+  `apps/web/src/sync/vault.test.ts::надсилає record_key_cycle, і це саме
+  HMAC(k_index, «cycle»)`), але споживач значення — сама операція видалення —
+  належить Фазі 3.
 - Скидання лічильників `vault_revision` при відкликанні `health_sync` (§4.3).
 - 409 `confirm_required` на відкликання `health_sync` (§8): його предикат читає
   `last_acked_revision`, який з'явився у цій фазі, але сама компенсація належить

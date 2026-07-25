@@ -306,6 +306,36 @@ describe('§9.4 на реальному флоу', () => {
   });
 });
 
+describe('§9.7: згода на синхронізацію циклу', () => {
+  it('надсилає record_key_cycle, і це саме HMAC(k_index, «cycle»)', async () => {
+    const { server, a } = await enabledPair();
+
+    await a.session.grantCycleSync({
+      kind: 'cycle_sync',
+      text_version: '0.9',
+      text_sha256: 'b'.repeat(64)
+    });
+
+    // Сервер отримав саме той ключ, під яким лежить запис `cycle`, — інакше
+    // hard-DELETE Фази 3 видаляв би не те. Порівняння йде через дайджест
+    // шифротексту, як і в решті тестів: шляхів сервер не знає.
+    expect(server.recordKeyCycle).toBe(await serverKeyOfPath(server, a.session, 'cycle'));
+    expect(server.recordKeyCycle).toMatch(/^[0-9a-f]{64}$/);
+  });
+
+  it('без відкритого сейфа ключ назвати нічим', async () => {
+    const server = new FakeVaultServer();
+    const b = newDevice(server, 'init-locked');
+    await expect(
+      b.session.grantCycleSync({
+        kind: 'cycle_sync',
+        text_version: '0.9',
+        text_sha256: 'b'.repeat(64)
+      })
+    ).rejects.toMatchObject({ failure: 'locked' });
+  });
+});
+
 describe('дзеркало чек-іна', () => {
   it('відкладає віддалений запис за дату, яку зараз заповнюють', async () => {
     const { a, b } = await enabledPair();

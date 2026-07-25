@@ -87,6 +87,8 @@ export class FakeVaultServer {
   accountExists = false;
   key: StoredKey | null = null;
   readonly consents = new Set<string>();
+  /** §9.7: значення, яке клієнт назвав при grant `cycle_sync`. */
+  recordKeyCycle: string | null = null;
   readonly faults: FakeVaultFaults = noFaults();
   /** Скільки сесій ревокував останній `revoke-others`. */
   revokedOthers = 0;
@@ -227,6 +229,9 @@ export class FakeVaultTransport implements SyncTransport {
       throw new SyncError('conflict');
     }
     this.server.consents.add(grant.kind);
+    if (grant.record_key_cycle !== undefined) {
+      this.server.recordKeyCycle = grant.record_key_cycle;
+    }
     this.server.consentEpoch += 1;
     return this.listConsents();
   }
