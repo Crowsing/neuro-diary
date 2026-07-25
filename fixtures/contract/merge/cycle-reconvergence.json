@@ -1,0 +1,18 @@
+{
+  "description": "delete on A, offline re-add on B, converging within two rounds (§9.3)",
+  "deviceA": {
+    "kind": "cycle",
+    "starts": [],
+    "journal": [{ "id": "2026-01-01", "removedAt": 1768435200001 }]
+  },
+  "deviceB": {
+    "kind": "cycle",
+    "starts": [{ "date": "2026-01-01", "addedAt": 1768435200002 }],
+    "journal": []
+  },
+  "expected": {
+    "kind": "cycle",
+    "starts": [{ "date": "2026-01-01", "addedAt": 1768435200002 }],
+    "journal": [{ "id": "2026-01-01", "removedAt": 1768435200001 }]
+  }
+}

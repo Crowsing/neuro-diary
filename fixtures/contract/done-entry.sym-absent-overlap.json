@@ -1,0 +1,19 @@
+{
+  "status": "done",
+  "wb": 3,
+  "sym": { "fatigue": { "int": 2 } },
+  "absent": ["fatigue"],
+  "ctx": {
+    "stress": null,
+    "sleepQ": null,
+    "sleepH": null,
+    "activity": null,
+    "actType": "",
+    "heat": null,
+    "extras": []
+  },
+  "note": "",
+  "flare": null,
+  "noSymptoms": false,
+  "filledLater": false
+}
