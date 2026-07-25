@@ -215,6 +215,9 @@ consent            (id uuid PK, account_id uuid REFERENCES account,
                     revoke_reason text NULL
                       CHECK (revoke_reason IN ('user','bot_blocked_timeout','stale_text_timeout')));
   -- UNIQUE INDEX ux_consent_active ON consent(account_id, kind) WHERE revoked_at IS NULL;
+  -- Фаза 2 додає record_key_cycle bytea NULL (§9.7): 32 байти, лише для kind='cycle_sync'.
+  -- Фаза 2 додає diary.rate_window(account_id, bucket) PK — вікна лімітів §11 без Redis;
+  --   три фіксовані слоти на акаунт, тож TTL-job не потрібен, і рядки зникають каскадом.
 session_token      (id uuid PK, account_id uuid NOT NULL REFERENCES account, token_hash bytea NOT NULL,
                     created_at, expires_at, last_used_at, revoked_at);  -- INDEX (token_hash)
 auth_replay        (initdata_hash bytea PK, seen_at timestamptz);       -- одноразовість initData; TTL-чистка
@@ -224,7 +227,8 @@ vault_key          (account_id uuid PK, wrapped_dek bytea, kdf text, kdf_params 
                     wrapped_dek_prev bytea NULL, wrap_version_prev int NULL, prev_written_at timestamptz NULL);
 vault_revision     (account_id uuid PK, current_revision bigint NOT NULL DEFAULT 0,
                     compacted_up_to bigint NOT NULL DEFAULT 0,
-                    reset_revision bigint NOT NULL DEFAULT 0);          -- не компактяться; скидаються при revoke health_sync (§4.3)
+                    reset_revision bigint NOT NULL DEFAULT 0,           -- не компактяться; скидаються при revoke health_sync (§4.3)
+                    consent_epoch bigint NOT NULL DEFAULT 0);           -- Фаза 2: джерело нейтрального consent_state_changed (§9.2)
 vault_record       (account_id uuid, record_key bytea, payload bytea, payload_size int,
                     revision bigint NOT NULL, deleted boolean NOT NULL DEFAULT false,
                     client_ts_ms bigint, updated_at timestamptz,        -- саме bigint: AAD прив'язується до мс UTC (§7)
@@ -422,7 +426,7 @@ backup-бакетах: без нього delete-маркери лишають no
 - **Формат payload:** `0x01 ‖ nonce(12 B) ‖ ciphertext ‖ tag(16 B)`. Версійний байт мусить збігатися з версійним префіксом AAD.
 - **Nonce:** 12 байт свіжої випадковості `crypto.getRandomValues` на кожну операцію шифрування; заборонено виводити nonce з `record_key`/revision/лічильника/часу. Ротація DEK через nonce-бюджет не потрібна (бюджет NIST 2^32 операцій недосяжний для щоденника однієї користувачки — зафіксовано свідомо).
 - **Реальний ризик тут — не математика, а реалізація**, тому фіксуються три механічні правила: (1) публічний API крипто-модуля має вигляд `encrypt(plaintext, aad)` — параметра `nonce` немає і не з'явиться; (2) nonce генерується всередині виклику і ніколи не зберігається окремо від свого ciphertext; (3) при ретраї чанка (§9.5) клієнт надсилає **байт-у-байт ідентичний** раніше зашифрований payload і ніколи не перешифровує його наново.
-- **AAD = `"ndv1" ‖ 0x1F ‖ шлях ‖ 0x1F ‖ client_ts_ms ‖ 0x1F ‖ ("0"|"1")`** — однозначне кодування замість простої конкатенації (інакше межі полів неоднозначні). `client_ts_ms` — десяткове ціле, мілісекунди UTC. `шлях` — закритий перелік, що валідується `^(entry:\d{4}-\d{2}-\d{2}|cycle|catalog|groups|settings|manifest)$`. Server-assigned `revision` в AAD не входить (невідома при шифруванні).
+- **AAD = `"ndv1" ‖ 0x1F ‖ шлях ‖ 0x1F ‖ client_ts_ms ‖ 0x1F ‖ ("0"|"1")`** — однозначне кодування замість простої конкатенації (інакше межі полів неоднозначні). **Останнє поле — прапорець надгробка: `"1"` ⟺ `deleted`** (уточнено у Фазі 2; попередня редакція семантики не давала). Обмеження, що звужує вибір до єдиного: AAD мусить бути відтворюваним ДО розшифрування, інакше клієнт перебирає обидва значення на кожному записі — а єдиний булев, доступний клієнту до розшифрування, це серверна колонка `deleted`. Змінити прапорець після першого записаного шифротексту неможливо. `client_ts_ms` — десяткове ціле, мілісекунди UTC. `шлях` — закритий перелік, що валідується `^(entry:\d{4}-\d{2}-\d{2}|cycle|catalog|groups|settings|manifest)$`. Server-assigned `revision` в AAD не входить (невідома при шифруванні).
 - **Plaintext-заголовка шляху немає.** Попередня редакція клала логічний шлях у автентифікований plaintext-заголовок запису — і цим прямо суперечила §6.1 («сервер не знає навіть дат записів»), а заразом робила неправдивими тексти для користувачки одразу в трьох пунктах Gate D, включно з обіцянкою про вміст резервних копій. Заголовок прибрано. Клієнт володіє `k_index`, тож мапування `record_key → шлях` відновлюється офлайн: скінченний простір (усі дати діапазону щоденника + п'ять синглтонів) обчислюється в HMAC-таблицю один раз. На pull клієнт перевіряє `HMAC(k_index, шлях) == record_key`, під яким сервер віддав запис; розбіжність → запис відхиляється, не мерджиться, нейтральна помилка цілісності. Гарантія та сама, розкриття — нульове.
 - **Anti-rollback: шифрований синглтон `manifest`** (під тим самим DEK), оновлюється в тому ж push: клієнтський монотонний `vault_seq` + HMAC(`k_auth`) над станом сейфа, розширений **дайджестом вмісту**. Канонічний рядок: `"ndv1-manifest" ‖ 0x1F ‖ vault_seq ‖ 0x1F ‖ key_version ‖ 0x1F ‖ n_live ‖ 0x1E`, далі для кожного запису в порядку зростання `record_key` — `record_key_hex ‖ 0x1F ‖ client_ts_ms ‖ 0x1F ‖ sha256(payload) ‖ 0x1E`.
 - **Manifest визначається над живими записами (`deleted = false`); сам запис `manifest` до нього не входить** — ані до переліку, ані до `n_live`. Це не деталь: якби manifest покривав tombstone, штатний компактор (§6.4) щоразу робив би серверний набір строгою підмножиною зафіксованого, і користувачка бачила б «помилку цілісності» без жодної атаки — рівно тоді, коли приходить на повний ресинк після 410. Приховування tombstone сервером уже закрите правилом авторитетності присутності (§9.4) і push-гейтом `base_revision < compacted_up_to`. DoD Фази 2 перевіряє обидві гілки: «вилучено живий запис → перевірка падає» **і** «вилучено compacted tombstone → перевірка проходить».
@@ -502,6 +506,14 @@ GET  /v1/consents               (без параметрів)
 POST /v1/consents               {kind, text_version, text_sha256, settings?}
 POST /v1/consents/revoke        {kind}   -- kind у ТІЛІ, ніколи в URL
 ```
+
+**Курсор pull — єдині параметри, яким дозволено потрапити в request line.**
+`GET /v1/sync/pull` приймає `since`, `limit` і `consent_epoch`, і лише цілими.
+Уточнено у Фазі 2: §11 і так називає `revision` логованим полем, тож ревізія в
+request line не розкриває нічого, чого немає в логах. Альтернатива «зробити pull
+методом POST» зберегла б попереднє формулювання дослівно, але була б більшим
+відхиленням від контракту цього ж розділу. `consent_epoch` — лічильник, а не
+назва згоди: він нейтральний за побудовою.
 
 **Назва згоди не з'являється в URL — це вимога §2, а не стилістика.** Шлях виду
 `DELETE /v1/consents/cycle_sync` потрапляє в request line reverse proxy, а набір активних
