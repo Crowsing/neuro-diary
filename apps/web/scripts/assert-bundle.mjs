@@ -42,8 +42,13 @@ function refuse(condition, message) {
 const all = bundle.map((entry) => entry.text).join('\n');
 
 // 1. Демо-дані ніколи не потрапляють у зібраний застосунок.
-refuse(all.includes('genDemo'), 'bundle contains genDemo');
+//
+// Імена функцій для цього не годяться: esbuild перейменовує їх при мінімізації,
+// тож `genDemo` не знайшовся б навіть у бандлі, який його містить. Шукаються
+// рядкові літерали, які мінімізатор не чіпає, — маркер посіву e2e і насіння
+// детермінованого генератора демо-даних.
 refuse(all.includes('nd_e2e_seeded'), 'bundle contains the e2e seeding marker');
+refuse(all.includes('987654321'), 'bundle contains the demo data seed');
 
 // 2. Мережа до api — лише у sync-збірці.
 //
@@ -72,7 +77,18 @@ if (html !== undefined) {
     !html.text.includes("'wasm-unsafe-eval'"),
     "CSP does not allow 'wasm-unsafe-eval'; Argon2id would silently fall back"
   );
-  refuse(html.text.includes("'unsafe-eval'\""), "CSP allows 'unsafe-eval'");
+  // Токен, а не підрядок: 'wasm-unsafe-eval' містить 'unsafe-eval' усередині,
+  // тож наївна перевірка підрядком мовчала б і на справжньому 'unsafe-eval'.
+  const policy = /content="([^"]*)"/.exec(html.text)?.[1] ?? '';
+  const scriptSrc =
+    policy
+      .split(';')
+      .map((directive) => directive.trim())
+      .find((directive) => directive.startsWith('script-src'))
+      ?.split(/\s+/)
+      .slice(1) ?? [];
+  refuse(scriptSrc.includes("'unsafe-eval'"), "CSP allows 'unsafe-eval'");
+  refuse(scriptSrc.includes("'unsafe-inline'"), "CSP allows inline script");
   refuse(
     html.text.includes('frame-ancestors'),
     'frame-ancestors belongs to the HTTP header; a meta tag ignores it'

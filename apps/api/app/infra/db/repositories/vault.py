@@ -195,19 +195,19 @@ class VaultRepository:
         return len(rows)
 
     def mark_reset(self, account_id: UUID, *, revision: int) -> None:
-        """All three counters move together (§9.4).
+        """Current and reset move together; the horizon stays where it was.
 
-        Leaving `compacted_up_to` behind would let a stale device pass the 410
-        gate straight into an emptied vault.
+        Moving `compacted_up_to` here as well made `reset: true` unreachable:
+        the 410 gate of pull is checked before the reset flag, so every cursor
+        below the reset revision answered 410 and the confirmation screen §9.4
+        asks for could never appear. The reset gate of push is the first guard
+        of §9.1 anyway, so a stale device is still stopped — with the answer
+        that names the reason.
         """
         self._session.execute(
             update(VaultRevision)
             .where(VaultRevision.account_id == account_id)
-            .values(
-                current_revision=revision,
-                reset_revision=revision,
-                compacted_up_to=revision,
-            )
+            .values(current_revision=revision, reset_revision=revision)
         )
 
     def accounts_with_stale_tombstones(
@@ -225,7 +225,22 @@ class VaultRepository:
         return [row.account_id for row in rows]
 
     def compact(self, account_id: UUID, *, older_than: datetime) -> int:
-        """DELETE and horizon advance in one statement, as §6.4 requires."""
+        """DELETE and horizon advance in one transaction, as §6.4 requires.
+
+        The horizon never passes a live record. §6.4 says
+        `compacted_up_to = GREATEST(compacted_up_to, max(revision видалених))`,
+        and taken literally that number can exceed the revision of a record
+        that is still stored: revisions are per write, not per key, so a live
+        record written early keeps a low revision forever. The horizon would
+        then declare it unreachable — every legal cursor answers 410, and the
+        full resync §9.2 sends the client to has nothing to return. A device
+        that has just installed the app would never receive the diary at all.
+
+        Capping the horizon below the lowest live revision keeps the promise
+        that mattered (tombstones past their TTL are gone and cannot be
+        pushed against) without making live data unreachable. The deviation is
+        recorded in the plan.
+        """
         removed = self._session.execute(
             delete(VaultRecord)
             .where(
@@ -238,11 +253,17 @@ class VaultRepository:
         if not removed:
             return 0
         highest = max(row.revision for row in removed)
+        lowest_live = self._session.execute(
+            select(func.min(VaultRecord.revision)).where(
+                VaultRecord.account_id == account_id
+            )
+        ).scalar_one_or_none()
+        horizon = highest if lowest_live is None else min(highest, lowest_live - 1)
         self._session.execute(
             update(VaultRevision)
             .where(VaultRevision.account_id == account_id)
             .values(
-                compacted_up_to=func.greatest(VaultRevision.compacted_up_to, highest)
+                compacted_up_to=func.greatest(VaultRevision.compacted_up_to, horizon)
             )
         )
         return len(removed)
@@ -368,6 +389,7 @@ class RateWindowRepository:
         limit: int,
         window_start: datetime,
         window_seconds: int,
+        now: datetime,
     ) -> RateVerdict:
         row = self._session.execute(
             self._CONSUME,
@@ -380,8 +402,11 @@ class RateWindowRepository:
         ).one()
         if row.used <= limit:
             return RateVerdict(allowed=True, retry_after_seconds=0)
+        # Скільки лишилося до кінця вікна, а не яка воно завдовжки: рахунок від
+        # `window_start` давав би константу — 3600 секунд для key_read навіть
+        # тоді, коли вікно закривається за секунду.
         closes_at = row.window_start + timedelta(seconds=window_seconds)
-        remaining = int((closes_at - window_start).total_seconds())
+        remaining = int((closes_at - now).total_seconds())
         return RateVerdict(allowed=False, retry_after_seconds=max(remaining, 1))
 
     def clear(self, account_id: UUID) -> None:

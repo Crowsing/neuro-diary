@@ -9,7 +9,7 @@
 //    володіє провайдер, — жодного нового значення `Sub`, жодної правки
 //    `types.ts` чи `persist.ts`.
 
-import { createContext, useCallback, useContext, useMemo, useState } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
 
 export type SyncStage =
@@ -42,6 +42,24 @@ export function SyncProvider({ children }: { children: ReactNode }) {
     SYNC_ENABLED ? 'idle' : 'local_only'
   );
   const [lastError, setLastError] = useState<string | null>(null);
+
+  // §8 вимагає зачистити initData ОДРАЗУ після читання, а не тоді, коли
+  // користувачка нарешті вмикає синхронізацію: інакше `#tgWebAppData` і
+  // sessionStorage лишаються цілими всю сесію вкладки в тих, хто її так і не
+  // ввімкнув. Дефект знайдено незалежним review Фази 2.
+  useEffect(() => {
+    if (!SYNC_ENABLED) return;
+    void import('./initdata').then(({ readInitDataOnce }) => {
+      readInitDataOnce({
+        location: window.location,
+        history: window.history,
+        sessionStorage: window.sessionStorage,
+        telegramInitData: (
+          window as unknown as { Telegram?: { WebApp?: { initData?: string } } }
+        ).Telegram?.WebApp?.initData
+      });
+    });
+  }, []);
 
   const openConsent = useCallback(() => {
     if (!SYNC_ENABLED) return;

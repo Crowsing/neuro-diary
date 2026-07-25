@@ -89,7 +89,12 @@ describe('parseMeta — a tolerant reader', () => {
       consentsFetchedAtRevision: 12,
       lastSuccessfulSyncAt: 1_768_435_200_000,
       records: { aa: { revision: 12, sha256: 'ff', dirty: true } },
-      snapshot: { cycleStarts: ['2026-01-01'], catalogIds: ['fatigue'], groupIds: [] }
+      snapshot: {
+        cycleStarts: { '2026-01-01': 1_768_435_200_000 },
+        catalogIds: { fatigue: 1_768_435_200_000 },
+        groupIds: {},
+        orderAt: 1_768_435_200_000
+      }
     };
     expect(parseMeta(JSON.stringify(meta), DEVICE)).toEqual(meta);
   });

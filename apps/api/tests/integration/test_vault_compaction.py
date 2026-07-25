@@ -118,7 +118,9 @@ def test_tombstones_past_the_ttl_are_deleted_and_the_horizon_advances(
     assert result.tombstones_removed == 1
     current, compacted, _ = _counters(engine)
     assert current == 3
-    assert compacted == 3
+    # Горизонт зупиняється під найнижчою живою ревізією: B записаний першим і
+    # назавжди тримає ревізію 2, тож горизонт 3 зробив би його недосяжним.
+    assert compacted == 1
     with engine.connect() as connection:
         keys = {
             bytes(row[0]).hex()
@@ -160,7 +162,7 @@ def test_a_push_below_the_horizon_is_gone(
 
     stale = session.post(
         "/v1/sync/push",
-        {"base_revision": 1, "changes": [_change(KEY_B)]},
+        {"base_revision": 0, "changes": [_change(KEY_B)]},
     )
     assert stale.status_code == 410
     assert stale.json() == {"error": "gone"}
@@ -211,3 +213,31 @@ def test_compaction_is_idempotent(
     assert first.tombstones_removed == 1
     assert second.tombstones_removed == 0
     assert _counters(engine)[1] == 2
+
+
+def test_a_new_device_can_still_download_the_vault_after_compaction(
+    session: Caller,
+    engine: Engine,
+    compactor: VaultCompactor,
+) -> None:
+    """The defect this test exists for: a horizon above a live record.
+
+    Revisions are per write, not per key, so a record written first keeps a low
+    revision forever. A horizon set to the highest deleted revision would
+    declare it unreachable — every cursor answers 410, and the full resync of
+    §9.2 returns nothing. A device that installs the app after the first
+    compaction would never receive the diary at all.
+    """
+    session.post(
+        "/v1/sync/push",
+        {"base_revision": 0, "changes": [_change(KEY_A), _change(KEY_B)]},
+    )
+    session.post("/v1/sync/push", {"base_revision": 2, "changes": [_tombstone(KEY_A)]})
+    _age_tombstones(engine, by=TOMBSTONE_TTL + timedelta(days=1))
+    compactor.run_once()
+
+    _, compacted, _ = _counters(engine)
+    resync = session.get(f"/v1/sync/pull?since={compacted}")
+
+    assert resync.status_code == 200, resync.text
+    assert [item["record_key"] for item in resync.json()["records"]] == [KEY_B]

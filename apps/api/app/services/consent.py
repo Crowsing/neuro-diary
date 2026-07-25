@@ -117,6 +117,12 @@ class ConsentService:
                 now=now,
             )
 
+        # §9.7: pull повідомляє про зміну згод нейтральним прапорцем, і його
+        # джерело — лічильник у рядку сейфа, а не годинник. Без інкременту тут
+        # пристрій B ніколи не дізнався б про відкликання й отримував би вічний
+        # 409 без жодної підказки.
+        unit.vault.ensure_counters(account_id)
+        unit.vault.bump_consent_epoch(account_id)
         unit.consents.grant(
             account_id,
             kind=request.kind,
@@ -160,6 +166,12 @@ class ConsentService:
         )
         if ConsentKind.TELEGRAM_REMINDERS in revoked:
             unit.schedules.delete(account_id)
+        if revoked:
+            # Той самий нейтральний сигнал, що й при grant: пристрій дізнається
+            # «щось зі згодами змінилося» і мусить перечитати їх ДО будь-якого
+            # pruning (§9.4), не дізнаючись із pull назви жодної згоди.
+            unit.vault.ensure_counters(account_id)
+            unit.vault.bump_consent_epoch(account_id)
 
         remaining = unit.consents.active_kinds(account_id)
         if remaining or reason is not RevokeReason.USER:

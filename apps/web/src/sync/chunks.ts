@@ -20,11 +20,20 @@ export interface EncryptedChange {
   readonly byteLength: number;
 }
 
+/**
+ * Верхня оцінка розміру manifest: він росте з кількістю живих записів, а
+ * недооцінка коштує 413 на останньому чанку — і саме на ньому вивантаження
+ * зупиняється остаточно, бо 413 не ретраїться.
+ */
+export const MANIFEST_BUDGET_BYTES = 64 * 1024;
+
 export function planChunks(
   changes: readonly EncryptedChange[],
-  reserved = 0
+  reserved = 0,
+  reservedBytes = reserved > 0 ? MANIFEST_BUDGET_BYTES : 0
 ): EncryptedChange[][] {
   const limit = Math.max(1, MAX_RECORDS_PER_CHUNK - reserved);
+  const byteBudget = Math.max(1, MAX_BYTES_PER_CHUNK - reservedBytes);
   const chunks: EncryptedChange[][] = [];
   let current: EncryptedChange[] = [];
   let bytes = 0;
@@ -32,7 +41,7 @@ export function planChunks(
   for (const change of changes) {
     const wouldExceedCount = current.length >= limit;
     const wouldExceedBytes =
-      current.length > 0 && bytes + change.byteLength > MAX_BYTES_PER_CHUNK;
+      current.length > 0 && bytes + change.byteLength > byteBudget;
     if (wouldExceedCount || wouldExceedBytes) {
       chunks.push(current);
       current = [];

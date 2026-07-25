@@ -130,9 +130,13 @@ class VaultRepositoryPort(Protocol):
     `lock_counters` is the second lock of the transaction and must never be
     taken before `accounts.lock`: a fixed lock order is what keeps two pushes
     of one account from deadlocking instead of serializing.
+
+    `bump_consent_epoch` belongs here rather than to the consent repository:
+    the counter it moves lives in the vault row that pull reads.
     """
 
     def ensure_counters(self, account_id: UUID) -> None: ...
+    def bump_consent_epoch(self, account_id: UUID) -> None: ...
     def counters(self, account_id: UUID) -> VaultCounters: ...
     def lock_counters(self, account_id: UUID) -> VaultCounters: ...
     def revisions_for(
@@ -185,6 +189,7 @@ class RateWindowRepositoryPort(Protocol):
         limit: int,
         window_start: datetime,
         window_seconds: int,
+        now: datetime,
     ) -> RateVerdict: ...
 
 

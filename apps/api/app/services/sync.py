@@ -375,4 +375,5 @@ class SyncService:
             limit=limit,
             window_start=_window_start(now, seconds),
             window_seconds=seconds,
+            now=now,
         )

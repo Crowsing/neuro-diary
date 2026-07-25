@@ -68,7 +68,7 @@ def test_a_reset_without_step_up_is_refused(
         )
 
 
-def test_a_reset_drops_every_record_and_moves_all_three_counters(
+def test_a_reset_drops_every_record_and_moves_the_reset_revision(
     session: Caller,
     engine: Engine,
 ) -> None:
@@ -94,7 +94,10 @@ def test_a_reset_drops_every_record_and_moves_all_three_counters(
                 "FROM diary.vault_revision"
             )
         ).one()
-    assert (row.current_revision, row.compacted_up_to, row.reset_revision) == (3, 3, 3)
+    # Горизонт компакшну лишається на місці: рухати його тут означало б, що
+    # гейт 410 у pull спрацьовує раніше за прапорець reset, і екран
+    # підтвердження очищення §9.4 не міг би з'явитися ніколи.
+    assert (row.current_revision, row.compacted_up_to, row.reset_revision) == (3, 0, 3)
 
 
 def test_a_push_from_before_the_reset_is_refused_with_vault_reset(
@@ -115,9 +118,13 @@ def test_the_reset_state_is_reported_before_anything_else(session: Caller) -> No
     session.post("/v1/sync/push", {"base_revision": 0, "changes": [_change(KEY_A)]})
     session.post("/v1/account/vault-reset")
 
-    # Below the horizon the answer is 410 — a full resync, which returns the
-    # reset state first because there is nothing else left to return.
-    assert session.get("/v1/sync/pull?since=1").status_code == 410
+    # §9.4: pull зі since нижче reset_revision повідомляє про скидання, і саме
+    # це вмикає підтвердження очищення на пристрої.
+    below = session.get("/v1/sync/pull?since=1")
+    assert below.status_code == 200, below.text
+    assert below.json()["reset"] is True
+    assert below.json()["records"] == []
+
     page = session.get("/v1/sync/pull?since=2").json()
     assert page["records"] == []
     assert page["current_revision"] == 2

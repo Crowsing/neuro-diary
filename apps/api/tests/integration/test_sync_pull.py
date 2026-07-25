@@ -70,7 +70,9 @@ def test_pull_returns_an_empty_page_for_a_fresh_vault(session: Caller) -> None:
         "next_since": 0,
         "current_revision": 0,
         "reset": False,
-        "consent_state_changed": False,
+        # Перший pull після надання згоди чесно каже «щось зі згодами
+        # змінилося»: клієнт ще не бачив жодної епохи, а grant її вже зрушив.
+        "consent_state_changed": True,
     }
 
 
@@ -146,17 +148,47 @@ def test_pull_signals_a_consent_change_without_naming_the_kind(
     session: Caller,
     engine: Engine,
 ) -> None:
-    session.post("/v1/sync/push", {"base_revision": 0, "changes": [_change(KEY_A)]})
-    with engine.begin() as connection:
-        connection.execute(text("UPDATE diary.vault_revision SET consent_epoch = 3"))
+    """The epoch moves because a consent moved, not because a test wrote SQL.
 
-    stale = _pull(session, "?since=0&consent_epoch=2")
+    An earlier version of this test set `consent_epoch` by hand and passed
+    while nothing in the application ever incremented it — the flag was dead
+    code. It now grants and revokes a real consent.
+    """
+    session.post("/v1/sync/push", {"base_revision": 0, "changes": [_change(KEY_A)]})
+    caught_up = _pull(session, "?since=0&consent_epoch=99")
+    assert caught_up.json()["consent_state_changed"] is False
+
+    granted = session.post(
+        "/v1/consents",
+        {
+            "kind": "cycle_sync",
+            "text_version": "cycle_sync@0.9",
+            "text_sha256": CYCLE_SHA,
+            "record_key_cycle": KEY_C,
+        },
+    )
+    assert granted.status_code == 201, granted.text
+
+    with engine.connect() as connection:
+        epoch = connection.execute(
+            text("SELECT consent_epoch FROM diary.vault_revision")
+        ).scalar_one()
+    assert epoch > 0
+
+    stale = _pull(session, "?since=0&consent_epoch=0")
     assert stale.json()["consent_state_changed"] is True
     assert "cycle" not in stale.text
     assert "health" not in stale.text
 
-    caught_up = _pull(session, "?since=0&consent_epoch=3")
-    assert caught_up.json()["consent_state_changed"] is False
+    session.post("/v1/consents/revoke", {"kind": "cycle_sync"})
+    with engine.connect() as connection:
+        after_revoke = connection.execute(
+            text("SELECT consent_epoch FROM diary.vault_revision")
+        ).scalar_one()
+    assert after_revoke > epoch
+
+    informed = _pull(session, f"?since=0&consent_epoch={after_revoke}")
+    assert informed.json()["consent_state_changed"] is False
 
 
 def test_pull_without_health_sync_is_refused(

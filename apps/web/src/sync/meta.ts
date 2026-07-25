@@ -22,14 +22,25 @@ export interface RecordMeta {
 }
 
 /**
- * Знімок доменних множин для журналів видалень. Зберігаються лише
- * ідентифікатори: щоб помітити зникнення елемента, більше нічого не треба, а
- * повна копія щоденника в службовому ключі була б другою копією медичних даних.
+ * Знімок доменних множин: ідентифікатор → мітка часу його появи.
+ *
+ * Міток недостатньо було б у вигляді самих лише id. Незалежний review Фази 2
+ * показав, чому: якщо серіалізація щоразу штампує `addedAt = now`, то будь-яке
+ * додавання свіжіше за будь-яке видалення, і 2P-set §9.3 перестає працювати —
+ * видалений на іншому пристрої елемент воскресає при першому ж синку. Тому
+ * мітка появи елемента переживає перезавантаження саме тут.
+ *
+ * Це не копія щоденника: тут лежать ідентифікатори множин (дати початків
+ * циклу, id симптомів і груп) і числа, без жодного значення спостереження.
  */
+export type StampedIds = Readonly<Record<string, number>>;
+
 export interface DomainSnapshot {
-  readonly cycleStarts: readonly string[];
-  readonly catalogIds: readonly string[];
-  readonly groupIds: readonly string[];
+  readonly cycleStarts: StampedIds;
+  readonly catalogIds: StampedIds;
+  readonly groupIds: StampedIds;
+  /** Коли востаннє змінювався порядок відображення (LWW цілим списком). */
+  readonly orderAt: number;
 }
 
 export interface SyncMeta {
@@ -126,12 +137,22 @@ export function parseMeta(raw: string | null, deviceId: string): SyncMeta {
 function parseSnapshot(value: unknown): DomainSnapshot | null {
   if (typeof value !== 'object' || value === null) return null;
   const candidate = value as Record<string, unknown>;
-  const strings = (input: unknown): string[] =>
-    Array.isArray(input) ? input.filter((item) => typeof item === 'string') : [];
+  const stamped = (input: unknown): StampedIds => {
+    if (typeof input !== 'object' || input === null) return {};
+    const out: Record<string, number> = {};
+    for (const [key, at] of Object.entries(input as Record<string, unknown>)) {
+      if (typeof at === 'number' && Number.isFinite(at)) out[key] = at;
+    }
+    return out;
+  };
   return {
-    cycleStarts: strings(candidate.cycleStarts),
-    catalogIds: strings(candidate.catalogIds),
-    groupIds: strings(candidate.groupIds)
+    cycleStarts: stamped(candidate.cycleStarts),
+    catalogIds: stamped(candidate.catalogIds),
+    groupIds: stamped(candidate.groupIds),
+    orderAt:
+      typeof candidate.orderAt === 'number' && Number.isFinite(candidate.orderAt)
+        ? candidate.orderAt
+        : 0
   };
 }
 

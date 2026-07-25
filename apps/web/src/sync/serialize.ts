@@ -9,6 +9,7 @@
 
 import { emptyData } from '../state/persist';
 import type { AppData, Entry, SymptomDef, TrackingGroup } from '../lib/types';
+import type { DomainSnapshot, StampedIds } from './meta';
 import { pruneJournal } from './journals';
 import type {
   CatalogBody,
@@ -35,46 +36,81 @@ function record<T>(pairs: [string, T][]): Record<string, T> {
   return Object.fromEntries(pairs);
 }
 
+/**
+ * Мітка появи елемента: збережена, якщо елемент уже був, і `nowMs` лише для
+ * справді нового.
+ *
+ * Без цього кожна серіалізація робила б будь-яке додавання свіжішим за будь-яке
+ * видалення, і 2P-set §9.3 перестав би працювати: елемент, видалений на іншому
+ * пристрої, воскресав би при першому ж синку. Дефект знайдено незалежним
+ * review Фази 2.
+ */
+function stampOf(known: StampedIds | undefined, id: string, nowMs: number): number {
+  const at = known?.[id];
+  return at === undefined ? nowMs : at;
+}
+
 export function toRecords(
   data: AppData,
   journals: Journals,
   deviceId: string,
-  nowMs: number
+  nowMs: number,
+  snapshot: DomainSnapshot | null = null
 ): PlainRecord[] {
   const stamp = { clientTs: nowMs, deviceId };
 
   const cycle: CycleBody = {
     kind: 'cycle',
-    starts: [...data.cycleStarts].sort().map((date) => ({ date, addedAt: nowMs })),
+    starts: [...data.cycleStarts]
+      .sort()
+      .map((date) => ({
+        date,
+        addedAt: stampOf(snapshot?.cycleStarts, date, nowMs)
+      })),
     journal: pruneJournal(journals.cycle, nowMs)
   };
 
   type Placement = { place: 'active' | 'archived'; at: number };
+  const catalogStamp = (id: string): number =>
+    stampOf(snapshot?.catalogIds, id, nowMs);
   const placements: [string, Placement][] = [
-    ...data.active.map((id): [string, Placement] => [id, { place: 'active', at: nowMs }]),
+    ...data.active.map((id): [string, Placement] => [
+      id,
+      { place: 'active', at: catalogStamp(id) }
+    ]),
     ...data.archived.map((id): [string, Placement] => [
       id,
-      { place: 'archived', at: nowMs }
+      { place: 'archived', at: catalogStamp(id) }
     ])
   ];
 
   const catalog: CatalogBody = {
     kind: 'catalog',
     places: record(placements),
-    custom: record(data.custom.map((def) => [def.id, { def, at: nowMs }])),
+    custom: record(
+      data.custom.map((def) => [def.id, { def, at: catalogStamp(def.id) }])
+    ),
     order: [...data.active],
-    orderAt: nowMs,
+    orderAt: snapshot?.orderAt ?? nowMs,
     journal: pruneJournal(journals.catalog, nowMs)
   };
 
   const groups: GroupsBody = {
     kind: 'groups',
-    groups: record(data.groups.map((group) => [group.id, { group, at: nowMs }])),
+    groups: record(
+      data.groups.map((group) => [
+        group.id,
+        { group, at: stampOf(snapshot?.groupIds, group.id, nowMs) }
+      ])
+    ),
     membership: record(
-      Object.entries(data.symptomGroupIds).map(([id, ids]) => [id, { ids, at: nowMs }])
+      Object.entries(data.symptomGroupIds).map(([id, ids]) => [
+        id,
+        { ids, at: stampOf(snapshot?.catalogIds, id, nowMs) }
+      ])
     ),
     order: data.groups.map((group) => group.id),
-    orderAt: nowMs,
+    orderAt: snapshot?.orderAt ?? nowMs,
     journal: pruneJournal(journals.groups, nowMs)
   };
 
@@ -218,5 +254,35 @@ export function journalsAfter(
       previous.groups.map((group) => group.id),
       current.groups.map((group) => group.id)
     )
+  };
+}
+
+/** Ідентифікатори множин домену разом із мітками їхньої появи. */
+export function snapshotOf(
+  data: AppData,
+  previous: DomainSnapshot | null,
+  nowMs: number
+): DomainSnapshot {
+  const stamped = (ids: readonly string[], known: StampedIds | undefined): StampedIds =>
+    Object.fromEntries(ids.map((id) => [id, stampOf(known, id, nowMs)]));
+
+  const catalogIds = [
+    ...data.active,
+    ...data.archived,
+    ...data.custom.map((def) => def.id),
+    ...Object.keys(data.symptomGroupIds)
+  ];
+  const orderChanged =
+    previous === null ||
+    JSON.stringify(Object.keys(previous.catalogIds)) !== JSON.stringify(catalogIds);
+
+  return {
+    cycleStarts: stamped(data.cycleStarts, previous?.cycleStarts),
+    catalogIds: stamped(catalogIds, previous?.catalogIds),
+    groupIds: stamped(
+      data.groups.map((group) => group.id),
+      previous?.groupIds
+    ),
+    orderAt: orderChanged ? nowMs : (previous?.orderAt ?? nowMs)
   };
 }
