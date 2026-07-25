@@ -171,6 +171,31 @@ def test_revoking_health_sync_leaves_no_vault_record_and_no_vault_key(
     assert _scalar(engine, "SELECT count(*) FROM diary.account") == 1
 
 
+def test_a_full_erasure_takes_the_vault_and_the_envelope_with_the_account(
+    session: Caller,
+    engine: Engine,
+) -> None:
+    """The other erasure path, with a vault that actually has something in it.
+
+    Losing the last consent by the user's own decision erases the account, and
+    the vault goes with it through the cascades of migration 0001 rather than
+    through `erase_vault`. That is a different code path from the partial
+    erasure above, and every existing test for it ran against an empty vault —
+    so nothing would have noticed a missing cascade.
+    """
+    revision = _stocked_vault(session)
+
+    response = session.post(
+        "/v1/consents/revoke",
+        {"kind": "health_sync", "last_acked_revision": revision},
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json() == {"account_erased": True}
+    for table in ("account", "vault_record", "vault_key", "vault_revision"):
+        assert _scalar(engine, f"SELECT count(*) FROM diary.{table}") == 0, table
+
+
 def test_the_vault_erasure_is_journalled_before_it_happens(
     session: Caller,
     engine: Engine,
