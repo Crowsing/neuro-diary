@@ -1,0 +1,93 @@
+from __future__ import annotations
+
+import inspect
+from datetime import timedelta
+
+import pytest
+
+from app.api.v1.errors import STATUS_BY_ERROR
+from app.domain import identity, vault
+from app.domain.identity import DomainError
+
+
+def _domain_errors() -> list[type[DomainError]]:
+    found: list[type[DomainError]] = []
+    for module in (identity, vault):
+        for _, member in inspect.getmembers(module, inspect.isclass):
+            if issubclass(member, DomainError) and member is not DomainError:
+                found.append(member)
+    return sorted(set(found), key=lambda error: error.__name__)
+
+
+def test_the_journal_ttl_is_never_shorter_than_the_tombstone_ttl() -> None:
+    # §6.4: if the client guard fired later than the server compactor, the 410
+    # path would be dead code and the boundary tests meaningless.
+    assert vault.JOURNAL_TTL >= vault.TOMBSTONE_TTL
+    assert vault.TOMBSTONE_TTL == vault.HORIZON + vault.COMPACTION_SLACK
+    assert vault.HORIZON == timedelta(days=180)
+
+
+def test_the_limits_match_the_plan() -> None:
+    assert vault.MAX_RECORD_BYTES == 65_536
+    assert vault.MAX_RECORDS_PER_PUSH == 200
+    assert vault.MAX_PUSH_BYTES == 1_048_576
+    assert vault.PULL_PAGE_LIMIT == 500
+    assert vault.SYNC_REQUESTS_PER_MINUTE == 60
+    assert vault.PUSH_BYTES_PER_MINUTE == 5 * 1024 * 1024
+    assert vault.KEY_READS_PER_HOUR == 10
+    assert vault.PREV_ENVELOPE_TTL == timedelta(days=7)
+    assert vault.PREV_ENVELOPE_MIN_INTERVAL == timedelta(hours=24)
+
+
+@pytest.mark.parametrize(
+    ("error", "status"),
+    [
+        (vault.VaultForbidden, 403),
+        (vault.VaultReset, 409),
+        (vault.VaultGone, 410),
+        (vault.PayloadTooLarge, 413),
+    ],
+)
+def test_every_vault_error_maps_to_its_status(
+    error: type[DomainError],
+    status: int,
+) -> None:
+    assert STATUS_BY_ERROR[error] == status
+
+
+def test_every_domain_error_has_a_status() -> None:
+    # TransientConflict never reaches the wire: the router retries and then
+    # gives up with the generic handler.
+    unmapped = {
+        error.__name__ for error in _domain_errors() if error not in STATUS_BY_ERROR
+    }
+    assert unmapped == {"TransientConflict"}
+
+
+def test_error_codes_are_stable_ascii_and_unique() -> None:
+    codes = [error.code for error in _domain_errors()]
+    assert len(codes) == len(set(codes))
+    for code in codes:
+        assert code.isascii()
+        assert code == code.lower()
+        assert " " not in code
+
+
+def test_no_domain_error_accepts_a_constructor_argument() -> None:
+    # A field on the exception is the shortest path back to echoing an input
+    # value into an error response, which §11 forbids.
+    for error in _domain_errors():
+        signature = inspect.signature(error.__init__)
+        assert list(signature.parameters) == ["self"], error.__name__
+
+
+def test_the_named_buckets_are_the_three_of_section_eleven() -> None:
+    assert {bucket.value for bucket in vault.RateBucket} == {
+        "sync",
+        "push_bytes",
+        "key_read",
+    }
+
+
+def test_the_key_write_modes_are_rewrap_and_rekey() -> None:
+    assert {mode.value for mode in vault.KeyWriteMode} == {"rewrap", "rekey"}

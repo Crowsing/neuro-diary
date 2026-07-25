@@ -25,6 +25,12 @@ from app.domain.identity import (
     StepUpRequired,
     UnknownTimezone,
 )
+from app.domain.vault import (
+    PayloadTooLarge,
+    VaultForbidden,
+    VaultGone,
+    VaultReset,
+)
 
 STATUS_BY_ERROR: dict[type[DomainError], int] = {
     AuthInvalid: 401,
@@ -32,9 +38,13 @@ STATUS_BY_ERROR: dict[type[DomainError], int] = {
     AuthReplayed: 401,
     NoAccount: 403,
     StepUpRequired: 403,
+    VaultForbidden: 403,
     ConsentPrecondition: 409,
     ConsentAlreadyActive: 409,
     ConsentTextMismatch: 409,
+    VaultReset: 409,
+    VaultGone: 410,
+    PayloadTooLarge: 413,
     QuietHoursViolation: 422,
     UnknownTimezone: 422,
     ConsentCopyNotFrozen: 503,
