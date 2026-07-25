@@ -230,6 +230,11 @@ export class VaultSession {
     return this.meta;
   }
 
+  /** Активні згоди, як їх назвав сервер — джерело стану перемикачів в UI. */
+  get activeConsents(): readonly string[] {
+    return [...this.consents];
+  }
+
   private persist(next: SyncMeta): void {
     this.meta = next;
     saveMeta(this.deps.storage, next);
@@ -588,6 +593,12 @@ export class VaultSession {
       // щось видаляти: рішення про локальні записи, яких там немає, ухвалює
       // правило авторитетності присутності — і лише з підтвердженням (§9.4).
       if (page.remote.length === 0) return;
+      throw new VaultError('stale_server_copy');
+    }
+    // Manifest із іншого покоління ключа — теж відкат: після re-key серверна
+    // копія перезаписується під `key_version + 1`, тож старіший номер означає,
+    // що віддали стан до заміни ключа.
+    if (page.manifest.keyVersion < this.meta.keyVersion) {
       throw new VaultError('stale_server_copy');
     }
 

@@ -28,7 +28,7 @@ export default function SyncSettings() {
             data-testid="sync-now"
             onClick={sync.syncNow}
           >
-            {SYNC_COPY.settingsTitle}
+            {SYNC_COPY.syncNow}
           </button>
           <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12 }}>
             <Toggle

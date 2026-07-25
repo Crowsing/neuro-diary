@@ -296,6 +296,7 @@ export function SyncProvider({ children }: { children: ReactNode }) {
             });
           }
           setActive(true);
+          setCycleSync(vault.activeConsents.includes('cycle_sync'));
           await runSync();
           setStage((current) => (current === 'working' ? 'idle' : current));
         } catch (error) {
@@ -312,6 +313,7 @@ export function SyncProvider({ children }: { children: ReactNode }) {
     void (async () => {
       try {
         const vault = await openSession();
+        setCycleSync(vault.activeConsents.includes('cycle_sync'));
         if (!vault.unlocked) {
           // Підключі живуть лише в пам'яті, тож після перезавантаження вкладки
           // синхронізація починається з фрази, а не з нової згоди.

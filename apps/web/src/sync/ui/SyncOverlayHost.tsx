@@ -192,7 +192,7 @@ export default function SyncOverlayHost() {
 
       {sync.stage === 'working' ? (
         <p role="status" data-testid="sync-working">
-          {SYNC_COPY.settingsTitle}
+          {SYNC_COPY.working}
         </p>
       ) : null}
 

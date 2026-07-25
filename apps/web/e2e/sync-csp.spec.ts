@@ -22,9 +22,11 @@ test('повний обхід застосунку не дає жодного п
   await page.goto(syncAppUrl(signedInitData({ queryId: 'csp-1' })));
   await page.getByRole('heading', { name: 'Налаштування' }).waitFor();
 
+  // Обхід безумовний: `if (await tab.count())` робив би тест таким, що проходить
+  // і тоді, коли жодна вкладка не відрендерилася, — тобто перевіряв би нічого.
+  const nav = page.getByRole('navigation', { name: 'Основна навігація' });
   for (const label of ['Сьогодні', 'Історія', 'Динаміка', 'Звіт', 'Налаштування']) {
-    const tab = page.getByRole('button', { name: label });
-    if (await tab.count()) await tab.first().click();
+    await nav.getByRole('button', { name: label }).click();
   }
 
   violations.push(...(await page.evaluate(() => (window as unknown as { __csp: string[] }).__csp)));
