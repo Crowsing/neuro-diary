@@ -9,7 +9,7 @@
 
 import { emptyData } from '../state/persist';
 import type { AppData, Entry, SymptomDef, TrackingGroup } from '../lib/types';
-import type { DomainSnapshot, StampedIds } from './meta';
+import type { DomainIds, DomainSnapshot, StampedIds } from './meta';
 import { pruneJournal } from './journals';
 import type {
   CatalogBody,
@@ -221,9 +221,24 @@ export function fromRecords(records: readonly SyncRecord[]): Restored {
  * порівнянням поточного стану з попереднім знімком. Без цього пристрій, який
  * був офлайн, додав би елемент назад просто тому, що в нього він ще є.
  */
-export function journalsAfter(
-  previous: AppData | null,
-  current: AppData,
+export function domainIdsOf(data: AppData): DomainIds {
+  return {
+    cycle: [...data.cycleStarts],
+    catalog: [...data.active, ...data.archived, ...data.custom.map((def) => def.id)],
+    groups: data.groups.map((group) => group.id)
+  };
+}
+
+/**
+ * Те саме виявлення видалень, але від збережуваних множин ідентифікаторів.
+ *
+ * Окрема форма потрібна тому, що попередній стан має пережити перезавантаження
+ * вкладки: тримати заради цього другу копію всього щоденника було б і зайвим,
+ * і гіршим для приватності, ніж три списки ідентифікаторів.
+ */
+export function journalsAfterIds(
+  previous: DomainIds | null,
+  current: DomainIds,
   journals: Journals,
   nowMs: number
 ): Journals {
@@ -243,19 +258,32 @@ export function journalsAfter(
   };
 
   return {
-    cycle: append(journals.cycle, previous.cycleStarts, current.cycleStarts),
-    catalog: append(
-      journals.catalog,
-      [...previous.active, ...previous.archived, ...previous.custom.map((d) => d.id)],
-      [...current.active, ...current.archived, ...current.custom.map((d) => d.id)]
-    ),
-    groups: append(
-      journals.groups,
-      previous.groups.map((group) => group.id),
-      current.groups.map((group) => group.id)
-    )
+    cycle: append(journals.cycle, previous.cycle, current.cycle),
+    catalog: append(journals.catalog, previous.catalog, current.catalog),
+    groups: append(journals.groups, previous.groups, current.groups)
   };
 }
+
+export function journalsAfter(
+  previous: AppData | null,
+  current: AppData,
+  journals: Journals,
+  nowMs: number
+): Journals {
+  return journalsAfterIds(
+    previous === null ? null : domainIdsOf(previous),
+    domainIdsOf(current),
+    journals,
+    nowMs
+  );
+}
+
+// Канонічний рядок відкритого тіла запису — основа відповіді «чи змінився
+// він»: без упорядкованих ключів зміна порядку симптомів у каталозі робила б
+// `groups`/`catalog` «зміненими» без жодної зміни змісту, і кожен запуск
+// застосунку відправляв би на сервер той самий вміст під новим `client_ts`,
+// безпідставно перемагаючи в LWW правки з іншого пристрою.
+export { canonicalBody } from './canonical';
 
 /** Ідентифікатори множин домену разом із мітками їхньої появи. */
 export function snapshotOf(

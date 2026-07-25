@@ -9,6 +9,7 @@
 // `client_ts_ms` — лише індексна копія, і merge за нею був би merge за
 // значенням, яке сервер може переписати.
 
+import { canonicalBody, laterOrGreater } from './canonical';
 import { mergeJournals, removedAt, survives } from './journals';
 import {
   type CatalogBody,
@@ -20,12 +21,21 @@ import {
   isTombstone
 } from './types';
 
-/** Пізніший виграє; при рівному часі — лексикографічно більший device_id. */
+/**
+ * Пізніший виграє; при рівному часі — лексикографічно більший device_id.
+ *
+ * Останній щабель — канонічний вміст: два записи з одного пристрою, з рівним
+ * `client_ts` і різним тілом (той самий пристрій зберіг двічі в межах однієї
+ * мілісекунди) інакше залежали б від порядку аргументів.
+ */
 function newer(left: SyncRecord, right: SyncRecord): SyncRecord {
   if (left.clientTs !== right.clientTs) {
     return left.clientTs > right.clientTs ? left : right;
   }
-  return left.deviceId >= right.deviceId ? left : right;
+  if (left.deviceId !== right.deviceId) {
+    return left.deviceId > right.deviceId ? left : right;
+  }
+  return canonicalBody(left) >= canonicalBody(right) ? left : right;
 }
 
 function isDone(record: SyncRecord): boolean {
@@ -73,7 +83,15 @@ export function mergeCycle(left: CycleBody, right: CycleBody): CycleBody {
   return { kind: 'cycle', starts, journal };
 }
 
-/** Поелементний вибір найсвіжішого значення з двох мап. */
+/**
+ * Поелементний вибір найсвіжішого значення з двох мап.
+ *
+ * При РІВНИХ мітках і різному вмісті вибір робить `laterOrGreater`, а не
+ * порядок аргументів. Це не косметика: попередня редакція повертала
+ * `a.at >= b.at ? a : b`, тобто `merge(a,b)` і `merge(b,a)` давали різні
+ * результати — і два пристрої з однаковим годинником розходилися назавжди.
+ * Знахідка незалежного review Фази 2.
+ */
 function mergeStamped<T>(
   left: Readonly<Record<string, { at: number } & T>>,
   right: Readonly<Record<string, { at: number } & T>>,
@@ -83,10 +101,25 @@ function mergeStamped<T>(
   for (const key of new Set([...Object.keys(left), ...Object.keys(right)])) {
     const a = left[key];
     const b = right[key];
-    const winner = a === undefined ? b : b === undefined ? a : a.at >= b.at ? a : b;
+    const winner =
+      a === undefined ? b : b === undefined ? a : laterOrGreater(a, b, (item) => item.at);
     if (survives(winner.at, removedAt(journal, key))) out[key] = winner;
   }
   return out;
+}
+
+/**
+ * Порядок відображення — властивість списку, тож він іде LWW цілим.
+ *
+ * Той самий tiebreaker: рівні `orderAt` із різними списками розводили б
+ * пристрої так само, як рівні мітки в `mergeStamped`.
+ */
+function pickOrder<T extends { readonly order: readonly string[]; readonly orderAt: number }>(
+  left: T,
+  right: T
+): T {
+  if (left.orderAt !== right.orderAt) return left.orderAt > right.orderAt ? left : right;
+  return canonicalBody(left.order) >= canonicalBody(right.order) ? left : right;
 }
 
 export function mergeCatalog(left: CatalogBody, right: CatalogBody): CatalogBody {
@@ -94,14 +127,19 @@ export function mergeCatalog(left: CatalogBody, right: CatalogBody): CatalogBody
   const places = mergeStamped(left.places, right.places, journal);
   const custom = mergeStamped(left.custom, right.custom, journal);
   // Порядок відображення — властивість списку, а не елемента, тож він єдиний
-  // тут іде за LWW цілком. Після цього з нього прибираються id, яких уже немає.
-  const source = left.orderAt >= right.orderAt ? left : right;
-  const order = source.order.filter((id) => id in places);
+  // тут іде за LWW цілком.
+  //
+  // Список НЕ фільтрується за наявними тут елементами, і це не недогляд:
+  // фільтрація робила merge неасоціативним (property-тест знайшов приклад із
+  // трьох версій, де id зникав із порядку назавжди, бо в проміжному злитті
+  // його ще не було). Зайві id нешкідливі — `fromRecords` показує лише
+  // відомі, а невідомі дописує після них.
+  const source = pickOrder(left, right);
   return {
     kind: 'catalog',
     places,
     custom,
-    order,
+    order: source.order,
     orderAt: Math.max(left.orderAt, right.orderAt),
     journal
   };
@@ -113,12 +151,13 @@ export function mergeGroups(left: GroupsBody, right: GroupsBody): GroupsBody {
   // Членство свідомо НЕ чиститься журналом груп: видалення групи не має
   // торкатися значень симптомів, і reducer домену тримає те саме правило.
   const membership = mergeStamped(left.membership, right.membership, []);
-  const source = left.orderAt >= right.orderAt ? left : right;
+  const source = pickOrder(left, right);
   return {
     kind: 'groups',
     groups,
     membership,
-    order: source.order.filter((id) => id in groups),
+    // Той самий висновок, що й у каталозі: фільтр тут ламав асоціативність.
+    order: source.order,
     orderAt: Math.max(left.orderAt, right.orderAt),
     journal
   };

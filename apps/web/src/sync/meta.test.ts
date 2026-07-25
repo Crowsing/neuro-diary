@@ -88,7 +88,16 @@ describe('parseMeta — a tolerant reader', () => {
       consentEpoch: 2,
       consentsFetchedAtRevision: 12,
       lastSuccessfulSyncAt: 1_768_435_200_000,
-      records: { aa: { revision: 12, sha256: 'ff', dirty: true } },
+      highestSeenRevision: 12,
+      records: {
+        aa: {
+          revision: 12,
+          sha256: 'ff',
+          dirty: true,
+          clientTs: 1_768_435_200_000,
+          plain: 'ee'
+        }
+      },
       snapshot: {
         cycleStarts: { '2026-01-01': 1_768_435_200_000 },
         catalogIds: { fatigue: 1_768_435_200_000 },

@@ -10,6 +10,8 @@ export type SyncErrorCode =
   | 'offline'
   | 'unauthenticated'
   | 'consent_required'
+  | 'no_account'
+  | 'step_up_required'
   | 'conflict'
   | 'vault_reset'
   | 'gone'
@@ -70,10 +72,12 @@ export interface SyncTransport {
   listConsents(): Promise<readonly ConsentView[]>;
   grantConsent(grant: GrantBody): Promise<readonly ConsentView[]>;
   push(baseRevision: number, changes: readonly EncryptedChange[]): Promise<PushResult>;
-  pull(since: number, consentEpoch: number): Promise<PullResult>;
+  pull(since: number, consentEpoch: number, limit?: number): Promise<PullResult>;
   readKey(): Promise<VaultKeyView | null>;
   writeKey(body: KeyWriteBody): Promise<{ keyVersion: number; wrapVersion: number }>;
   vaultReset(): Promise<{ newRevision: number }>;
+  /** Re-key при компрометації завершується ревокацією інших сесій (§7). */
+  revokeOtherSessions(): Promise<{ revoked: number }>;
 }
 
 export interface GrantBody {
@@ -99,6 +103,17 @@ const CODE_BY_STATUS: Record<number, SyncErrorCode> = {
   410: 'gone',
   413: 'payload_too_large',
   429: 'rate_limited'
+};
+
+/**
+ * Під 403 сервер віддає три різні речі, і плутати їх не можна: `no_account`
+ * веде на «увімкніть синхронізацію на першому пристрої», `step_up_required` —
+ * на «перезапустіть застосунок через кнопку бота», а згода — на власний текст.
+ * Стабільний ASCII-код лежить у полі `error` (§11), тіла з текстом немає.
+ */
+const CODE_BY_FORBIDDEN_REASON: Record<string, SyncErrorCode> = {
+  no_account: 'no_account',
+  step_up_required: 'step_up_required'
 };
 
 export class HttpSyncTransport implements SyncTransport {
@@ -155,6 +170,11 @@ export class HttpSyncTransport implements SyncTransport {
       throw new SyncError(
         payload.error === 'vault_reset' ? 'vault_reset' : 'conflict'
       );
+    }
+
+    if (response.status === 403) {
+      const reason = typeof payload.error === 'string' ? payload.error : '';
+      throw new SyncError(CODE_BY_FORBIDDEN_REASON[reason] ?? 'consent_required');
     }
 
     const retryAfter = response.headers.get('Retry-After');
@@ -214,7 +234,7 @@ export class HttpSyncTransport implements SyncTransport {
     return { newRevision: body.new_revision };
   }
 
-  async pull(since: number, consentEpoch: number): Promise<PullResult> {
+  async pull(since: number, consentEpoch: number, limit = 500): Promise<PullResult> {
     const body = await this.call<{
       records: {
         record_key: string;
@@ -227,7 +247,12 @@ export class HttpSyncTransport implements SyncTransport {
       current_revision: number;
       reset: boolean;
       consent_state_changed: boolean;
-    }>('GET', `/v1/sync/pull?since=${since}&consent_epoch=${consentEpoch}`);
+    }>(
+      'GET',
+      // §9.2: у request line дозволені лише цілі `since`, `limit` і
+      // `consent_epoch` — жодного значення, що вказує на вміст.
+      `/v1/sync/pull?since=${since}&limit=${limit}&consent_epoch=${consentEpoch}`
+    );
     return {
       records: body.records.map((item) => ({
         recordKeyHex: item.record_key,
@@ -284,5 +309,13 @@ export class HttpSyncTransport implements SyncTransport {
       '/v1/account/vault-reset'
     );
     return { newRevision: body.new_revision };
+  }
+
+  async revokeOtherSessions(): Promise<{ revoked: number }> {
+    const body = await this.call<{ revoked: number }>(
+      'POST',
+      '/v1/sessions/revoke-others'
+    );
+    return { revoked: body.revoked };
   }
 }

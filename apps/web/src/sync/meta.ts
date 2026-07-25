@@ -10,15 +10,46 @@
 // дайджестів не міг би перерахувати manifest, не перешифрувавши все — що
 // заборонено правилом nonce (§7).
 
+import { EMPTY_JOURNALS, type Journals, type Removal } from './types';
+
 export const SYNC_META_KEY = 'nd_sync_v1';
 export const SYNC_META_VERSION = 1;
 
+/**
+ * Записи ключуються ЛОГІЧНИМ шляхом (`entry:<iso>`, `cycle`, …), а не
+ * `record_key`. Причина не в зручності: `record_key` обчислюється з `k_index`,
+ * тобто вимагає введеної фрази, а метадані треба вміти читати до неї — інакше
+ * застосунок не знає навіть того, які записи він колись надіслав.
+ *
+ * Приватність від цього не змінюється: у тому самому localStorage поруч лежить
+ * увесь щоденник у відкритому вигляді (`nd_demo_v3`), тож ISO-дати тут не
+ * додають нічого, чого там уже немає. На сервер ці ключі не потрапляють ніколи.
+ */
 export interface RecordMeta {
   /** Ревізія, під якою сервер підтвердив саме цей вміст. */
   readonly revision: number;
+  /** sha256 шифротексту — §9.5: без нього manifest не перерахувати. */
   readonly sha256: string;
   /** Є локальні зміни, ще не підтверджені сервером. */
   readonly dirty: boolean;
+  /** `client_ts` того вмісту, який підтвердив сервер (автентифікований LWW). */
+  readonly clientTs: number;
+  /** sha256 ВІДКРИТОГО тіла: за ним визначається, чи запис справді змінився. */
+  readonly plain: string;
+}
+
+/**
+ * Ідентифікатори доменних множин на момент останньої серіалізації.
+ *
+ * Потрібні рівно для одного: `journalsAfter` виявляє видалення порівнянням із
+ * попереднім станом, а після перезавантаження вкладки попереднього стану в
+ * пам'яті вже немає. Без персисту видалення, зроблене до перезавантаження, не
+ * потрапляє в журнал — і елемент воскресає на першому ж синку.
+ */
+export interface DomainIds {
+  readonly cycle: readonly string[];
+  readonly catalog: readonly string[];
+  readonly groups: readonly string[];
 }
 
 /**
@@ -47,6 +78,14 @@ export interface SyncMeta {
   readonly version: number;
   readonly deviceId: string;
   readonly lastAckedRevision: number;
+  /**
+   * Найвища ревізія, яку цей пристрій БАЧИВ (§7, anti-rollback).
+   *
+   * Це не те саме, що `lastAckedRevision`: сервер може мати зміни іншого
+   * пристрою, яких ми ще не пушили. Відповідь із нижчим значенням означає
+   * відкат — або серверний, або підмінений — і не застосовується.
+   */
+  readonly highestSeenRevision: number;
   readonly vaultSeq: number;
   readonly consentEpoch: number;
   /** Ревізія pull, під час якої востаннє читалися згоди (§9.4). */
@@ -54,6 +93,19 @@ export interface SyncMeta {
   readonly lastSuccessfulSyncAt: number | null;
   readonly records: Readonly<Record<string, RecordMeta>>;
   readonly snapshot: DomainSnapshot | null;
+  /** Журнали видалень переживають перезавантаження разом із мітками. */
+  readonly journals: Journals;
+  readonly domainIds: DomainIds | null;
+  /**
+   * Надгробки, які домен уже застосував, а сервер ще ні.
+   *
+   * Потрібні там, де намір неможливо відновити зі стану: `DATA_DELETE
+   * {scope:'cycle'}` лишає порожню множину, нерозрізнювану від «користувачка
+   * прибрала позначки по одній», а §9.4 вимагає на неї саме надгробок `cycle`.
+   */
+  readonly pendingTombstones: readonly string[];
+  /** `key_version` конверта, під яким зашифровано поточний сейф. */
+  readonly keyVersion: number;
 }
 
 export interface StorageLike {
@@ -73,16 +125,26 @@ export function emptyMeta(deviceId: string): SyncMeta {
     version: SYNC_META_VERSION,
     deviceId,
     lastAckedRevision: 0,
+    highestSeenRevision: 0,
     vaultSeq: 0,
     consentEpoch: 0,
     consentsFetchedAtRevision: -1,
     lastSuccessfulSyncAt: null,
     records: {},
-    snapshot: null
+    snapshot: null,
+    journals: EMPTY_JOURNALS,
+    domainIds: null,
+    pendingTombstones: [],
+    keyVersion: 1
   };
 }
 
-function isRecordMeta(value: unknown): value is RecordMeta {
+/**
+ * Обов'язковими лишаються рівно три поля первісної форми: метадані, записані
+ * до появи `clientTs`/`plain`, мусять читатися далі, інакше оновлення застосунку
+ * мовчки скидало б увесь стан синхронізації в «нічого не надіслано».
+ */
+function isRecordMeta(value: unknown): value is Record<string, unknown> {
   if (typeof value !== 'object' || value === null) return false;
   const candidate = value as Record<string, unknown>;
   return (
@@ -90,6 +152,51 @@ function isRecordMeta(value: unknown): value is RecordMeta {
     typeof candidate.sha256 === 'string' &&
     typeof candidate.dirty === 'boolean'
   );
+}
+
+function toRecordMeta(value: Record<string, unknown>): RecordMeta {
+  return {
+    revision: value.revision as number,
+    sha256: value.sha256 as string,
+    dirty: value.dirty as boolean,
+    clientTs: typeof value.clientTs === 'number' ? value.clientTs : 0,
+    plain: typeof value.plain === 'string' ? value.plain : ''
+  };
+}
+
+function parseRemovals(value: unknown): readonly Removal[] {
+  if (!Array.isArray(value)) return [];
+  const out: Removal[] = [];
+  for (const item of value) {
+    if (typeof item !== 'object' || item === null) continue;
+    const entry = item as Record<string, unknown>;
+    if (typeof entry.id !== 'string') continue;
+    if (typeof entry.removedAt !== 'number' || !Number.isFinite(entry.removedAt)) continue;
+    out.push({ id: entry.id, removedAt: entry.removedAt });
+  }
+  return out;
+}
+
+function parseJournals(value: unknown): Journals {
+  if (typeof value !== 'object' || value === null) return EMPTY_JOURNALS;
+  const candidate = value as Record<string, unknown>;
+  return {
+    cycle: parseRemovals(candidate.cycle),
+    catalog: parseRemovals(candidate.catalog),
+    groups: parseRemovals(candidate.groups)
+  };
+}
+
+function parseDomainIds(value: unknown): DomainIds | null {
+  if (typeof value !== 'object' || value === null) return null;
+  const candidate = value as Record<string, unknown>;
+  const ids = (input: unknown): readonly string[] =>
+    Array.isArray(input) ? input.filter((item): item is string => typeof item === 'string') : [];
+  return {
+    cycle: ids(candidate.cycle),
+    catalog: ids(candidate.catalog),
+    groups: ids(candidate.groups)
+  };
 }
 
 /**
@@ -111,17 +218,22 @@ export function parseMeta(raw: string | null, deviceId: string): SyncMeta {
   const records: Record<string, RecordMeta> = {};
   if (typeof value.records === 'object' && value.records !== null) {
     for (const [key, item] of Object.entries(value.records)) {
-      if (isRecordMeta(item)) records[key] = item;
+      if (isRecordMeta(item)) records[key] = toRecordMeta(item);
     }
   }
 
   const number = (input: unknown, fallback: number): number =>
     typeof input === 'number' && Number.isFinite(input) ? input : fallback;
 
+  const lastAcked = number(value.lastAckedRevision, 0);
+
   return {
     version: SYNC_META_VERSION,
     deviceId: typeof value.deviceId === 'string' ? value.deviceId : deviceId,
-    lastAckedRevision: number(value.lastAckedRevision, 0),
+    lastAckedRevision: lastAcked,
+    // Метадані, записані до появи поля, не мають виглядати як відкат: підлогою
+    // служить те, що пристрій точно бачив, — підтверджена ревізія.
+    highestSeenRevision: Math.max(number(value.highestSeenRevision, 0), lastAcked),
     vaultSeq: number(value.vaultSeq, 0),
     consentEpoch: number(value.consentEpoch, 0),
     consentsFetchedAtRevision: number(value.consentsFetchedAtRevision, -1),
@@ -130,7 +242,13 @@ export function parseMeta(raw: string | null, deviceId: string): SyncMeta {
         ? value.lastSuccessfulSyncAt
         : null,
     records,
-    snapshot: parseSnapshot(value.snapshot)
+    snapshot: parseSnapshot(value.snapshot),
+    journals: parseJournals(value.journals),
+    domainIds: parseDomainIds(value.domainIds),
+    pendingTombstones: Array.isArray(value.pendingTombstones)
+      ? value.pendingTombstones.filter((item): item is string => typeof item === 'string')
+      : [],
+    keyVersion: number(value.keyVersion, 1)
   };
 }
 

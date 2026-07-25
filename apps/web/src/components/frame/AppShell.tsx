@@ -19,6 +19,8 @@ import PrivacyScreen from '../screens/settings/PrivacyScreen';
 import SafetyScreen from '../screens/settings/SafetyScreen';
 import CrisisScreen from '../screens/settings/CrisisScreen';
 import DesktopDashboard from '../screens/desktop/DesktopDashboard';
+import DevelopmentBanner from '../../sync/ui/DevelopmentBanner';
+import SyncMount from '../../sync/ui/SyncMount';
 import { downloadJson } from '../../lib/export';
 
 const DESKTOP_QUERY = '(min-width: 900px)';
@@ -99,6 +101,11 @@ export default function AppShell({ theme = 'light', reduceMotion = false }: AppS
       )}
       {isApp && <DialogHost />}
       {isApp && <Toast />}
+      {/* Банер стенду й екрани sync живуть тут, а не всередині вкладок: вони
+          мусять бути досяжними з будь-якого екрана, і саме через їхню
+          відсутність у дереві половина гарантій §7 не діяла в застосунку. */}
+      <DevelopmentBanner />
+      <SyncMount />
     </div>
   );
 }

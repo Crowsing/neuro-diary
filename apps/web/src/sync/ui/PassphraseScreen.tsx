@@ -16,13 +16,23 @@ import { SYNC_COPY } from './copy';
 export interface PassphraseScreenProps {
   onReady(passphrase: string): void;
   onCancel(): void;
+  /**
+   * `unlock` — сейф уже існує, і фраза до нього теж.
+   *
+   * Показати тут генератор означало б запропонувати нову фразу до сейфа, який
+   * нею не відкривається, тобто найпряміший шлях втратити серверну копію.
+   */
+  purpose?: 'create' | 'unlock';
 }
 
 export default function PassphraseScreen({
   onReady,
-  onCancel
+  onCancel,
+  purpose = 'create'
 }: PassphraseScreenProps) {
-  const [mode, setMode] = useState<'generated' | 'own'>('generated');
+  const [mode, setMode] = useState<'generated' | 'own'>(
+    purpose === 'unlock' ? 'own' : 'generated'
+  );
   const generated = useMemo(() => generatePassphrase(WORDS), []);
   const [confirmation, setConfirmation] = useState('');
   const [own, setOwn] = useState('');
@@ -39,8 +49,13 @@ export default function PassphraseScreen({
         : SYNC_COPY.passphraseOwnTooShort;
 
   return (
-    <section aria-label={SYNC_COPY.passphraseTitle} data-screen-label="passphrase">
-      <h2 className="dialog-title">{SYNC_COPY.passphraseTitle}</h2>
+    <section
+      aria-label={purpose === 'unlock' ? SYNC_COPY.unlockTitle : SYNC_COPY.passphraseTitle}
+      data-screen-label="passphrase"
+    >
+      <h2 className="dialog-title">
+        {purpose === 'unlock' ? SYNC_COPY.unlockTitle : SYNC_COPY.passphraseTitle}
+      </h2>
 
       {mode === 'generated' ? (
         <div className="dialog-body">
@@ -69,9 +84,12 @@ export default function PassphraseScreen({
         </div>
       ) : (
         <div className="dialog-body">
-          <label htmlFor="passphrase-own">{SYNC_COPY.passphraseOwn}</label>
+          <label htmlFor="passphrase-own">
+            {purpose === 'unlock' ? SYNC_COPY.unlockPrompt : SYNC_COPY.passphraseOwn}
+          </label>
           <input
             id="passphrase-own"
+            data-testid="passphrase-input"
             className="input"
             autoComplete="off"
             spellCheck={false}

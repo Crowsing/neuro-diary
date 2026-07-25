@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { emptyCtx } from '../lib/checkin';
 import type { DoneEntry, DraftEntry } from '../lib/types';
 import { JOURNAL_TTL_MS, pruneJournal } from './journals';
+import { fromRecords } from './serialize';
 import {
   mergeCatalog,
   mergeCycle,
@@ -215,7 +216,14 @@ describe('mergeCatalog', () => {
       catalog({ places: {}, journal: [{ id: 'fatigue', removedAt: T0 + 1 }] })
     );
     expect(merged.places).toEqual({});
-    expect(merged.order).toEqual([]);
+    // `order` навмисно НЕ чиститься тут: фільтр за наявними елементами робив
+    // merge неасоціативним (див. tiebreak.test.ts). Значення має домен, і саме
+    // там символ не воскресає.
+    const restored = fromRecords([
+      { path: 'catalog', clientTs: T0, deviceId: 'aaaa0000', body: merged }
+    ]);
+    expect(restored.data.active).toEqual([]);
+    expect(restored.data.archived).toEqual([]);
   });
 
   it('takes the newer display order as a whole', () => {
