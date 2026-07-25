@@ -64,7 +64,10 @@ def test_health() -> None:
 
     response = asyncio.run(_request())
     assert response.status_code == 200
-    assert response.json() == {"status": "ok"}
+    # `app_env` присутнє свідомо: стенд, який приймає незаморожені тексти
+    # згод, мусить сказати про це видимо (блокер 1 промпту Фази 2), і джерелом
+    # цього факту є сервер, а не прапорець збірки клієнта.
+    assert response.json() == {"status": "ok", "app_env": "development"}
 
 
 def test_validation_errors_do_not_echo_input() -> None:

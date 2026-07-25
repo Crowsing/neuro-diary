@@ -29,6 +29,7 @@ class Services:
     consent_copy: ConsentCopyPort
     unit_of_work: UnitOfWorkFactory
     sync: SyncService
+    app_env: str
 
 
 def get_services(request: Request) -> Services:

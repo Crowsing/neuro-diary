@@ -94,6 +94,7 @@ def create_app(dependencies: AppDependencies) -> FastAPI:
         consent_copy=dependencies.consent_copy,
         unit_of_work=dependencies.unit_of_work,
         sync=sync,
+        app_env=settings.app_env,
     )
 
     application.add_exception_handler(
