@@ -1,0 +1,14 @@
+{
+  "_comment": "§10 Gate D. Одна політика quiet hours на обидві сторони. Джерело — app/domain/reminders.py; цей файл є її експортом, а не другою копією рішення.",
+  "start": "22:00",
+  "end": "08:00",
+  "predicate": "t >= start OR t < end",
+  "boundaries": {
+    "07:59": true,
+    "08:00": false,
+    "21:59": false,
+    "22:00": true,
+    "00:00": true,
+    "23:59": true
+  }
+}

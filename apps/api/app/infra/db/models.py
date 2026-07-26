@@ -127,6 +127,9 @@ class ReminderSchedule(Base):
     local_time: Mapped[time] = mapped_column(Time)
     enabled: Mapped[bool] = mapped_column(Boolean)
     disabled_reason: Mapped[str | None] = mapped_column(Text)
+    #: Migration 0005. Paired with `disabled_reason` by a CHECK, because the
+    #: streak of §10 is counted from here and `updated_at` moves on every edit.
+    disabled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     next_fire_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 

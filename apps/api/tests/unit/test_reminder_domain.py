@@ -1,23 +1,38 @@
-"""Quiet hours and DST-correct scheduling.
+"""Quiet hours, DST-correct scheduling, and the decisions the worker makes.
 
 The quiet-hours policy lives here as a single constant (§10) and is exported to
-web through a shared fixture; bot and web never restate it.
+`fixtures/contract/quiet-hours.json`, which `tests/contract` re-derives from
+this module; bot and web never restate it.
 """
 
 from __future__ import annotations
 
-from datetime import UTC, datetime, time
+import sys
+import types
+from datetime import UTC, date, datetime, time, timedelta
+from pathlib import Path
 
 import pytest
 
 from app.domain.identity import UnknownTimezone
 from app.domain.reminders import (
+    ATTEMPT_BUDGET,
+    BOT_BLOCKED_STREAK,
+    CATCH_UP_WINDOW,
+    MESSAGE_CLEANUP_TTL,
     QUIET_HOURS_END,
     QUIET_HOURS_START,
+    SWEEPER_PERIOD,
+    SWEEPER_THRESHOLD,
+    Decision,
+    attempt_deadline,
+    decide,
     in_quiet_hours,
+    local_date_of,
     next_fire_at,
 )
 
+API_ROOT = Path(__file__).resolve().parents[2]
 KYIV = "Europe/Kyiv"
 
 
@@ -112,3 +127,189 @@ def test_schedules_are_never_advanced_by_adding_a_day() -> None:
     for _ in range(12):
         instant = next_fire_at(KYIV, time(20, 0), instant)
         assert instant.astimezone(zone).time() == time(20, 0)
+
+
+# ------------------------------------------------- the invariants of §10 timing
+
+
+def test_the_attempt_budget_stays_below_the_sweeper_threshold() -> None:
+    """§10's consistency condition, pinned so an edit has to face it.
+
+    The module raises on import if this is broken, so this test cannot be the
+    only guard — it is the readable statement of a rule whose real enforcement
+    is that `import app.domain.reminders` fails.
+    """
+    assert ATTEMPT_BUDGET == timedelta(minutes=10)
+    assert SWEEPER_THRESHOLD == timedelta(minutes=15)
+    assert SWEEPER_PERIOD == timedelta(minutes=5)
+    assert ATTEMPT_BUDGET < SWEEPER_THRESHOLD
+    # The stronger form: a sweeper pass may be a whole period late and still
+    # must not meet a live attempt.
+    assert ATTEMPT_BUDGET + SWEEPER_PERIOD <= SWEEPER_THRESHOLD
+
+
+@pytest.mark.parametrize(
+    ("original", "broken"),
+    [
+        (
+            "ATTEMPT_BUDGET = timedelta(minutes=10)",
+            "ATTEMPT_BUDGET = timedelta(minutes=20)",
+        ),
+        (
+            "SWEEPER_PERIOD = timedelta(minutes=5)",
+            "SWEEPER_PERIOD = timedelta(minutes=9)",
+        ),
+        (
+            "CATCH_UP_WINDOW = timedelta(minutes=60)",
+            "CATCH_UP_WINDOW = timedelta(days=2)",
+        ),
+    ],
+)
+def test_the_module_itself_refuses_to_load_with_a_broken_constant(
+    original: str,
+    broken: str,
+) -> None:
+    """Run **this module's own source** with a value that violates §10.
+
+    The earlier version of this test executed a five-line reimplementation of
+    the check written in the test body, which meant deleting every `raise` from
+    the module left it green — the exact class of defect the guards exist to
+    catch, reproduced in the test that guards them.
+
+    Reading the real file and substituting one constant fixes both directions:
+    delete the checks and this goes red, rename a constant and the substitution
+    assertion below goes red.
+    """
+    source = _domain_source()
+
+    assert source.count(original) == 1, f"{original} is no longer spelled this way"
+
+    with pytest.raises(ValueError, match="§10"):
+        _load(source.replace(original, broken), name="mutated_reminders")
+
+
+def test_the_unmodified_module_loads() -> None:
+    """The counterpart: without it the three above could pass on a module that
+    refuses every possible set of values."""
+    _load(_domain_source(), name="replayed_reminders")
+
+
+def _domain_source() -> str:
+    return (API_ROOT / "app" / "domain" / "reminders.py").read_text("utf-8")
+
+
+def _load(source: str, *, name: str) -> None:
+    """Execute a module body under a real module name and clean up after.
+
+    The name has to exist in `sys.modules` while the body runs: the dataclasses
+    in this module use `slots=True`, and `dataclasses` resolves annotations
+    through `sys.modules[cls.__module__]`.
+    """
+    module = types.ModuleType(name)
+    sys.modules[name] = module
+    try:
+        exec(compile(source, f"<{name}>", "exec"), module.__dict__)
+    finally:
+        del sys.modules[name]
+
+
+def test_the_other_two_horizons_match_the_plan() -> None:
+    assert CATCH_UP_WINDOW == timedelta(minutes=60)
+    assert BOT_BLOCKED_STREAK == timedelta(days=14)
+    assert MESSAGE_CLEANUP_TTL == timedelta(hours=48)
+
+
+# ------------------------------------------------------------ worker decisions
+
+
+def test_an_occurrence_on_time_is_sent() -> None:
+    scheduled = datetime(2026, 7, 24, 17, 0, tzinfo=UTC)  # 20:00 Kyiv
+
+    assert (
+        decide(scheduled_for=scheduled, now=scheduled, timezone_name=KYIV)
+        is Decision.SEND
+    )
+
+
+def test_a_delay_inside_the_catch_up_window_is_still_sent() -> None:
+    scheduled = datetime(2026, 7, 24, 17, 0, tzinfo=UTC)
+
+    assert (
+        decide(
+            scheduled_for=scheduled,
+            now=scheduled + timedelta(minutes=60),
+            timezone_name=KYIV,
+        )
+        is Decision.SEND
+    )
+
+
+def test_the_sixty_first_minute_is_stale() -> None:
+    """§10, DoD verbatim: catch-up on the 61st minute is `skipped_stale`."""
+    scheduled = datetime(2026, 7, 24, 17, 0, tzinfo=UTC)
+
+    assert (
+        decide(
+            scheduled_for=scheduled,
+            now=scheduled + timedelta(minutes=61),
+            timezone_name=KYIV,
+        )
+        is Decision.SKIP_STALE
+    )
+
+
+def test_a_delayed_evening_reminder_is_refused_by_the_quiet_guard() -> None:
+    """§10, DoD verbatim: 21:30 delayed by forty minutes is `skipped_quiet`.
+
+    Inside the catch-up window and on the right local day — the only thing that
+    refuses it is that the *actual* moment of sending is 22:10.
+    """
+    scheduled = datetime(2026, 7, 24, 18, 30, tzinfo=UTC)  # 21:30 Kyiv
+
+    assert (
+        decide(
+            scheduled_for=scheduled,
+            now=scheduled + timedelta(minutes=40),
+            timezone_name=KYIV,
+        )
+        is Decision.SKIP_QUIET
+    )
+
+
+def test_a_delay_across_midnight_is_stale_even_inside_the_window() -> None:
+    """«Та сама локальна доба» is a separate condition, not a consequence."""
+    scheduled = datetime(2026, 7, 24, 20, 50, tzinfo=UTC)  # 23:50 Kyiv
+    later = scheduled + timedelta(minutes=30)  # 00:20 Kyiv, next day
+
+    assert (
+        decide(scheduled_for=scheduled, now=later, timezone_name=KYIV)
+        is Decision.SKIP_STALE
+    )
+
+
+def test_the_occurrence_is_named_by_the_local_day_it_belongs_to() -> None:
+    """The second half of the idempotency key, in the schedule's own zone."""
+    scheduled = datetime(2026, 7, 24, 21, 30, tzinfo=UTC)  # 00:30 Kyiv, the 25th
+
+    assert local_date_of(scheduled, KYIV) == date(2026, 7, 25)
+
+
+# ------------------------------------------------------------ attempt deadline
+
+
+def test_the_deadline_is_the_budget_when_the_evening_is_far_off() -> None:
+    started = datetime(2026, 7, 24, 15, 0, tzinfo=UTC)  # 18:00 Kyiv
+
+    assert attempt_deadline(started_at=started, timezone_name=KYIV) == (
+        started + ATTEMPT_BUDGET
+    )
+
+
+def test_the_deadline_is_nightfall_when_the_budget_would_outlive_the_day() -> None:
+    """§10: a `retry_after` may not carry a message past the quiet boundary."""
+    started = datetime(2026, 7, 24, 18, 55, tzinfo=UTC)  # 21:55 Kyiv
+
+    deadline = attempt_deadline(started_at=started, timezone_name=KYIV)
+
+    assert deadline == datetime(2026, 7, 24, 19, 0, tzinfo=UTC)  # 22:00 Kyiv
+    assert deadline < started + ATTEMPT_BUDGET

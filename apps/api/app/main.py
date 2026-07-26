@@ -27,6 +27,7 @@ from app.api.v1.errors import (
     unhandled_error_handler,
 )
 from app.api.v1.health import router as health_router
+from app.api.v1.reminders import router as reminders_router
 from app.api.v1.sync import router as sync_router
 from app.api.v1.middleware import RateLimitMiddleware, RequestContextMiddleware
 from app.domain.identity import DomainError
@@ -42,6 +43,7 @@ from app.infra.telegram.initdata import InitDataValidator
 from app.services.auth import AuthService
 from app.services.consent import ConsentService
 from app.services.erasure import ErasureService
+from app.services.reminder import ReminderService
 from app.services.sync import SyncService
 from app.services.ports import (
     Clock,
@@ -87,6 +89,7 @@ def create_app(dependencies: AppDependencies) -> FastAPI:
         dependencies.clock,
     )
     sync = SyncService(dependencies.clock, erasure)
+    reminders = ReminderService(dependencies.clock)
 
     application = FastAPI(title="Neuro Diary API")
     application.state.services = Services(
@@ -96,6 +99,7 @@ def create_app(dependencies: AppDependencies) -> FastAPI:
         consent_copy=dependencies.consent_copy,
         unit_of_work=dependencies.unit_of_work,
         sync=sync,
+        reminders=reminders,
         app_env=settings.app_env,
     )
 
@@ -134,6 +138,7 @@ def create_app(dependencies: AppDependencies) -> FastAPI:
     application.include_router(consents_router)
     application.include_router(account_router)
     application.include_router(sync_router)
+    application.include_router(reminders_router)
     return application
 
 

@@ -19,6 +19,7 @@ from app.domain.identity import (
     ConsentCopyNotFrozen,
     ConsentKind,
     ConsentPrecondition,
+    ConsentRequired,
     ConsentTextMismatch,
     QuietHoursViolation,
     RevokeReason,
@@ -70,6 +71,24 @@ class ConsentService:
 
     def list_active(self, unit: UnitOfWork, account_id: UUID) -> list[ConsentRecord]:
         return unit.consents.active(account_id)
+
+    def require_active(
+        self,
+        unit: UnitOfWork,
+        *,
+        account_id: UUID,
+        kind: ConsentKind,
+    ) -> None:
+        """§11: the guard behind `require_consent(kind)`, and behind its repeat.
+
+        §11 asks for the check twice — once on the way in and once inside the
+        write transaction — because between them lies a revocation that commits
+        in a transaction of its own. The first check is what the user's client
+        sees; only the second one is a barrier, and it is a barrier because it
+        reads the same rows the write is about to touch.
+        """
+        if kind not in unit.consents.active_kinds(account_id):
+            raise ConsentRequired()
 
     def grant(
         self,

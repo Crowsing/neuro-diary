@@ -77,7 +77,8 @@ def test_the_three_tables_without_a_cascade_are_called_out(engine: Engine) -> No
     `outbox` and `auth_replay` were named by the plan. `erasure_job` was not,
     and it is the sharpest of them: "zero rows" is false for it by design,
     because it is the journal. `message_cleanup` was not named either — it has
-    no foreign key, no writer yet, and `api_rw` holds INSERT only on it.
+    no foreign key, `api_rw` holds INSERT only on it, and since phase 4 it is
+    the one table an erasure *fills* rather than empties (§6.4).
     """
     del engine
     matrix = _matrix()

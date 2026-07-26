@@ -9,12 +9,18 @@
 - `apps/api/tests/contract/test_shared_fixtures.py`,
 - `apps/web/src/sync/fixtures.test.ts`.
 
+Виняток, названий прямо: `quiet-hours.json` наразі читає лише api-сторона. UI
+нагадувань у web ще немає (Фаза 4 його свідомо не робить), тож споживача там
+поки нема — але фікстура існує вже зараз, бо §10 вимагає, щоб політика
+експортувалася з API, а не переоголошувалась у web, коли той екран зʼявиться.
+
 | Файл | Що фіксує |
 |---|---|
 | `done-entry.valid.json` | тристан present / absent / unknown у чинній схемі v4 |
 | `done-entry.sym-absent-overlap.json` | значення, яке **обидві** сторони мають відхилити (§13.13) |
 | `app-data.v4.min.json` | мінімальний валідний `AppData` |
 | `merge/cycle-reconvergence.json` | delete / offline-add / re-add і очікуваний результат (§9.3) |
+| `quiet-hours.json` | політика quiet hours §10 і її межі; єдина константа живе в `app/domain/reminders.py`, цей файл — її експорт |
 
 Фікстури описують контракт, а не приклад даних: якщо одна зі сторін почне
 приймати те, що інша відхиляє, тест упаде саме тут, а не в проді.

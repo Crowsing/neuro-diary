@@ -15,6 +15,7 @@ from app.domain.events import (
     SecurityResetRequested,
     VaultErasureRequested,
 )
+from app.domain.reminders import MESSAGE_CLEANUP_TTL
 from app.services.ports import ErasureJournalPort, UnitOfWork
 
 ERASURE_FULL = "full"
@@ -59,6 +60,7 @@ class ErasureService:
             at=now,
         )
         unit.outbox.delete_for_account(account_id)
+        _hand_over_sent_messages(unit, account_id=account_id, now=now)
         unit.schedules.delete(account_id)
         unit.accounts.delete(account_id)
         event = AccountErasureRequested(
@@ -151,6 +153,7 @@ class ErasureService:
             code=ERASURE_REMINDERS_OFF,
             at=now,
         )
+        _hand_over_sent_messages(unit, account_id=account_id, now=now)
         unit.schedules.delete(account_id)
         event = ReminderErasureRequested(
             account_id=account_id,
@@ -199,3 +202,34 @@ class ErasureService:
 
     def confirm(self, reference: UUID, *, now: datetime) -> None:
         self._journal.confirm(reference, at=now)
+
+
+def _hand_over_sent_messages(
+    unit: UnitOfWork,
+    *,
+    account_id: UUID,
+    now: datetime,
+) -> None:
+    """§6.4: keep what is needed to take the messages back, and only that.
+
+    Until phase 4 this was the gap between what §6.4 promised and what the code
+    did. The promise is explicit — «до 48 годин після видалення на сервері
+    лишаються `chat_id` і номери повідомлень — саме щоб їх прибрати» — and the
+    erasure deleted both tables outright, so the promise was kept for nobody and
+    every reminder already delivered stayed in the chat for good.
+
+    The copy happens **before** the delete, in the same transaction, because
+    after it the chat id no longer exists anywhere. §6.3 gives `api_rw` the
+    `INSERT` on this queue and gives the worker the `SELECT`/`DELETE`, which is
+    the same split read from the other side: the process that can name the
+    account cannot send anything, and the process holding `BOT_TOKEN` cannot see
+    `diary`.
+
+    The window is hard and short. Nothing here shortens it further on a rollback
+    and nothing lengthens it on a retry: the insert keeps the first `expires_at`
+    it wrote.
+    """
+    unit.schedules.queue_cleanup(
+        account_id,
+        expires_at=now + MESSAGE_CLEANUP_TTL,
+    )

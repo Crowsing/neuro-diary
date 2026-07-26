@@ -5,11 +5,13 @@ from __future__ import annotations
 from datetime import datetime, time
 from uuid import UUID, uuid4
 
-from sqlalchemy import delete, func, insert, select, update
+from sqlalchemy import delete, func, insert, select, text, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.domain.identity import ConsentKind, RevokeReason
 from app.domain.records import ConsentRecord, PendingErasure
+from app.domain.records import ReminderSchedule as ReminderScheduleRecord
 from app.infra.db.models import (
     Consent,
     ErasureJob,
@@ -221,6 +223,148 @@ class ReminderScheduleRepository:
             ).scalar_one_or_none()
             is not None
         )
+
+    def read(self, account_id: UUID) -> ReminderScheduleRecord | None:
+        row = self._session.execute(
+            select(
+                ReminderSchedule.account_id,
+                ReminderSchedule.telegram_chat_id,
+                ReminderSchedule.tz,
+                ReminderSchedule.local_time,
+                ReminderSchedule.enabled,
+                ReminderSchedule.disabled_reason,
+                ReminderSchedule.disabled_at,
+                ReminderSchedule.next_fire_at,
+            ).where(ReminderSchedule.account_id == account_id)
+        ).one_or_none()
+        if row is None:
+            return None
+        return ReminderScheduleRecord(
+            account_id=row.account_id,
+            telegram_chat_id=row.telegram_chat_id,
+            timezone_name=row.tz,
+            local_time=row.local_time,
+            enabled=row.enabled,
+            disabled_reason=row.disabled_reason,
+            disabled_at=row.disabled_at,
+            next_fire_at=row.next_fire_at,
+        )
+
+    def update(
+        self,
+        account_id: UUID,
+        *,
+        timezone_name: str,
+        local_time: time,
+        enabled: bool,
+        disabled_reason: str | None,
+        disabled_at: datetime | None,
+        next_fire_at: datetime,
+        now: datetime,
+    ) -> None:
+        """Write the whole canonical resource, never a subset.
+
+        §10 makes `PUT` a replacement of `{enabled, time, timezone}`, and the
+        three service columns are recomputed from it. Updating only the changed
+        fields would leave `next_fire_at` describing a time that is no longer
+        the schedule's — the exact drift the "never advance by adding" rule
+        exists to prevent, arriving through the other door.
+        """
+        self._session.execute(
+            update(ReminderSchedule)
+            .where(ReminderSchedule.account_id == account_id)
+            .values(
+                tz=timezone_name,
+                local_time=local_time,
+                enabled=enabled,
+                disabled_reason=disabled_reason,
+                disabled_at=disabled_at,
+                next_fire_at=next_fire_at,
+                updated_at=now,
+            )
+        )
+        self._session.flush()
+
+    def blocked_since(self, moment: datetime) -> list[UUID]:
+        """§10: blocks that have stood, unbroken, since at or before `moment`.
+
+        The predicate is `disabled_reason IS NOT NULL`, never `NOT enabled` —
+        the two read very differently even though, under
+        `ck_reminder_schedule_disabled_at_matches_reason`, they select the same
+        rows here: a pause has no `disabled_at`, so the second condition is NULL
+        for it either way. The schema is what keeps a pause out, and the
+        predicate is written to say the same thing the schema enforces rather
+        than to rely on it. That distinction is worth stating because a test
+        cannot draw it: the state that would tell the two apart — disabled, with
+        a timestamp and no reason — is one the CHECK forbids.
+        """
+        rows = self._session.execute(
+            select(ReminderSchedule.account_id).where(
+                ReminderSchedule.disabled_reason.is_not(None),
+                ReminderSchedule.disabled_at <= moment,
+            )
+        ).all()
+        return [row.account_id for row in rows]
+
+    def queue_cleanup(self, account_id: UUID, *, expires_at: datetime) -> int:
+        """§6.4: hand the sent messages to the worker before the rows go.
+
+        **Why one statement per message, and not `INSERT … SELECT`.** The set
+        version needs `ON CONFLICT … DO NOTHING` to be idempotent, and
+        PostgreSQL requires `SELECT` on the target for that clause — a
+        privilege §6.3 withholds from `api_rw` on purpose («fills it but never
+        reads it back»). Widening the grant to keep the query tidy would trade
+        a real isolation property for one round trip. A conflicting row also
+        aborts the whole set statement, so the tidy version would silently drop
+        the messages that did *not* conflict.
+
+        A duplicate is reachable in exactly one situation: a restore puts the
+        delivery rows back while an earlier queue entry is still inside its
+        forty-eight hours. Skipping it keeps the **first** `expires_at`, which
+        is the conservative half — re-queueing would extend a window §6.4
+        promises to be at most that long.
+
+        The identifiers do pass through this method, and they go no further:
+        nothing here returns them, logs them, or hands them to a service. Only
+        the count leaves.
+        """
+        rows = self._session.execute(
+            select(
+                ReminderSchedule.telegram_chat_id,
+                ReminderDelivery.telegram_message_id,
+            )
+            .join(
+                ReminderDelivery,
+                ReminderDelivery.account_id == ReminderSchedule.account_id,
+            )
+            .where(
+                ReminderSchedule.account_id == account_id,
+                ReminderDelivery.telegram_message_id.is_not(None),
+            )
+        ).all()
+
+        queued = 0
+        for row in rows:
+            try:
+                with self._session.begin_nested():
+                    self._session.execute(
+                        text(
+                            "INSERT INTO reminders.message_cleanup"
+                            " (account_id, chat_id, message_id, expires_at)"
+                            " VALUES (:account_id, :chat_id, :message_id,"
+                            " :expires_at)"
+                        ),
+                        {
+                            "account_id": account_id,
+                            "chat_id": row.telegram_chat_id,
+                            "message_id": row.telegram_message_id,
+                            "expires_at": expires_at,
+                        },
+                    )
+            except IntegrityError:
+                continue
+            queued += 1
+        return queued
 
     def delete(self, account_id: UUID) -> None:
         """§4.4: no schedule row may outlive its consent."""

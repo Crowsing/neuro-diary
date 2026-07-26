@@ -25,6 +25,7 @@ from app.domain.events import (
     VAULT_ERASURE_REQUESTED,
 )
 from app.infra.db.engine import SqlUnitOfWorkFactory
+from app.services.consent import ConsentService
 from app.services.erasure import ErasureService
 from app.services.erasure_journal import DatabaseErasureJournal
 from app.workers.outbox_dispatcher import OUTBOX_TTL, OutboxDispatcher
@@ -48,7 +49,16 @@ def dispatcher(
     consent_copy: object,
 ) -> OutboxDispatcher:
     journal = DatabaseErasureJournal(unit_of_work, consent_copy)  # type: ignore[arg-type]
-    return OutboxDispatcher(unit_of_work, ErasureService(journal), clock)
+    erasure = ErasureService(journal)
+    # Phase 4: the dispatcher also reconciles bot blocks, which revokes a
+    # consent — so it composes the consent service, exactly as `worker_main`
+    # does. `allow_unfrozen_copy` follows the stand: the texts are still 0.9.
+    consents = ConsentService(
+        consent_copy,  # type: ignore[arg-type]
+        erasure,
+        allow_unfrozen_copy=True,
+    )
+    return OutboxDispatcher(unit_of_work, erasure, consents, clock)
 
 
 @pytest.fixture
