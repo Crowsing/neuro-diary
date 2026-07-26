@@ -7,6 +7,7 @@ nobody closed. That is the point — the paths that work are covered elsewhere.
 
 from __future__ import annotations
 
+import base64
 import hashlib
 import json
 from datetime import UTC, datetime, timedelta
@@ -20,6 +21,7 @@ from app.domain.events import (
     ACCOUNT_ERASURE_REQUESTED,
     CONSENT_REVOKED,
     REMINDER_ERASURE_REQUESTED,
+    SECURITY_RESET_REQUESTED,
     VAULT_ERASURE_REQUESTED,
 )
 from app.infra.db.engine import SqlUnitOfWorkFactory
@@ -197,6 +199,61 @@ def test_the_dispatcher_marks_what_it_handled_and_nothing_else(
     assert _count(engine, "diary.account") == 1
     assert [event[2] for event in _events(engine)] == [clock.now(), clock.now()]
     assert _count(engine, "diary.erasure_job") == 1
+    assert _count(engine, "diary.erasure_job WHERE completed_at IS NULL") == 0
+
+
+def test_the_dispatcher_settles_a_security_reset_event(
+    session: Caller,
+    engine: Engine,
+    dispatcher: OutboxDispatcher,
+    clock: FrozenClock,
+) -> None:
+    """The fourth event type, and the reason it needs its own test.
+
+    An event type this dispatcher has not been taught about is deliberately
+    left in the queue rather than marked done (phase 4 puts its reconciler
+    there). That is right for a *future* type and wrong for a present one:
+    `delete_processed_before` only sweeps rows with a `processed_at`, so an
+    event nobody claims stays in `diary.outbox` for good.
+
+    The `/v1/sync/key` router already confirms the journal entry after its
+    commit, so the confirmation here is the safety net for a process that dies
+    in between — and a safety net nothing exercises is a safety net nobody
+    knows is connected.
+    """
+    envelope = base64.b64encode(b"envelope").decode()
+    params = {"iterations": 1_000_000, "salt_hex": "00" * 16}
+    first = session.post(
+        "/v1/sync/key",
+        {
+            "mode": "rewrap",
+            "expected_wrap_version": 0,
+            "wrapped_dek": envelope,
+            "kdf": "pbkdf2-sha256",
+            "kdf_params": params,
+        },
+    )
+    assert first.status_code == 200, first.text
+    rekey = session.post(
+        "/v1/sync/key",
+        {
+            "mode": "rekey",
+            "expected_wrap_version": 1,
+            "wrapped_dek": base64.b64encode(b"second-envelope").decode(),
+            "kdf": "pbkdf2-sha256",
+            "kdf_params": params,
+        },
+    )
+    assert rekey.status_code == 200, rekey.text
+    assert [event[0] for event in _events(engine)] == [SECURITY_RESET_REQUESTED]
+
+    result = dispatcher.run_once()
+
+    assert result.events_processed == 1
+    assert result.journals_confirmed == 1
+    # Settled, not abandoned: an unclaimed event would keep `processed_at` NULL
+    # and outlive every TTL sweep there is.
+    assert [event[2] for event in _events(engine)] == [clock.now()]
     assert _count(engine, "diary.erasure_job WHERE completed_at IS NULL") == 0
 
 

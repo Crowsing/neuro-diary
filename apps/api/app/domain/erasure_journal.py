@@ -254,7 +254,16 @@ class RestoreInterlock:
 
     @property
     def covered(self) -> bool:
-        return self.backup_age <= self.coverage
+        """Both bounds, and the lower one is not decoration.
+
+        A `backup_taken_at` in the future is nonsense — you cannot restore to a
+        point that has not happened — and clamping its age to zero would call
+        it covered. It is worse than useless there: `at >= t_b` would then
+        match nothing, reconciliation would do nothing, and the operator would
+        read "covered, zero entries" as "the restore is safe" while every
+        erasure the journal holds went unreplayed.
+        """
+        return _ZERO <= self.backup_age <= self.coverage
 
 
 def restore_interlock(
@@ -281,5 +290,5 @@ def restore_interlock(
     elapsed = max(now - service_start_at, _ZERO)
     return RestoreInterlock(
         coverage=min(elapsed, retention),
-        backup_age=max(now - backup_taken_at, _ZERO),
+        backup_age=now - backup_taken_at,
     )

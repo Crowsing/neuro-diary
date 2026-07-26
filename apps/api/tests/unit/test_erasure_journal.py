@@ -388,6 +388,23 @@ def test_a_backup_exactly_at_the_coverage_edge_is_covered() -> None:
     assert verdict.covered
 
 
+def test_a_restore_point_in_the_future_is_refused() -> None:
+    """Nonsense input must stop the runbook, not sail through it.
+
+    Clamping the age to zero would call this covered, and it is the worst place
+    to be permissive: `at >= t_b` would match nothing, so the operator would
+    read "covered, zero entries to replay" as "safe" while every erasure the
+    journal holds went unreplayed.
+    """
+    verdict = restore_interlock(
+        now=MOMENT,
+        service_start_at=MOMENT - timedelta(days=200),
+        backup_taken_at=MOMENT + timedelta(hours=1),
+    )
+
+    assert not verdict.covered
+
+
 def test_a_service_start_in_the_future_yields_no_coverage() -> None:
     """A misconfigured `SERVICE_START_AT` blocks restores rather than waving
     them through — the only safe direction for a value nobody can re-derive."""
