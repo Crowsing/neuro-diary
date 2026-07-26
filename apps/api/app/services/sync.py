@@ -38,6 +38,7 @@ from app.domain.vault import (
     VaultGone,
     VaultReset,
 )
+from app.services.erasure import ErasureService
 from app.services.ports import Clock, UnitOfWork
 
 
@@ -72,9 +73,18 @@ class KeyView:
 
 
 @dataclass(frozen=True, slots=True)
+class VaultResetOutcome:
+    revision: int
+    erasure_reference: UUID
+
+
+@dataclass(frozen=True, slots=True)
 class KeyWriteApplied:
     key_version: int
     wrap_version: int
+    #: Present only for a re-key that invalidated an existing envelope (§6.4
+    #: `security_reset`). The caller closes it after committing.
+    erasure_reference: UUID | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -92,8 +102,9 @@ def _window_start(now: datetime, seconds: int) -> datetime:
 
 
 class SyncService:
-    def __init__(self, clock: Clock) -> None:
+    def __init__(self, clock: Clock, erasure: ErasureService) -> None:
         self._clock = clock
+        self._erasure = erasure
 
     def now(self) -> datetime:
         return self._clock.now()
@@ -306,6 +317,23 @@ class SyncService:
         if current.wrap_version != expected_wrap_version:
             return KeyWriteConflict(current_wrap_version=current.wrap_version)
 
+        # §6.4 `security_reset`, and its place in this method is load-bearing
+        # twice over. After the CAS: a 409 leaves the envelope untouched, and an
+        # entry claiming otherwise would send the runbook chasing a re-key that
+        # never happened. Before the write: the journal always precedes the
+        # action it describes.
+        #
+        # Only a re-key, and only over an existing envelope. A re-wrap keeps the
+        # same `R` and invalidates nothing (§7), and a vault that never had an
+        # envelope never had a passphrase a restore could bring back.
+        reference: UUID | None = None
+        if mode is KeyWriteMode.REKEY:
+            reference = self._erasure.record_security_reset(
+                unit,
+                account_id=account_id,
+                now=now,
+            )
+
         # §7: the CAS runs on wrap_version. A re-wrap leaves key_version alone,
         # so two concurrent re-wraps would both pass a CAS on key_version and
         # one of the new passphrases would be lost without a word.
@@ -331,19 +359,39 @@ class SyncService:
         return KeyWriteApplied(
             key_version=key_version,
             wrap_version=current.wrap_version + 1,
+            erasure_reference=reference,
         )
 
     # ----------------------------------------------------------- vault reset
 
-    def vault_reset(self, unit: UnitOfWork, *, account_id: UUID) -> int:
+    def vault_reset(
+        self,
+        unit: UnitOfWork,
+        *,
+        account_id: UUID,
+        now: datetime,
+    ) -> VaultResetOutcome:
+        """Drop the server copy and move the counters past it (§9.4).
+
+        Journalled as a `security_reset` unconditionally, before anything is
+        deleted. The server cannot tell the first half of a re-key (§7) from a
+        reset of a vault that never held anything, and an unnecessary entry only
+        costs the runbook one idempotent no-op — while a missing one leaves an
+        old envelope alive after a restore.
+        """
         if not unit.accounts.lock(account_id):
             raise VaultForbidden()
+        reference = self._erasure.record_security_reset(
+            unit,
+            account_id=account_id,
+            now=now,
+        )
         unit.vault.ensure_counters(account_id)
         counters = unit.vault.lock_counters(account_id)
         unit.vault.delete_all(account_id)
         revision = counters.current_revision + 1
         unit.vault.mark_reset(account_id, revision=revision)
-        return revision
+        return VaultResetOutcome(revision=revision, erasure_reference=reference)
 
     # ----------------------------------------------------------- rate limits
 

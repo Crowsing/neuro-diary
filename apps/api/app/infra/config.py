@@ -36,7 +36,17 @@ SETTINGS_ENV_KEYS = (
     "AUTH_MIN_AUTH_DATE",
     "AUTH_HMAC_FALLBACK_ENABLED",
     "WEBAPP_HMAC_SECRET",
+    "ERASURE_JOURNAL_ENABLED",
+    "ERASURE_JOURNAL_KEY",
+    "ERASURE_JOURNAL_HEAD_KEY",
+    "ERASURE_JOURNAL_PREFIX",
+    "SERVICE_START_AT",
 )
+
+#: Object key prefix inside the journal bucket. The bucket name, its host, its
+#: provider and its credentials are **not** here and never will be: §6.5 keeps
+#: the operational half of data residency out of a public repository.
+DEFAULT_ERASURE_JOURNAL_PREFIX = "erasure"
 
 
 class ConfigurationError(RuntimeError):
@@ -97,6 +107,16 @@ class Settings:
     min_auth_date: datetime | None = None
     auth_hmac_fallback_enabled: bool = False
     webapp_hmac_secret: bytes | None = None
+    erasure_journal_enabled: bool = False
+    erasure_journal_key: bytes | None = None
+    erasure_journal_head_key: bytes | None = None
+    erasure_journal_prefix: str = DEFAULT_ERASURE_JOURNAL_PREFIX
+    #: §6.4: the left half of `min(now − service_start_at, J)`. A deployment
+    #: constant rather than a row, because the restore interlock is evaluated
+    #: during a restore and must not read the database it is guarding. Set once
+    #: at the first deployment and never changed — a later value shortens the
+    #: coverage and blocks restores until it grows back.
+    service_start_at: datetime | None = None
 
     @property
     def is_development(self) -> bool:
@@ -153,6 +173,37 @@ class Settings:
 
         min_auth_date_raw = _optional(env, "AUTH_MIN_AUTH_DATE")
 
+        journal_enabled = _flag(env, "ERASURE_JOURNAL_ENABLED")
+        journal_key_hex = _optional(env, "ERASURE_JOURNAL_KEY")
+        journal_head_key_hex = _optional(env, "ERASURE_JOURNAL_HEAD_KEY")
+        service_start_raw = _optional(env, "SERVICE_START_AT")
+        if app_env == "production" and not journal_enabled:
+            # §6.5: the journal lives with another provider in another country
+            # and is not optional. Without it a single incident takes the data
+            # and the proof that it has to be erased, and `diary.erasure_job`
+            # is not that journal — it is inside the database it must outlive.
+            raise ConfigurationError(
+                "ERASURE_JOURNAL_ENABLED is required outside development (§6.5)"
+            )
+        if journal_enabled:
+            if not journal_key_hex or not journal_head_key_hex:
+                raise ConfigurationError(
+                    "ERASURE_JOURNAL_KEY and ERASURE_JOURNAL_HEAD_KEY are required"
+                    " when the erasure journal is enabled"
+                )
+            if journal_key_hex == journal_head_key_hex:
+                # One key for the pseudonyms and another for the daily head:
+                # whoever audits the head must not thereby be able to recompute
+                # a reference for an account they name.
+                raise ConfigurationError(
+                    "ERASURE_JOURNAL_KEY and ERASURE_JOURNAL_HEAD_KEY must differ"
+                )
+            if not service_start_raw:
+                raise ConfigurationError(
+                    "SERVICE_START_AT is required when the erasure journal is"
+                    " enabled: §6.4 computes restore coverage from it"
+                )
+
         return cls(
             api_database_url=_required(env, "API_DATABASE_URL"),
             telegram_bot_id=bot_id,
@@ -167,4 +218,24 @@ class Settings:
             ),
             auth_hmac_fallback_enabled=fallback_enabled,
             webapp_hmac_secret=hmac_secret,
+            erasure_journal_enabled=journal_enabled,
+            erasure_journal_key=(
+                _key_bytes(journal_key_hex, "ERASURE_JOURNAL_KEY", size=32)
+                if journal_key_hex
+                else None
+            ),
+            erasure_journal_head_key=(
+                _key_bytes(journal_head_key_hex, "ERASURE_JOURNAL_HEAD_KEY", size=32)
+                if journal_head_key_hex
+                else None
+            ),
+            erasure_journal_prefix=(
+                _optional(env, "ERASURE_JOURNAL_PREFIX")
+                or DEFAULT_ERASURE_JOURNAL_PREFIX
+            ),
+            service_start_at=(
+                _instant(service_start_raw, "SERVICE_START_AT")
+                if service_start_raw
+                else None
+            ),
         )

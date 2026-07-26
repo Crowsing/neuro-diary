@@ -9,13 +9,25 @@ from __future__ import annotations
 from datetime import datetime
 from uuid import UUID
 
-from app.domain.events import AccountErasureRequested, VaultErasureRequested
+from app.domain.events import (
+    AccountErasureRequested,
+    ReminderErasureRequested,
+    SecurityResetRequested,
+    VaultErasureRequested,
+)
 from app.services.ports import ErasureJournalPort, UnitOfWork
 
 ERASURE_FULL = "full"
 #: §6.4 runbook: `DELETE vault_record + vault_key` plus the counter reset of
 #: §4.3. A partial erasure, not an account one — the account keeps living.
 ERASURE_SYNC_OFF = "sync_off"
+#: §6.4 runbook: `DELETE reminder_schedule + reminder_delivery`. Also partial.
+ERASURE_REMINDERS_OFF = "reminders_off"
+#: §6.4 runbook: `DELETE vault_key + vault_record`, `reset_revision =
+#: current_revision + 1`. Not an erasure the user asked for — it marks the
+#: moment after which restoring a backup would hand an old passphrase a live
+#: service (§7).
+ERASURE_SECURITY_RESET = "security_reset"
 
 
 class ErasureService:
@@ -66,6 +78,7 @@ class ErasureService:
         *,
         account_id: UUID,
         now: datetime,
+        code: str = ERASURE_SYNC_OFF,
     ) -> UUID:
         """Erase the vault of a still-living account (§6.4 code `sync_off`).
 
@@ -76,10 +89,15 @@ class ErasureService:
         The caller has already taken the account row lock — that lock is the
         barrier of §9.8 against an in-flight push, and taking it here instead
         would be a second, later lock with no barrier property at all.
+
+        `code` exists for exactly one caller: the restore reconciliation of
+        §6.4 replays a `security_reset` with the same three effects and has to
+        journal it under its own name. Sharing this implementation is the point
+        — a second copy of "delete the vault" is a second thing to drift.
         """
         reference = self._journal.record_intent(
             account_id=account_id,
-            code=ERASURE_SYNC_OFF,
+            code=code,
             at=now,
         )
         unit.vault.delete_all(account_id)
@@ -101,6 +119,74 @@ class ErasureService:
         # for good. Covering only the account erasure would leave the more
         # frequent half — withdrawal while another consent remains — unguarded.
         event = VaultErasureRequested(
+            account_id=account_id,
+            erasure_reference=reference,
+        )
+        unit.outbox.publish(
+            event_type=event.event_type,
+            payload=event.to_payload(),
+            now=now,
+        )
+        return reference
+
+    def erase_reminders(
+        self,
+        unit: UnitOfWork,
+        *,
+        account_id: UUID,
+        now: datetime,
+    ) -> UUID:
+        """Erase the reminder rows of a still-living account (§6.4 `reminders_off`).
+
+        Same ordering rule and same lock expectation as `erase_vault`: the
+        caller already holds the account row lock, and the journal entry goes
+        first because it is the only thing that survives a restore.
+
+        Both `reminders` tables go together. Neither carries a foreign key to
+        `diary.account` — there are no cross-schema keys — so no cascade would
+        take them, and §4.4 forbids a schedule row outliving its consent.
+        """
+        reference = self._journal.record_intent(
+            account_id=account_id,
+            code=ERASURE_REMINDERS_OFF,
+            at=now,
+        )
+        unit.schedules.delete(account_id)
+        event = ReminderErasureRequested(
+            account_id=account_id,
+            erasure_reference=reference,
+        )
+        unit.outbox.publish(
+            event_type=event.event_type,
+            payload=event.to_payload(),
+            now=now,
+        )
+        return reference
+
+    def record_security_reset(
+        self,
+        unit: UnitOfWork,
+        *,
+        account_id: UUID,
+        now: datetime,
+    ) -> UUID:
+        """Journal a `security_reset` before the caller performs it (§6.4, §7).
+
+        Unlike the three erasures above, the deletion itself belongs to the
+        caller: a vault-reset and an envelope write are two different mutations
+        of two different tables, and both mark the same fact — the passphrase
+        that used to open the server copy no longer does.
+
+        The event is published before that mutation rather than after it, which
+        is safe only because nothing on these paths sweeps the outbox. A full
+        erasure has to publish last for exactly the opposite reason.
+        """
+        reference = self._journal.record_intent(
+            account_id=account_id,
+            code=ERASURE_SECURITY_RESET,
+            at=now,
+        )
+        event = SecurityResetRequested(
             account_id=account_id,
             erasure_reference=reference,
         )

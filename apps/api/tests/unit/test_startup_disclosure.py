@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import io
 import json
+import secrets
 
 import pytest
 
@@ -18,7 +19,7 @@ from app.infra.consent_copy import FileConsentCopyRegistry
 from app.infra.logging import LOG_ALLOWLIST, configure_logging
 from app.infra.telegram.initdata import InitDataValidator
 from app.main import CONSENT_COPY_ROOT, AppDependencies, create_app
-from app.services.erasure_journal import DatabaseErasureJournal
+from app.services.erasure_journal import DatabaseErasureJournal, TeeErasureJournal
 
 BASE_ENV = {
     "API_DATABASE_URL": "postgresql://api_rw@localhost:5432/diary",
@@ -27,8 +28,26 @@ BASE_ENV = {
 }
 
 
+def _journal_env(app_env: str) -> dict[str, str]:
+    """§6.5 makes the external journal mandatory outside development.
+
+    Minted per call: gitleaks scans the whole history, so a hex literal in a
+    file would keep CI red long after it left HEAD.
+    """
+    if app_env == "development":
+        return {}
+    return {
+        "ERASURE_JOURNAL_ENABLED": "true",
+        "ERASURE_JOURNAL_KEY": secrets.token_bytes(32).hex(),
+        "ERASURE_JOURNAL_HEAD_KEY": secrets.token_bytes(32).hex(),
+        "SERVICE_START_AT": "2026-01-01T00:00:00Z",
+    }
+
+
 def _dependencies(app_env: str) -> AppDependencies:
-    settings = Settings.from_env({**BASE_ENV, "APP_ENV": app_env})
+    settings = Settings.from_env(
+        {**BASE_ENV, "APP_ENV": app_env, **_journal_env(app_env)}
+    )
     consent_copy = FileConsentCopyRegistry(CONSENT_COPY_ROOT)
 
     def _no_database() -> object:  # pragma: no cover - never reached at startup
@@ -92,6 +111,44 @@ def test_production_startup_discloses_that_grants_are_refused(
         if record["event"] == "consent_copy_unfrozen_refused"
     ]
     assert disclosure["level"] == "warning"
+
+
+def test_startup_discloses_which_erasure_journal_is_wired(
+    captured: io.StringIO,
+) -> None:
+    """§6.5: running on `diary.erasure_job` alone is a weakened guarantee.
+
+    The line reports the wired object rather than the configuration flag. The
+    flag says what the environment asked for; only the object says what this
+    process will actually do, and reporting the wrong one would be a claim
+    nothing keeps.
+    """
+    create_app(_dependencies("development"))
+
+    events = [json.loads(line)["event"] for line in captured.getvalue().splitlines()]
+    assert "erasure_journal_database_only" in events
+    assert "erasure_journal_external" not in events
+
+
+def test_a_teed_journal_is_disclosed_as_external(captured: io.StringIO) -> None:
+    plain = _dependencies("development")
+    create_app(
+        AppDependencies(
+            settings=plain.settings,
+            unit_of_work=plain.unit_of_work,
+            clock=plain.clock,
+            init_data=plain.init_data,
+            consent_copy=plain.consent_copy,
+            erasure_journal=TeeErasureJournal(
+                plain.erasure_journal,
+                plain.erasure_journal,
+            ),
+        )
+    )
+
+    events = [json.loads(line)["event"] for line in captured.getvalue().splitlines()]
+    assert "erasure_journal_external" in events
+    assert "erasure_journal_database_only" not in events
 
 
 def test_the_disclosure_never_names_a_consent(captured: io.StringIO) -> None:

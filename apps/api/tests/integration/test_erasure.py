@@ -3,16 +3,12 @@
 from __future__ import annotations
 
 import hashlib
-from datetime import datetime
-from uuid import UUID
 
 import psycopg
 import pytest
 from fastapi import FastAPI
 from sqlalchemy import Engine, text
 
-from app.infra.config import Settings
-from app.main import AppDependencies, create_app
 from conftest import REPO_ROOT, Caller, Database, FrozenClock, sign_init_data
 
 HEALTH_SYNC_SHA = hashlib.sha256(
@@ -26,17 +22,6 @@ GRANT = {
     "text_version": "health_sync@0.9",
     "text_sha256": HEALTH_SYNC_SHA,
 }
-
-
-class RefusingJournal:
-    """Stands in for an unreachable append-only store (§6.4)."""
-
-    def record_intent(self, *, account_id: UUID, code: str, at: datetime) -> UUID:
-        del account_id, code, at
-        raise RuntimeError("journal unavailable")
-
-    def confirm(self, reference: UUID, *, at: datetime) -> None:  # pragma: no cover
-        del reference, at
 
 
 def _sign_in(caller: Caller) -> str:
@@ -162,23 +147,6 @@ def test_erasure_removes_the_reminder_rows_that_have_no_foreign_key(
     assert _count(engine, "diary.account") == 0
     assert _count(engine, "reminders.reminder_schedule") == 0
     assert _count(engine, "reminders.reminder_delivery") == 0
-
-
-@pytest.fixture
-def refusing_journal_api(
-    dependencies: AppDependencies,
-    settings: Settings,
-) -> FastAPI:
-    return create_app(
-        AppDependencies(
-            settings=settings,
-            unit_of_work=dependencies.unit_of_work,
-            clock=dependencies.clock,
-            init_data=dependencies.init_data,
-            consent_copy=dependencies.consent_copy,
-            erasure_journal=RefusingJournal(),
-        )
-    )
 
 
 def test_an_unwritable_journal_stops_the_erasure(

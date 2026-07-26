@@ -40,6 +40,12 @@ uv run --locked uvicorn app.main:app_factory --factory --reload --no-access-log
 Змінні середовища — у кореневому `.env.example`. `BOT_TOKEN` серед них немає
 свідомо: процес **відмовляється стартувати**, якщо бачить його в оточенні.
 
+Поза `APP_ENV=development` процес також вимагає `ERASURE_JOURNAL_ENABLED` разом
+із ключами й `SERVICE_START_AT` (§6.5: erasure-журнал живе в іншого провайдера
+й іншої країни та не є опційним). Транспорту до реального бакета в репозиторії
+ще немає, тож сьогодні це другий fail-closed блокер продакшену поруч із
+незамороженою consent copy — див. [restore-runbook.md](../../docs/restore-runbook.md).
+
 ## Тести
 
 ```bash

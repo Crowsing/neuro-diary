@@ -221,6 +221,8 @@ def write_key(
         )
         if isinstance(outcome, KeyWriteApplied):
             unit.commit()
+            if outcome.erasure_reference is not None:
+                services.erasure.confirm(outcome.erasure_reference, now=now)
             return JSONResponse(
                 status_code=200,
                 content={

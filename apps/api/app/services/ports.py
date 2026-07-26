@@ -37,6 +37,10 @@ class AccountRepositoryPort(Protocol):
     def status(self, account_id: UUID) -> str | None: ...
     def lock(self, account_id: UUID) -> bool: ...
     def delete(self, account_id: UUID) -> None: ...
+    #: Restore reconciliation only (§6.4): the journal names accounts by an
+    #: HMAC, which only runs forwards, so the references are matched by
+    #: recomputing them for every account that a restore brought back.
+    def identifiers(self) -> list[UUID]: ...
 
 
 class TelegramIdentityRepositoryPort(Protocol):
@@ -270,9 +274,13 @@ class ConsentCopyPort(Protocol):
 class ErasureJournalPort(Protocol):
     """Append-only record of the fact of erasure, written *before* deleting.
 
-    Phase 1 writes it inside the same transaction; phase 3 replaces this with
-    the external append-only store of §6.4. The contract that matters here is
-    the ordering: a failure to record must stop the erasure.
+    Two implementations and one composition of them: `DatabaseErasureJournal`
+    writes `diary.erasure_job` in a transaction of its own,
+    `ObjectStoreErasureJournal` appends to the external store of §6.5, and
+    `TeeErasureJournal` puts the external one in front of the row.
+
+    The contract that matters here is the ordering: a failure to record must
+    stop the erasure, whichever of them is wired.
     """
 
     def record_intent(
