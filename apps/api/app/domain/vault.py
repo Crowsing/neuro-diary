@@ -15,7 +15,7 @@ from __future__ import annotations
 from datetime import timedelta
 from enum import StrEnum
 
-from app.domain.identity import DomainError
+from app.domain.identity import ConsentRequired, DomainError
 
 # §6.4: one product horizon, everything else derived from it. H is the only
 # number the user ever sees; the slack covers the compactor period, clock skew
@@ -62,10 +62,20 @@ class KeyWriteMode(StrEnum):
     REKEY = "rekey"
 
 
-class VaultForbidden(DomainError):
-    """No active `health_sync`, or the account is no longer active."""
-
-    code = "consent_required"
+#: No active `health_sync`, or the account is no longer active.
+#:
+#: The same class as `ConsentRequired`, not a sibling of it. §9.2 and §10 give
+#: one wire code — `consent_required` — to «this endpoint needs a consent you do
+#: not have», and two classes carrying one code is exactly what
+#: `test_error_codes_are_stable_ascii_and_unique` exists to catch: a handler
+#: registered for one of them silently misses the other.
+#:
+#: It is declared in `app.domain.identity` rather than here because the
+#: import-linter contract «Reminder worker never touches vault» forbids
+#: `app.services.reminder` from importing this module, and the reminder
+#: endpoints need the same refusal. The name stays for the vault paths that
+#: raise it, where «forbidden» reads better than «required».
+VaultForbidden = ConsentRequired
 
 
 class VaultReset(DomainError):

@@ -18,6 +18,7 @@ from typing import Any
 from uuid import UUID
 
 from app.domain.identity import ConsentKind, ConsentPrecondition
+from app.domain.rate_limits import window_start
 from app.domain.records import RateVerdict, RecordWrite, StoredRecord, StoredVaultKey
 from app.domain.vault import (
     KEY_READ_WINDOW,
@@ -93,12 +94,6 @@ class KeyWriteConflict:
 
 
 KeyWriteOutcome = KeyWriteApplied | KeyWriteConflict
-
-
-def _window_start(now: datetime, seconds: int) -> datetime:
-    """Fixed window: the same instant for every request of one period."""
-    epoch = int(now.timestamp()) // seconds * seconds
-    return datetime.fromtimestamp(epoch, tz=now.tzinfo)
 
 
 class SyncService:
@@ -421,7 +416,7 @@ class SyncService:
             bucket=bucket.value,
             cost=cost,
             limit=limit,
-            window_start=_window_start(now, seconds),
+            window_start=window_start(now, seconds),
             window_seconds=seconds,
             now=now,
         )

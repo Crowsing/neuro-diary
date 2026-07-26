@@ -8,7 +8,7 @@ of §5.2 satisfiable.
 from __future__ import annotations
 
 from contextlib import AbstractContextManager
-from datetime import datetime, time
+from datetime import date, datetime, time
 from typing import Any, Protocol
 from uuid import UUID
 
@@ -16,12 +16,16 @@ from app.domain.identity import ConsentKind, RevokeReason
 from app.domain.records import (
     ConsentRecord,
     ConsentText,
+    DueReminder,
+    PendingCleanup,
     PendingErasure,
     PendingEvent,
     RateVerdict,
     RecordWrite,
+    ReminderSchedule,
     SessionRecord,
     SessionSummary,
+    StalePending,
     StoredRecord,
     StoredVaultKey,
     VaultCounters,
@@ -104,6 +108,14 @@ class ConsentRepositoryPort(Protocol):
 
 
 class ReminderScheduleRepositoryPort(Protocol):
+    """The `api_rw` half of the `reminders` schema (§6.3).
+
+    It provisions, edits, disables and erases; it never claims an occurrence and
+    never marks a delivery sent, because the role behind it holds no `INSERT` on
+    `reminder_delivery`. The worker's half is `ReminderWorkerPort` below, and
+    the split is the GRANT matrix expressed in types.
+    """
+
     def provision(
         self,
         account_id: UUID,
@@ -115,8 +127,71 @@ class ReminderScheduleRepositoryPort(Protocol):
         now: datetime,
     ) -> None: ...
     def exists(self, account_id: UUID) -> bool: ...
+    def read(self, account_id: UUID) -> ReminderSchedule | None: ...
+    def update(
+        self,
+        account_id: UUID,
+        *,
+        timezone_name: str,
+        local_time: time,
+        enabled: bool,
+        disabled_reason: str | None,
+        disabled_at: datetime | None,
+        next_fire_at: datetime,
+        now: datetime,
+    ) -> None: ...
+    #: §10 reconciler input: accounts whose block has stood without a break
+    #: since at or before `moment`. Reads `disabled_reason` and never `enabled`,
+    #: so a pause can never appear here.
+    def blocked_since(self, moment: datetime) -> list[UUID]: ...
+    #: §6.4: the queue is filled by `api_rw` *before* the rows that name those
+    #: messages are deleted, and drained by the worker. `expires_at` is the hard
+    #: 48-hour TTL, not a hint.
+    #:
+    #: It takes no chat id and no message ids because it must not: the copy is
+    #: one `INSERT … SELECT` inside the database, so no chat id and no message
+    #: id ever reaches a service, a return value or a log on the way out.
+    def queue_cleanup(self, account_id: UUID, *, expires_at: datetime) -> int: ...
     def delete(self, account_id: UUID) -> None: ...
     def delete_deliveries_before(self, moment: datetime) -> int: ...
+
+
+class ReminderWorkerPort(Protocol):
+    """Everything the delivery worker may touch, and nothing else.
+
+    The role behind it (`reminder_worker`) has zero privileges on `diary`, no
+    `DELETE` on `reminder_delivery` and no `INSERT` on `message_cleanup`. This
+    protocol names only operations those grants permit, so a method that would
+    need a wider role cannot be added here without the GRANT test noticing.
+    """
+
+    def claim_due(self, *, moment: datetime, limit: int) -> list[DueReminder]: ...
+    #: Insert-before-send (§10). `False` means the day was already claimed —
+    #: by a previous run, by another worker, or by an attempt that failed. It is
+    #: never a reason to send anyway.
+    def claim_occurrence(
+        self, account_id: UUID, *, local_date: date, now: datetime
+    ) -> bool: ...
+    def finish_occurrence(
+        self,
+        account_id: UUID,
+        *,
+        local_date: date,
+        status: str,
+        telegram_message_id: int | None = None,
+    ) -> None: ...
+    def reschedule(
+        self, account_id: UUID, *, next_fire_at: datetime, now: datetime
+    ) -> None: ...
+    #: §10: 403 from Telegram switches the schedule off and starts the streak.
+    #: Idempotent — a second 403 must not restart a running streak.
+    def record_block(self, account_id: UUID, *, now: datetime) -> None: ...
+    def stale_pending(self, *, older_than: datetime) -> list[StalePending]: ...
+    def due_cleanups(self, *, moment: datetime, limit: int) -> list[PendingCleanup]: ...
+    def forget_cleanup(self, account_id: UUID, *, message_id: int) -> int: ...
+    #: The unconditional half of §6.4: whatever the queue still holds past its
+    #: TTL goes, whether or not Telegram ever accepted the deletion.
+    def drop_expired_cleanups(self, *, moment: datetime) -> int: ...
 
 
 class OutboxRepositoryPort(Protocol):
@@ -265,6 +340,26 @@ class UnitOfWorkFactory(Protocol):
     def __call__(self) -> AbstractContextManager[UnitOfWork]: ...
 
 
+class ReminderUnitOfWork(Protocol):
+    """The worker's transaction: one schema, one repository, nothing else.
+
+    Not a subset of `UnitOfWork` but a different shape, and on purpose. A worker
+    handed the full unit would compile against `unit.consents` and `unit.vault`
+    and only discover at runtime — in production, under a role with no `USAGE`
+    on `diary` — that it may not read them. Here that mistake does not type.
+    """
+
+    @property
+    def reminders(self) -> ReminderWorkerPort: ...
+
+    def commit(self) -> None: ...
+    def rollback(self) -> None: ...
+
+
+class ReminderUnitOfWorkFactory(Protocol):
+    def __call__(self) -> AbstractContextManager[ReminderUnitOfWork]: ...
+
+
 class ConsentCopyPort(Protocol):
     def grant_text(self, kind: ConsentKind, *, locale: str) -> ConsentText: ...
     def unfrozen_versions(self) -> list[str]: ...
@@ -314,19 +409,26 @@ __all__ = [
     "ConsentRecord",
     "ConsentRepositoryPort",
     "ConsentText",
+    "DueReminder",
     "ErasureJournalPort",
     "ErasureRepositoryPort",
     "InitDataValidatorPort",
     "OutboxRepositoryPort",
+    "PendingCleanup",
     "PendingErasure",
     "PendingEvent",
     "RateVerdict",
     "RateWindowRepositoryPort",
     "RecordWrite",
+    "ReminderSchedule",
     "ReminderScheduleRepositoryPort",
+    "ReminderUnitOfWork",
+    "ReminderUnitOfWorkFactory",
+    "ReminderWorkerPort",
     "SessionRecord",
     "SessionRepositoryPort",
     "SessionSummary",
+    "StalePending",
     "StoredRecord",
     "StoredVaultKey",
     "TelegramIdentityRepositoryPort",

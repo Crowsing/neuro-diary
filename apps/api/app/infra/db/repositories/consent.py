@@ -3,13 +3,15 @@
 from __future__ import annotations
 
 from datetime import datetime, time
+from typing import Any, cast
 from uuid import UUID, uuid4
 
-from sqlalchemy import delete, func, insert, select, update
+from sqlalchemy import CursorResult, delete, func, insert, select, text, update
 from sqlalchemy.orm import Session
 
 from app.domain.identity import ConsentKind, RevokeReason
 from app.domain.records import ConsentRecord, PendingErasure
+from app.domain.records import ReminderSchedule as ReminderScheduleRecord
 from app.infra.db.models import (
     Consent,
     ErasureJob,
@@ -221,6 +223,120 @@ class ReminderScheduleRepository:
             ).scalar_one_or_none()
             is not None
         )
+
+    def read(self, account_id: UUID) -> ReminderScheduleRecord | None:
+        row = self._session.execute(
+            select(
+                ReminderSchedule.account_id,
+                ReminderSchedule.telegram_chat_id,
+                ReminderSchedule.tz,
+                ReminderSchedule.local_time,
+                ReminderSchedule.enabled,
+                ReminderSchedule.disabled_reason,
+                ReminderSchedule.disabled_at,
+                ReminderSchedule.next_fire_at,
+            ).where(ReminderSchedule.account_id == account_id)
+        ).one_or_none()
+        if row is None:
+            return None
+        return ReminderScheduleRecord(
+            account_id=row.account_id,
+            telegram_chat_id=row.telegram_chat_id,
+            timezone_name=row.tz,
+            local_time=row.local_time,
+            enabled=row.enabled,
+            disabled_reason=row.disabled_reason,
+            disabled_at=row.disabled_at,
+            next_fire_at=row.next_fire_at,
+        )
+
+    def update(
+        self,
+        account_id: UUID,
+        *,
+        timezone_name: str,
+        local_time: time,
+        enabled: bool,
+        disabled_reason: str | None,
+        disabled_at: datetime | None,
+        next_fire_at: datetime,
+        now: datetime,
+    ) -> None:
+        """Write the whole canonical resource, never a subset.
+
+        §10 makes `PUT` a replacement of `{enabled, time, timezone}`, and the
+        three service columns are recomputed from it. Updating only the changed
+        fields would leave `next_fire_at` describing a time that is no longer
+        the schedule's — the exact drift the "never advance by adding" rule
+        exists to prevent, arriving through the other door.
+        """
+        self._session.execute(
+            update(ReminderSchedule)
+            .where(ReminderSchedule.account_id == account_id)
+            .values(
+                tz=timezone_name,
+                local_time=local_time,
+                enabled=enabled,
+                disabled_reason=disabled_reason,
+                disabled_at=disabled_at,
+                next_fire_at=next_fire_at,
+                updated_at=now,
+            )
+        )
+        self._session.flush()
+
+    def blocked_since(self, moment: datetime) -> list[UUID]:
+        """§10: blocks that have stood, unbroken, since at or before `moment`.
+
+        The predicate is `disabled_reason IS NOT NULL`, never `NOT enabled`. A
+        pause the user asked for has no reason and no `disabled_at`, so it
+        cannot appear here however long it lasts — which is the whole of the
+        «пауза не веде до відкликання згоди» rule, in one WHERE clause.
+        """
+        rows = self._session.execute(
+            select(ReminderSchedule.account_id).where(
+                ReminderSchedule.disabled_reason.is_not(None),
+                ReminderSchedule.disabled_at <= moment,
+            )
+        ).all()
+        return [row.account_id for row in rows]
+
+    def queue_cleanup(self, account_id: UUID, *, expires_at: datetime) -> int:
+        """§6.4: hand the sent messages to the worker before the rows go.
+
+        One `INSERT … SELECT`, so the chat id and the message ids are copied
+        inside the database and never surface in this process. `api_rw` holds
+        `INSERT` and nothing else on the target, which is also why there is no
+        `RETURNING` here — reading back what was written would need a privilege
+        §6.3 deliberately withholds.
+
+        `ON CONFLICT DO NOTHING` makes a repeated erasure harmless and keeps the
+        first `expires_at` — extending the TTL on a retry would quietly lengthen
+        the window §6.4 promises to be at most forty-eight hours.
+        """
+        result = cast(
+            "CursorResult[Any]",
+            self._session.execute(
+                text(
+                    """
+                INSERT INTO reminders.message_cleanup
+                    (account_id, chat_id, message_id, expires_at)
+                SELECT delivery.account_id,
+                       schedule.telegram_chat_id,
+                       delivery.telegram_message_id,
+                       :expires_at
+                FROM reminders.reminder_delivery AS delivery
+                JOIN reminders.reminder_schedule AS schedule
+                  ON schedule.account_id = delivery.account_id
+                WHERE delivery.account_id = :account_id
+                  AND delivery.telegram_message_id IS NOT NULL
+                ON CONFLICT ON CONSTRAINT pk_message_cleanup DO NOTHING
+                """
+                ),
+                {"account_id": account_id, "expires_at": expires_at},
+            ),
+        )
+        return result.rowcount
 
     def delete(self, account_id: UUID) -> None:
         """§4.4: no schedule row may outlive its consent."""

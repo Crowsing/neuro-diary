@@ -14,6 +14,18 @@ now, and why:
   loggable field, so a cursor in the request line reveals nothing the log does
   not already hold. Making pull a POST would have kept the old assertion
   verbatim at the cost of a larger deviation from §9.2.
+
+Phase 4 widens it once more, and one earlier assertion had to go with it.
+`test_no_path_names_a_domain_a_date_or_a_record` used to forbid the substring
+`reminders` outright, which §10 contradicts by naming `GET/PUT
+/v1/reminders/settings` in as many words. The property that assertion was
+protecting is not lost: a path may not carry a **consent name**, and
+`telegram_reminders` is the consent — `reminders` is the mechanism, exactly as
+`sync` is. `test_no_path_template_carries_a_consent_name` still holds it, and
+the ban is replaced by something stronger rather than weaker:
+`test_the_reminder_surface_is_only_the_settings_resource` pins the whole
+`/v1/reminders` subtree to the single resource §10 allows, so a delivery list —
+the thing §10 actually forbids — fails the suite whoever adds it.
 """
 
 from __future__ import annotations
@@ -31,7 +43,7 @@ from app.infra.telegram.initdata import InitDataValidator
 from app.main import CONSENT_COPY_ROOT, AppDependencies, create_app
 from app.services.erasure_journal import DatabaseErasureJournal
 
-PHASE_2_PATHS = {
+PUBLISHED_PATHS = {
     "/health",
     "/v1/auth/telegram",
     "/v1/sessions",
@@ -43,6 +55,9 @@ PHASE_2_PATHS = {
     "/v1/sync/push",
     "/v1/sync/pull",
     "/v1/sync/key",
+    # Phase 4, §10. The only reminder path there will ever be: a resource, not
+    # a collection, and nothing below it.
+    "/v1/reminders/settings",
 }
 
 #: Єдині параметри, яким дозволено потрапити в request line, і лише цілі.
@@ -96,8 +111,10 @@ def test_no_path_template_carries_a_consent_name(
     assert all(kind not in path for path in schema["paths"])
 
 
-def test_the_published_surface_is_exactly_phase_two(schema: dict[str, Any]) -> None:
-    assert set(schema["paths"]) == PHASE_2_PATHS
+def test_the_published_surface_is_exactly_what_is_declared(
+    schema: dict[str, Any],
+) -> None:
+    assert set(schema["paths"]) == PUBLISHED_PATHS
 
 
 def test_no_path_names_a_domain_a_date_or_a_record(schema: dict[str, Any]) -> None:
@@ -106,13 +123,42 @@ def test_no_path_names_a_domain_a_date_or_a_record(schema: dict[str, Any]) -> No
         assert "entry" not in path
         assert "cycle" not in path
         assert "record" not in path
-        assert "reminders" not in path
+        # §10 forbids the delivery history from existing in the API. A path
+        # that names one is the first way it would come back.
+        assert "delivery" not in path
+        assert "deliveries" not in path
 
 
-def test_the_reminder_surface_stays_closed_until_phase_four(
+def test_the_reminder_surface_is_only_the_settings_resource(
     schema: dict[str, Any],
 ) -> None:
-    assert not any(path.startswith("/v1/reminders") for path in schema["paths"])
+    """§10: aggregate flags on one resource, never a list of occurrences."""
+    reminder_paths = {
+        path for path in schema["paths"] if path.startswith("/v1/reminders")
+    }
+
+    assert reminder_paths == {"/v1/reminders/settings"}
+    assert set(schema["paths"]["/v1/reminders/settings"]) == {"get", "put"}
+
+
+def test_the_settings_resource_returns_no_history(schema: dict[str, Any]) -> None:
+    """The response shape has room for two booleans and nothing countable.
+
+    A test on the path alone would pass a `history` field added to the body,
+    which is the same disclosure by another route.
+    """
+    component = schema["components"]["schemas"]["ReminderSettingsOutput"]
+
+    assert set(component["properties"]) == {
+        "enabled",
+        "time",
+        "timezone",
+        "quiet_blocked",
+        "bot_blocked",
+    }
+    for name, field in component["properties"].items():
+        if name.endswith("_blocked"):
+            assert field["type"] == "boolean", name
 
 
 def _url_parameters(operation: dict[str, Any]) -> list[dict[str, Any]]:

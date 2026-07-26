@@ -52,10 +52,12 @@ DIARY_TABLES = (
     "telegram_identity",
     "account",
 )
-# `message_cleanup` is absent on purpose: §6.3 gives api_rw INSERT only, and
-# phase 1 never writes there. Cleaning it would need a privilege the production
-# role must not have.
 REMINDER_TABLES = ("reminder_delivery", "reminder_schedule")
+# `message_cleanup` is cleaned through the admin connection rather than through
+# `api_rw`, which holds `INSERT` on it and nothing else (§6.3). Phase 4 gives
+# the table its first writer, so leaving it out of the reset would let one
+# test's queue reach the next one's worker.
+ADMIN_ONLY_TABLES = ("reminders.message_cleanup",)
 
 
 @dataclass(frozen=True)
@@ -63,6 +65,12 @@ class Database:
     admin_url: str
     api_url: str
     api_password: str = field(repr=False)
+    #: Phase 4. The delivery worker runs under its own role, and the DoD asks
+    #: for the full insert-before-send cycle to be proven under *that* role
+    #: rather than under `api_rw` — a positive test as `api_rw` would pass on
+    #: privileges the production process does not have.
+    worker_url: str = ""
+    worker_password: str = field(default="", repr=False)
 
 
 class FrozenClock:
@@ -92,9 +100,15 @@ def identity_database() -> Iterator[Database]:
         command.upgrade(config, "head")
 
         password = secrets.token_urlsafe(24)
+        worker_password = secrets.token_urlsafe(24)
         with psycopg.connect(admin_url, autocommit=True) as connection:
             connection.execute(
                 sql.SQL("ALTER ROLE api_rw PASSWORD {}").format(sql.Literal(password))
+            )
+            connection.execute(
+                sql.SQL("ALTER ROLE reminder_worker PASSWORD {}").format(
+                    sql.Literal(worker_password)
+                )
             )
 
         scheme, _, rest = admin_url.partition("://")
@@ -103,7 +117,24 @@ def identity_database() -> Iterator[Database]:
             admin_url=admin_url,
             api_url=f"{scheme}://api_rw:{password}@{host_part}",
             api_password=password,
+            worker_url=f"{scheme}://reminder_worker:{worker_password}@{host_part}",
+            worker_password=worker_password,
         )
+
+
+@pytest.fixture(scope="session")
+def worker_engine(identity_database: Database) -> Iterator[Engine]:
+    """An engine bound to `reminder_worker`, privileges and all.
+
+    Kept separate from `api_engine` on purpose: a worker test that reached the
+    database through the api engine would pass on `diary` access the real
+    process is denied, and the isolation of §5.3 would be asserted nowhere.
+    """
+    created = create_engine(
+        identity_database.worker_url.replace("postgresql://", "postgresql+psycopg://", 1)
+    )
+    yield created
+    created.dispose()
 
 
 @pytest.fixture(scope="session")
@@ -116,7 +147,7 @@ def api_engine(identity_database: Database) -> Iterator[Engine]:
 
 
 @pytest.fixture
-def engine(api_engine: Engine) -> Iterator[Engine]:
+def engine(api_engine: Engine, identity_database: Database) -> Iterator[Engine]:
     """Per-test handle that truncates afterwards.
 
     Not autouse: the migration suites bring their own containers, and an
@@ -128,6 +159,9 @@ def engine(api_engine: Engine) -> Iterator[Engine]:
             connection.execute(text(f"DELETE FROM reminders.{table}"))
         for table in DIARY_TABLES:
             connection.execute(text(f"DELETE FROM diary.{table}"))
+    with psycopg.connect(identity_database.admin_url, autocommit=True) as admin:
+        for qualified in ADMIN_ONLY_TABLES:
+            admin.execute(f"DELETE FROM {qualified}")
 
 
 @pytest.fixture
@@ -263,6 +297,15 @@ class Caller:
         token: str | None = None,
     ) -> httpx.Response:
         return self.request("POST", path, json_body=body, token=token)
+
+    def put(
+        self,
+        path: str,
+        body: dict[str, object] | None = None,
+        *,
+        token: str | None = None,
+    ) -> httpx.Response:
+        return self.request("PUT", path, json_body=body, token=token)
 
 
 @pytest.fixture

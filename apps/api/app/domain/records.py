@@ -8,7 +8,7 @@ direction the layers contract of §5.2 forbids.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import date, datetime, time
 from typing import Any
 from uuid import UUID
 
@@ -115,3 +115,56 @@ class StoredVaultKey:
 class RateVerdict:
     allowed: bool
     retry_after_seconds: int
+
+
+@dataclass(frozen=True, slots=True)
+class ReminderSchedule:
+    """One row of `reminders.reminder_schedule`, as a value.
+
+    `disabled_reason` and `disabled_at` travel together — migration 0005 makes
+    that a CHECK — and together they are the only thing separating a pause the
+    user asked for from a block Telegram imposed. The reconciler decides on
+    those two fields alone, never on `enabled`.
+    """
+
+    account_id: UUID
+    telegram_chat_id: int
+    timezone_name: str
+    local_time: time
+    enabled: bool
+    disabled_reason: str | None
+    disabled_at: datetime | None
+    next_fire_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
+class DueReminder:
+    """A schedule the worker has locked for this pass.
+
+    Deliberately not the whole row: the worker needs a chat id, a zone and the
+    instant the occurrence belongs to, and nothing else in the table is any of
+    its business.
+    """
+
+    account_id: UUID
+    telegram_chat_id: int
+    timezone_name: str
+    next_fire_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
+class PendingCleanup:
+    """One message §6.4 promised to remove from the chat within its TTL."""
+
+    account_id: UUID
+    chat_id: int
+    message_id: int
+    expires_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
+class StalePending:
+    """A claimed occurrence whose attempt never reported back."""
+
+    account_id: UUID
+    local_date: date

@@ -19,6 +19,7 @@ from app.domain.identity import (
     ConsentAlreadyActive,
     ConsentCopyNotFrozen,
     ConsentPrecondition,
+    ConsentRequired,
     ConsentTextMismatch,
     DomainError,
     NoAccount,
@@ -26,9 +27,9 @@ from app.domain.identity import (
     StepUpRequired,
     UnknownTimezone,
 )
+from app.domain.reminders import BotBlocked, NoSchedule
 from app.domain.vault import (
     PayloadTooLarge,
-    VaultForbidden,
     VaultGone,
     VaultReset,
 )
@@ -39,12 +40,16 @@ STATUS_BY_ERROR: dict[type[DomainError], int] = {
     AuthReplayed: 401,
     NoAccount: 403,
     StepUpRequired: 403,
-    VaultForbidden: 403,
+    #: Also `app.domain.vault.VaultForbidden`, which is the same class under the
+    #: name the vault paths raise it by.
+    ConsentRequired: 403,
+    NoSchedule: 404,
     ConfirmRequired: 409,
     ConsentPrecondition: 409,
     ConsentAlreadyActive: 409,
     ConsentTextMismatch: 409,
     VaultReset: 409,
+    BotBlocked: 409,
     VaultGone: 410,
     PayloadTooLarge: 413,
     QuietHoursViolation: 422,

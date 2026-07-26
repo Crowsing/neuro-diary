@@ -6,13 +6,20 @@ from datetime import timedelta
 import pytest
 
 from app.api.v1.errors import STATUS_BY_ERROR
-from app.domain import identity, vault
+from app.domain import identity, reminders, vault
 from app.domain.identity import DomainError
 
 
 def _domain_errors() -> list[type[DomainError]]:
+    """Every declared domain error, from every module that declares one.
+
+    `reminders` joined the list in phase 4. Leaving it out would have let two
+    new codes skip the uniqueness, ASCII and no-constructor-argument checks
+    below — and the uniqueness one had already earned its keep by the time this
+    line was written.
+    """
     found: list[type[DomainError]] = []
-    for module in (identity, vault):
+    for module in (identity, reminders, vault):
         for _, member in inspect.getmembers(module, inspect.isclass):
             if issubclass(member, DomainError) and member is not DomainError:
                 found.append(member)
@@ -43,6 +50,9 @@ def test_the_limits_match_the_plan() -> None:
     ("error", "status"),
     [
         (vault.VaultForbidden, 403),
+        (identity.ConsentRequired, 403),
+        (reminders.NoSchedule, 404),
+        (reminders.BotBlocked, 409),
         (vault.VaultReset, 409),
         (vault.VaultGone, 410),
         (vault.PayloadTooLarge, 413),

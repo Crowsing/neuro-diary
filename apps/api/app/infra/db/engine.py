@@ -20,6 +20,7 @@ from app.infra.db.repositories.consent import (
     ReminderScheduleRepository,
 )
 from app.infra.db.repositories.outbox import OutboxRepository
+from app.infra.db.repositories.reminders import ReminderWorkerRepository
 from app.infra.db.repositories.identity import (
     AccountRepository,
     AuthReplayRepository,
@@ -88,3 +89,51 @@ class SqlUnitOfWorkFactory:
 
     def __call__(self) -> SqlUnitOfWorkScope:
         return SqlUnitOfWorkScope(self._sessionmaker())
+
+
+class SqlReminderUnitOfWork:
+    """One repository, because the role behind it can reach one schema.
+
+    Not a narrowed `SqlUnitOfWork`: constructing the others would open no
+    connection and break nothing, and that is exactly the problem — the worker
+    would then be one autocomplete away from a statement its role refuses, and
+    the refusal would arrive in production rather than in the type checker.
+    """
+
+    def __init__(self, session: Session) -> None:
+        self._session = session
+        self.reminders = ReminderWorkerRepository(session)
+
+    def commit(self) -> None:
+        self._session.commit()
+
+    def rollback(self) -> None:
+        self._session.rollback()
+
+
+class SqlReminderUnitOfWorkScope:
+    def __init__(self, session: Session) -> None:
+        self._session = session
+        self._unit = SqlReminderUnitOfWork(session)
+
+    def __enter__(self) -> SqlReminderUnitOfWork:
+        return self._unit
+
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        traceback: TracebackType | None,
+    ) -> None:
+        try:
+            self._unit.rollback()
+        finally:
+            self._session.close()
+
+
+class SqlReminderUnitOfWorkFactory:
+    def __init__(self, engine: Engine) -> None:
+        self._sessionmaker = sessionmaker(engine, expire_on_commit=False)
+
+    def __call__(self) -> SqlReminderUnitOfWorkScope:
+        return SqlReminderUnitOfWorkScope(self._sessionmaker())
