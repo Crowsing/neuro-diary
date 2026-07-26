@@ -100,7 +100,7 @@ def test_the_outbound_message_is_exactly_the_two_allowlisted_strings() -> None:
     assert body["text"] == "Час зробити короткий запис"
     assert body["text"] == MESSAGE_TEXT
     keyboard = body["reply_markup"]["inline_keyboard"]
-    assert keyboard == [[{"text": BUTTON_LABEL, "url": WEBAPP_URL}]]
+    assert keyboard == [[{"text": BUTTON_LABEL, "web_app": {"url": WEBAPP_URL}}]]
     assert keyboard[0][0]["text"] == "Відкрити щоденник"
 
 
@@ -159,31 +159,42 @@ def test_a_url_with_anything_appended_refuses_to_start(url: str) -> None:
         _build(Telegram(), webapp_url=url)
 
 
-@pytest.mark.parametrize("url", ["", "not-a-url", "ftp://example.invalid"])
-def test_a_url_that_is_not_an_absolute_web_address_refuses_to_start(
-    url: str,
-) -> None:
+@pytest.mark.parametrize(
+    "url",
+    ["", "not-a-url", "ftp://example.invalid", "http://localhost:4174"],
+)
+def test_a_url_that_is_not_absolute_https_refuses_to_start(url: str) -> None:
+    """The button opens a Mini App, and Telegram opens one only over HTTPS.
+
+    `http://localhost:4174` is in the list on purpose: it is what an
+    unconfigured stand carries, it is unreachable from a phone whatever Telegram
+    decides, and accepting it would trade one loud refusal at startup for a
+    `failed` row every evening.
+    """
     with pytest.raises(TelegramConfigurationError):
         _build(Telegram(), webapp_url=url)
 
 
-def test_a_plain_http_url_is_accepted_because_the_stand_uses_one() -> None:
-    """The counterpart: without it the rule above could reject every URL.
+def test_the_button_opens_the_mini_app_rather_than_a_browser() -> None:
+    """The same button `apps/bot` puts under `/start`, and for the same reasons.
 
-    `http://localhost:4174` is what the local stand configures, and refusing it
-    would make the adapter untestable against the only deployment there is.
+    A plain `url` button hands the address to the phone's browser: the medical
+    app lands in browser history — which commonly syncs to a Google or Apple
+    account — and its domain sits in the address bar for anyone who glances.
+    It is also broken: outside Telegram there is no `initData`, so the app
+    cannot authenticate and opens an empty local-only diary instead of hers.
     """
     telegram = Telegram(_ok())
 
-    _build(telegram, webapp_url="http://localhost:4174").send_reminder(
+    _build(telegram).send_reminder(
         chat_id=CHAT_ID,
         deadline=NOW + timedelta(minutes=10),
     )
 
     _, body = telegram.calls[0]
-    assert body["reply_markup"]["inline_keyboard"][0][0]["url"] == (
-        "http://localhost:4174"
-    )
+    button = body["reply_markup"]["inline_keyboard"][0][0]
+    assert button["web_app"] == {"url": WEBAPP_URL}
+    assert "url" not in button, "a bare `url` opens the external browser"
 
 
 # --------------------------------------------------------------------- refusals

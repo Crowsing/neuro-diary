@@ -126,8 +126,22 @@ class TelegramBotApi:
         body: dict[str, object] = {
             "chat_id": chat_id,
             "text": MESSAGE_TEXT,
+            # `web_app`, not `url` — the same button `apps/bot` puts under
+            # `/start`, and the difference is not cosmetic. A `url` button hands
+            # the address to the phone's browser: the medical app then lands in
+            # browser history (which commonly syncs to a Google or Apple
+            # account) and its domain sits in the address bar for anyone who
+            # glances. That is the very disclosure §10 spends a paragraph on
+            # when it forbids medical tokens in the domain.
+            #
+            # It is also simply broken there: outside Telegram there is no
+            # `initData`, so the app cannot authenticate and falls back to
+            # local-only — the button would open an empty diary rather than
+            # hers.
             "reply_markup": {
-                "inline_keyboard": [[{"text": BUTTON_LABEL, "url": self._webapp_url}]]
+                "inline_keyboard": [
+                    [{"text": BUTTON_LABEL, "web_app": {"url": self._webapp_url}}]
+                ]
             },
         }
 
@@ -203,11 +217,20 @@ class TelegramBotApi:
 
 
 def _assert_button_url_is_allowlisted(webapp_url: str) -> None:
-    """§10: the button carries the configured URL and nothing appended to it.
+    """§10: the button carries the configured URL, unchanged and over HTTPS.
 
     Checked once, at construction, so a deployment that would put a query
     parameter in front of Telegram fails to start rather than fails privately on
     the first evening at eight o'clock.
+
+    **HTTPS is required because the button is a Mini App button.** Telegram
+    opens a Web App only over HTTPS, and an `http://localhost` address is
+    unreachable from a phone whatever Telegram decides — so a deployment
+    configured that way could never deliver a working reminder. Refusing at
+    startup turns that into one loud message instead of a `failed` row every
+    evening. (Telegram's exact refusal was not observed here: it validates the
+    chat before the markup, so confirming it would have meant sending another
+    real message to a real person.)
     """
     parts = urlsplit(webapp_url)
     if parts.query or parts.fragment:
@@ -215,8 +238,11 @@ def _assert_button_url_is_allowlisted(webapp_url: str) -> None:
             "WEBAPP_URL must carry no query and no fragment: §10 allows exactly"
             " the configured URL in the reminder button"
         )
-    if parts.scheme not in {"http", "https"} or not parts.netloc:
-        raise TelegramConfigurationError("WEBAPP_URL must be an absolute http(s) URL")
+    if parts.scheme != "https" or not parts.netloc:
+        raise TelegramConfigurationError(
+            "WEBAPP_URL must be an absolute https URL: the reminder button opens"
+            " the Mini App, and Telegram opens one only over HTTPS"
+        )
 
 
 def _message_id_of(response: httpx.Response) -> int | None:

@@ -204,7 +204,7 @@ def test_the_adapter_and_the_worker_meet_under_the_real_composition(
     settings = ReminderWorkerSettings.from_env(
         {
             "REMINDER_WORKER_DATABASE_URL": identity_database.worker_url,
-            "WEBAPP_URL": "http://localhost:4174",
+            "WEBAPP_URL": "https://diary.example.invalid",
             "BOT_TOKEN": "1234567890:synthetic-generated-in-this-run",
         }
     )
@@ -217,7 +217,7 @@ def test_the_adapter_and_the_worker_meet_under_the_real_composition(
     assert method == "sendMessage"
     assert body["text"] == MESSAGE_TEXT
     assert body["reply_markup"]["inline_keyboard"] == [
-        [{"text": BUTTON_LABEL, "url": "http://localhost:4174"}]
+        [{"text": BUTTON_LABEL, "web_app": {"url": "https://diary.example.invalid"}}]
     ]
     with engine.connect() as connection:
         stored = connection.execute(
