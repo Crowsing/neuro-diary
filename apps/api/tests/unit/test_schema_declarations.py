@@ -29,7 +29,12 @@ from app.infra.config import Settings
 from app.infra.consent_copy import FileConsentCopyRegistry
 from app.infra.telegram.initdata import InitDataValidator
 from app.main import CONSENT_COPY_ROOT, AppDependencies, create_app
-from app.schemas.sync import MAX_ENVELOPE_B64_CHARS, MAX_PAYLOAD_B64_CHARS
+from app.schemas.sync import (
+    MAX_ENVELOPE_B64_CHARS,
+    MAX_KDF_PARAMS,
+    MAX_KDF_VALUE_CHARS,
+    MAX_PAYLOAD_B64_CHARS,
+)
 from app.services.erasure_journal import DatabaseErasureJournal
 
 #: Each operation and the statuses its code can actually produce.
@@ -38,7 +43,7 @@ from app.services.erasure_journal import DatabaseErasureJournal
 #: illustrative: an operation that starts answering a tenth status has to be
 #: added here, and one that stops answering a declared one has to be removed.
 DECLARED: dict[tuple[str, str], set[int]] = {
-    ("/health", "get"): {200},
+    ("/health", "get"): {200, 422},
     ("/v1/auth/telegram", "post"): {200, 400, 401, 403, 409, 422, 429, 503},
     ("/v1/sessions", "get"): {200, 401, 422, 429},
     ("/v1/sessions/revoke-others", "post"): {200, 401, 422, 429},
@@ -164,8 +169,6 @@ def test_the_validation_refusal_is_declared_as_one_string(
     wrong, and no client reads the document, so nothing but the fuzzer noticed.
     """
     path, method = operation
-    if 422 not in DECLARED[operation]:
-        pytest.skip("no parameters and no body")
     declared = _body_schema(_operation(schema, path, method), "422")
 
     if operation in DOMAIN_422:
@@ -269,3 +272,29 @@ def test_the_consent_digest_pattern_reaches_the_document(
     grant = schema["components"]["schemas"]["GrantInput"]
 
     assert grant["properties"]["text_sha256"]["pattern"] == "^[0-9a-f]{64}$"
+
+
+def test_the_kdf_parameters_are_bounded(schema: dict[str, Any]) -> None:
+    """§7 keeps the server out of judging these values — not out of bounding them.
+
+    `ck_vault_key_kdf_params` of migration 0001 checks only `jsonb_typeof =
+    'object'`, so before Phase 5 a stepped-up session could store a multi-megabyte
+    blob under a key the server cannot even read. Found by the independent review
+    of Phase 5, through the field next to the envelope bound the same phase added.
+    """
+    request = schema["components"]["schemas"]["KeyWriteRequest"]
+    params = request["properties"]["kdf_params"]
+
+    assert params["maxProperties"] == MAX_KDF_PARAMS
+    values = params["additionalProperties"]["anyOf"]
+    assert {option["type"] for option in values} == {"integer", "string"}
+    text_option = next(option for option in values if option["type"] == "string")
+    assert text_option["maxLength"] == MAX_KDF_VALUE_CHARS
+
+
+def test_a_nested_object_is_not_a_kdf_parameter_value(schema: dict[str, Any]) -> None:
+    """A nested object is how the property bound would be walked around."""
+    request = schema["components"]["schemas"]["KeyWriteRequest"]
+    values = request["properties"]["kdf_params"]["additionalProperties"]["anyOf"]
+
+    assert all(option["type"] in {"integer", "string"} for option in values)

@@ -112,7 +112,10 @@ def test_every_script_named_in_a_document_exists(document: Path) -> None:
 THREAT_MODEL = REPO_ROOT / "docs" / "threat-model.md"
 
 #: §6.5: операційна частина резидентності в публічному git не живе. Перелік — це
-#: форми, у яких вона просочилася б: провайдер, хост, бакет, ключ.
+#: форми, у яких вона просочилася б: провайдер, код ЦОД, хост, бакет, ключ.
+#:
+#: Країни в таблиці §6.5 плану — не операційне значення: сам план прямо каже
+#: «Тут — лише таблиця вище». Провайдер і код ЦОД — операційне.
 _OPERATIONAL = (
     re.compile(r"\bs3://", re.IGNORECASE),
     re.compile(r"\bhetzner\b", re.IGNORECASE),
@@ -130,12 +133,20 @@ _OPERATIONAL = (
 )
 
 
-def test_the_threat_model_names_no_operational_value() -> None:
-    text = THREAT_MODEL.read_text(encoding="utf-8")
+@pytest.mark.parametrize("document", DOCS, ids=lambda path: path.name)
+def test_no_document_names_an_operational_value(document: Path) -> None:
+    """§6.5 діє на **всі** документи, а не лише на threat model.
+
+    Перша редакція цього тесту читала один файл, тоді як `_OPERATIONAL` містив
+    саме ті імена, які знайшлися в іншому: рядок «Рішення власника» у
+    progress-файлі називав провайдера й код ЦОД. Знайдено незалежним review, і
+    правило звужене до одного документа було рівно тим, що не дало його побачити.
+    """
+    text = document.read_text(encoding="utf-8")
 
     found = {pattern.pattern for pattern in _OPERATIONAL if pattern.search(text)}
 
-    assert found == set(), "§6.5: операційне значення в публічному документі"
+    assert found == set(), f"§6.5: операційне значення в {document.name}"
 
 
 def test_the_threat_model_names_no_external_host() -> None:

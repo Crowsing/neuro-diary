@@ -324,3 +324,71 @@ def test_a_string_is_refused_where_the_contract_says_integer(
     )
 
     assert refused.status_code == 422
+
+
+# ---------------------------------------- межа `kdf_params` (незалежний review)
+
+
+def _key_write(**params: object) -> dict[str, object]:
+    return {
+        "mode": "rewrap",
+        "expected_wrap_version": 0,
+        "wrapped_dek": base64.b64encode(b"envelope").decode(),
+        "kdf": "pbkdf2-sha256",
+        "kdf_params": params,
+    }
+
+
+def test_a_multimegabyte_kdf_parameter_is_refused(session: Caller) -> None:
+    """Знайдено незалежним review Фази 5, через поле, сусіднє з межею конверта.
+
+    §7 тримає сервер поза **оцінкою** цих параметрів — підлогу перевіряє клієнт, —
+    але не поза їхнім розміром. `ck_vault_key_kdf_params` перевіряє лише
+    `jsonb_typeof = 'object'`, тож сесія зі step-up могла покласти під ключ,
+    якого сервер навіть не читає, багатомегабайтний блоб.
+    """
+    refused = session.post(
+        "/v1/sync/key",
+        _key_write(iterations=1_000_000, salt_hex="00" * 16, junk="A" * 400_000),
+    )
+
+    assert refused.status_code == 422
+    assert refused.json() == {"detail": "Request validation failed"}
+
+
+def test_too_many_kdf_parameters_are_refused(session: Caller) -> None:
+    refused = session.post(
+        "/v1/sync/key",
+        _key_write(**{f"p{index}": index for index in range(20)}),
+    )
+
+    assert refused.status_code == 422
+
+
+def test_a_nested_kdf_parameter_is_refused(session: Caller) -> None:
+    """Вкладений об'єкт — це те, чим межу на кількість ключів обходять."""
+    refused = session.post(
+        "/v1/sync/key",
+        _key_write(salt_hex="00" * 16, nested={"deep": "A" * 100}),
+    )
+
+    assert refused.status_code == 422
+
+
+def test_the_real_client_parameters_are_still_accepted(session: Caller) -> None:
+    """Зворотний бік: клієнт надсилає щонайбільше чотири ключі, і вони проходять.
+
+    Без цього боку три відмови вище пройшли б і на схемі, що відхиляє геть усе.
+    """
+    accepted = session.post(
+        "/v1/sync/key",
+        {
+            "mode": "rewrap",
+            "expected_wrap_version": 0,
+            "wrapped_dek": base64.b64encode(b"envelope").decode(),
+            "kdf": "argon2id",
+            "kdf_params": {"m_kib": 65_536, "t": 3, "p": 1, "salt_hex": "00" * 16},
+        },
+    )
+
+    assert accepted.status_code == 200, accepted.text

@@ -11,9 +11,9 @@ only things worth checking are shapes the storage itself requires.
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
 
 #: 32 байти в нижньому регістрі. Патерн живе в схемі, а не лише у валідаторі:
 #: `field_validator` не потрапляє в OpenAPI, тож документ дозволяв `""` — і
@@ -56,6 +56,26 @@ MAX_PAYLOAD_B64_CHARS = _base64_chars(65_536)
 #: Те саме для конверта (§7): `R` — 32 байти, кілобайт — запас на три порядки.
 #: Дослівно повторює `app.domain.vault.MAX_ENVELOPE_BYTES`.
 MAX_ENVELOPE_B64_CHARS = _base64_chars(1_024)
+
+#: Скільки полів і якої довжини вміщає `kdf_params`.
+#:
+#: Сервер zero-knowledge щодо **значень** цих параметрів — §7 прямо кладе перевірку
+#: підлоги на клієнта, і Фаза 2 зафіксувала це рішення. Але «не судити значень» не
+#: означає «не мати межі»: колонка має тип `jsonb`, а `ck_vault_key_kdf_params`
+#: перевіряє лише `jsonb_typeof = 'object'`, тож до Фази 5 сесія зі step-up могла
+#: покласти під ключ, якого сервер навіть не читає, багатомегабайтний блоб.
+#: Знайдено незалежним review Фази 5 — рівно поруч із межею конверта, яку та сама
+#: фаза щойно додала, через сусіднє поле того самого тіла.
+#:
+#: Числа обрані з запасом до реального клієнта: він надсилає щонайбільше чотири
+#: ключі (`m_kib`, `t`, `p`, `salt_hex`) або два (`iterations`, `salt_hex`), і
+#: найдовше значення — сіль у hex.
+MAX_KDF_PARAMS = 8
+MAX_KDF_VALUE_CHARS = 256
+
+#: Значення параметра: ціле або короткий рядок, і нічого вкладеного. Вкладений
+#: об'єкт — це те, чим межу на кількість ключів обходять.
+KdfParamValue = int | Annotated[str, StringConstraints(max_length=MAX_KDF_VALUE_CHARS)]
 
 
 class ContractModel(BaseModel):
@@ -114,7 +134,7 @@ class PullResponse(ContractModel):
 class KeyOutput(ContractModel):
     wrapped_dek: str
     kdf: str
-    kdf_params: dict[str, object]
+    kdf_params: dict[str, KdfParamValue]
     key_version: int
     wrap_version: int
     #: Віддається лише при step-up і лише поки живий TTL (§7).
@@ -126,7 +146,7 @@ class KeyWriteRequest(ContractModel):
     expected_wrap_version: int = Field(ge=0, le=MAX_COUNTER)
     wrapped_dek: str = Field(min_length=1, max_length=MAX_ENVELOPE_B64_CHARS)
     kdf: KdfLiteral
-    kdf_params: dict[str, object]
+    kdf_params: dict[str, KdfParamValue] = Field(max_length=MAX_KDF_PARAMS)
 
 
 class KeyWriteAccepted(ContractModel):

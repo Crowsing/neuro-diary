@@ -328,9 +328,16 @@ def test_every_declared_bucket_is_a_migrated_bucket() -> None:
     assert set(BUDGETS) == set(RateBucket)
 
 
-def test_no_bucket_name_leaks_a_consent_or_a_domain() -> None:
+def test_no_bucket_name_carries_a_consent_name() -> None:
     """A bucket name lands in `diary.rate_window` and in nothing else, but §2
-    holds anywhere a name is stored, and `telegram_reminders` is a consent."""
+    holds anywhere a name is stored, and `telegram_reminders` is a consent.
+
+    The claim is exactly «no consent name», not «no domain»: `reminders_settings`
+    does name the reminder domain, and that residual is recorded in §2.1 of
+    `docs/threat-model.md` rather than hidden behind a broader test name. §13.12
+    already called such renames security theater for anyone with database access —
+    whoever can read `rate_window` can read `consent`.
+    """
     for bucket in RateBucket:
         assert "telegram" not in bucket.value
         assert "cycle" not in bucket.value
