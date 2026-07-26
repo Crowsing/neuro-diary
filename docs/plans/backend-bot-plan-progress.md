@@ -826,8 +826,13 @@ CI-прогін
 [30171798280](https://github.com/Crowsing/neuro-diary/actions/runs/30171798280)
 зелений — усі п'ять job-ів (`web`, `api`, `bot`, `sync-e2e`, `gitleaks`).
 
-Блок **4** — гілка `phase-3-completion`, промпт
-[phase-3-completion.prompt.md](phase-3-completion.prompt.md).
+Блок **4** — гілка `phase-3-completion`,
+[PR #9](https://github.com/Crowsing/neuro-diary/pull/9), промпт
+[phase-3-completion.prompt.md](phase-3-completion.prompt.md); CI-прогін
+[30194859568](https://github.com/Crowsing/neuro-diary/actions/runs/30194859568)
+зелений — усі п'ять job-ів (`web`, `api`, `bot`, `sync-e2e`, `gitleaks`).
+`gitleaks` по всій історії підтверджує віддалено те, що ключі `k_erasure` і
+підпису head-а не потрапили в git: тестові генеруються в прогоні.
 
 Головне, що змінилося в блоках 0–3: **відкликання згоди перестало бути зняттям
 доступу й стало видаленням даних.** До тієї сесії `ConsentService.revoke`
