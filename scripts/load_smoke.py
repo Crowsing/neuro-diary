@@ -316,10 +316,15 @@ def report(outcome: Outcome) -> None:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--api-url", default="http://localhost:8000")
+    # Свідомо НЕ читає `TELEGRAM_BOT_ID`, а бере `FUZZ_BOT_ID` — та сама пастка,
+    # що в `scripts/fuzz-openapi.sh`: фікстурна пара §8 підписує
+    # `<bot_id>:WebAppData\n…`, тож id мусить збігатися з тим, на який
+    # налаштований api під тестом, а не з id реального бота з `.env`. Успадкування
+    # довколишнього значення дає 401 `auth_invalid`, який виглядає як дефект коду.
     parser.add_argument(
         "--bot-id",
         type=int,
-        default=int(os.environ.get("TELEGRAM_BOT_ID", "1234567890")),
+        default=int(os.environ.get("FUZZ_BOT_ID", "1234567890")),
     )
     parser.add_argument("--profile", choices=sorted(PROFILES), action="append")
     parser.add_argument("--first-user-id", type=int, default=800000000)
