@@ -29,7 +29,7 @@ from app.infra.erasure_journal.store import InMemoryObjectStore
 from app.main import AppDependencies, create_app
 from app.services.erasure import ErasureService
 from app.services.erasure_journal import DatabaseErasureJournal, TeeErasureJournal
-from app.workers.restore_reconciler import RestoreReconciler
+from app.workers.restore_reconciler import RestoreNotCovered, RestoreReconciler
 from conftest import REPO_ROOT, Caller, FrozenClock, sign_init_data
 
 REGISTRY = REPO_ROOT / "consent-copy"
@@ -114,7 +114,22 @@ def reconciler(
         ErasureService(journal),
         clock,
         erasure_key=erasure_key,
+        # A service that has been running longer than `J`, so the interlock of
+        # step 2 covers every restore point these drills use. The interlock has
+        # its own tests below and in `test_erasure_journal.py`.
+        service_start_at=RESTORE_POINT - timedelta(days=200),
     )
+
+
+@pytest.fixture
+def external_only(external: ObjectStoreErasureJournal) -> ErasureService:
+    """An erasure service whose journal is the store alone.
+
+    Used to make a mid-run store failure reach the reconciler: through the Tee
+    the same failure would still surface, but this keeps the test about the
+    reconciler's isolation rather than about the composition.
+    """
+    return ErasureService(external)
 
 
 @pytest.fixture
@@ -444,6 +459,149 @@ def test_a_second_entry_for_an_account_the_first_one_erased_does_nothing(
     # Two entries in, one replay out: the journal did not grow by a second
     # erasure of an account that was already gone.
     assert [line.code for line in _entries(external)] == ["full", "full", "full"]
+
+
+def test_the_reconciliation_confirms_every_entry_it_opens(
+    session: Caller,
+    engine: Engine,
+    external: ObjectStoreErasureJournal,
+    reconciler: RestoreReconciler,
+) -> None:
+    """Each replay opens a fresh `erasure_job` row; each has to be closed.
+
+    §6.4 builds "we re-run your deletion within 24 hours" on `completed_at`,
+    and a reconciliation that left its own rows open would make that column a
+    permanent false negative for exactly the incident it exists to describe.
+    """
+    _stock_the_vault(session)
+    account_id = _account_id(engine)
+    external.record_intent(account_id=account_id, code="sync_off", at=RESTORE_POINT)
+
+    reconciler.reconcile(_entries(external), taken_at=RESTORE_POINT)
+
+    assert _count(engine, "diary.erasure_job") == 1
+    assert _count(engine, "diary.erasure_job WHERE completed_at IS NULL") == 0
+
+
+# ------------------------------------------------------------- refusals
+
+
+def test_a_restore_the_journal_cannot_answer_for_is_refused(
+    session: Caller,
+    engine: Engine,
+    external: ObjectStoreErasureJournal,
+    unit_of_work: SqlUnitOfWorkFactory,
+    journal: TeeErasureJournal,
+    clock: FrozenClock,
+    erasure_key: bytes,
+) -> None:
+    """Step 2 of the runbook, enforced rather than trusted to the operator.
+
+    A service two days old cannot answer for a restore reaching back ten. The
+    refusal is overridable, but only in as many words — the controller's
+    decision has to be a decision, not an omission.
+    """
+    _stock_the_vault(session)
+    account_id = _account_id(engine)
+    external.record_intent(account_id=account_id, code="full", at=RESTORE_POINT)
+    young = RestoreReconciler(
+        unit_of_work,
+        ErasureService(journal),
+        clock,
+        erasure_key=erasure_key,
+        service_start_at=RESTORE_POINT - timedelta(days=2),
+    )
+
+    with pytest.raises(RestoreNotCovered):
+        young.reconcile(
+            _entries(external),
+            taken_at=RESTORE_POINT - timedelta(days=10),
+        )
+
+    assert _count(engine, "diary.account") == 1
+
+    outcome = young.reconcile(
+        _entries(external),
+        taken_at=RESTORE_POINT - timedelta(days=10),
+        acknowledge_uncovered=True,
+    )
+
+    assert outcome.applied == 1
+    assert _count(engine, "diary.account") == 0
+
+
+def test_a_key_that_resolves_nothing_is_not_reported_as_a_clean_run(
+    session: Caller,
+    engine: Engine,
+    external: ObjectStoreErasureJournal,
+    unit_of_work: SqlUnitOfWorkFactory,
+    journal: TeeErasureJournal,
+    clock: FrozenClock,
+) -> None:
+    """A rotated or mistyped `k_erasure` makes every reference miss.
+
+    Without this the run reports `considered=1, applied=0` and an empty
+    `unknown_code`, and the runbook's completion criterion reads that as
+    success — while not one erasure was replayed and the 24-hour promise is
+    broken in silence. §6.5 contemplates key rotation and `J = 90` outlives any
+    plausible rotation interval, so this is a foreseeable state.
+    """
+    _stock_the_vault(session)
+    account_id = _account_id(engine)
+    external.record_intent(account_id=account_id, code="full", at=RESTORE_POINT)
+    wrong_key = RestoreReconciler(
+        unit_of_work,
+        ErasureService(journal),
+        clock,
+        erasure_key=secrets.token_bytes(32),
+        service_start_at=RESTORE_POINT - timedelta(days=200),
+    )
+
+    result = wrong_key.reconcile(_entries(external), taken_at=RESTORE_POINT)
+
+    assert result.considered == 1
+    assert result.applied == 0
+    assert result.resolved == 0
+    assert result.outstanding
+    assert _count(engine, "diary.account") == 1
+
+
+def test_one_failing_entry_does_not_cost_the_others_their_deadline(
+    session: Caller,
+    engine: Engine,
+    external: ObjectStoreErasureJournal,
+    unit_of_work: SqlUnitOfWorkFactory,
+    external_only: ErasureService,
+    clock: FrozenClock,
+    erasure_key: bytes,
+    store: InMemoryObjectStore,
+) -> None:
+    """The isolation `OutboxDispatcher` and `Housekeeper` both document.
+
+    A store that refuses mid-run must not abort the pass and destroy the record
+    of what already applied — a re-run would then be the only recovery, inside
+    a 24-hour SLA.
+    """
+    _stock_the_vault(session)
+    account_id = _account_id(engine)
+    external.record_intent(account_id=account_id, code="full", at=RESTORE_POINT)
+    entries = _entries(external)
+    refusing = RestoreReconciler(
+        unit_of_work,
+        external_only,
+        clock,
+        erasure_key=erasure_key,
+        service_start_at=RESTORE_POINT - timedelta(days=200),
+    )
+    store.refusing = True
+
+    result = refusing.reconcile(entries, taken_at=RESTORE_POINT)
+
+    assert result.failed == 1
+    assert result.applied == 0
+    assert result.outstanding
+    # Journal first, so the account it could not journal is still here.
+    assert _count(engine, "diary.account") == 1
 
 
 def test_an_unknown_code_is_reported_rather_than_guessed(

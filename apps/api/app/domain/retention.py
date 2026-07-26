@@ -2,23 +2,32 @@
 
 `BACKUP_PROMISE_DAYS` is the number the user is told. It is the single source of
 that number in code, and a CI guard keeps any other literal spelling of it out —
-which matters because the system holds four *unrelated* thirty-day values
+which matters because the system holds three *unrelated* thirty-day durations
 (§4.3's erasure window, §6.2's session and outbox TTLs) and confusing any of
 them with the promise would make a text for the user false.
+
+Nothing renders the promise from this constant, and that is not an omission:
+the sentence the user reads lives in `consent-copy/uk/deletion/1.0.md`, frozen
+and hashed, and the server never renders it. What the constant is *for* is the
+arithmetic below and the guard's allowlist — a test ties it to the frozen text
+so the two cannot drift apart in silence.
 
 `BACKUP_CONFIG_MAX_AGE_DAYS` is the infrastructure invariant behind it: the
 configured expiry has to be shorter than the promise, or the promise is a hope.
 
 The checks below run at import and raise rather than `assert`, because `python
 -O` strips `assert` — and a static check that disappears exactly in production
-is worse than none.
+is worse than none. That argument is only worth making if the module is
+actually imported by the running process, so `JOURNAL_RETENTION` lives here
+rather than beside the journal: `app.domain.erasure_journal` imports it, the
+adapter imports that, and `app.main` imports the adapter. A retention module
+nobody but pytest loads would dodge the letter of the `-O` problem and keep its
+substance.
 """
 
 from __future__ import annotations
 
 from datetime import timedelta
-
-from app.domain.erasure_journal import JOURNAL_RETENTION
 
 #: The promise in `consent-copy/uk/deletion/1.0.md`. Every appearance of this
 #: number elsewhere refers here rather than restating it.
@@ -49,6 +58,12 @@ RECONCILIATION_MARGIN_DAYS = 7
 JOURNAL_RETENTION_FLOOR_DAYS = (
     BACKUP_CONFIG_MAX_AGE_DAYS + RECOVERY_DETECTION_DAYS + RECONCILIATION_MARGIN_DAYS
 )
+
+#: §6.4 retention `J`, chosen with room above the floor below. Enforced by the
+#: bucket lifecycle rule and never by this codebase: the writer holds `PUT` and
+#: there is no principal with `DELETE`. The number lives here because the
+#: restore interlock needs it, not because anything here trims anything.
+JOURNAL_RETENTION = timedelta(days=90)
 
 
 if BACKUP_CONFIG_MAX_AGE_DAYS >= BACKUP_PROMISE_DAYS:

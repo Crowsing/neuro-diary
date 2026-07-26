@@ -54,8 +54,11 @@ class AccountRepository:
         *after* a restore has put those accounts back, which is exactly when it
         is needed.
 
-        Nothing on a request path may call this: enumerating the whole table is
-        a reconciliation operation, not an account-scoped one.
+        Its one caller is `RestoreReconciler`, and it should stay that way:
+        this is an unbounded scan of the whole table, which is a reconciliation
+        operation rather than an account-scoped one. Nothing enforces that —
+        any service holding a `UnitOfWork` can reach it — so it is written down
+        here rather than claimed as a guarantee.
         """
         return list(self._session.execute(select(Account.id)).scalars().all())
 

@@ -57,8 +57,17 @@ class TeeErasureJournal:
     happens and the erasure does not start — which is the whole promise of
     §6.4, now made against the store that actually survives a restore. If the
     external write succeeds and the row does not, the erasure still does not
-    start and the journal holds an entry for a deletion that never happened;
-    §6.4 calls that harmless on purpose, because reconciliation is idempotent.
+    start and the journal holds an entry for a deletion that never happened.
+
+    §6.4 calls such an entry harmless, and it is worth being exact about what
+    that means here, because this phase turned the journal into something a
+    reconciliation acts on. The external line carries no completion state by
+    design, so a restore cannot tell "never started" from "started and did not
+    finish" — and it does not need to: it replays both, and replaying an
+    erasure that already happened changes no data. What it does move is the
+    revision counters and the journal itself for `sync_off` and
+    `security_reset`. So: never a wrong deletion, never a lost one, and not
+    quite free.
 
     Reversing the two would put the guarantee on the weaker store: the row
     would be written, the erasure would proceed, and the only record of it

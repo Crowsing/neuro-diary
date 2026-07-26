@@ -34,11 +34,10 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
-#: §6.4 retention `J`. It is enforced by the bucket lifecycle rule and never by
-#: this process: the writer holds `PUT` and there is no principal with `DELETE`.
-#: The number lives here because the restore interlock needs it, not because
-#: anything in this codebase trims anything.
-JOURNAL_RETENTION = timedelta(days=90)
+# Importing it rather than restating it is what puts the retention invariants of
+# §6.4 on the process's import path: this module is reached from `app.main`
+# through the journal adapter, so the checks in `retention` run at startup.
+from app.domain.retention import JOURNAL_RETENTION
 
 #: `prev_hash` of the very first line of the journal. A chain has to start
 #: somewhere, and a named constant is what lets the verifier tell "this is the
@@ -285,7 +284,9 @@ def restore_interlock(
     being restored would make the guard depend on the artefact it guards.
 
     A `service_start_at` in the future is a misconfiguration nobody can
-    re-derive, so it yields zero coverage and blocks the restore.
+    re-derive, so it yields zero coverage — which blocks every restore except
+    one reaching back to this instant, and that one needs no coverage because
+    nothing could have been erased since.
     """
     elapsed = max(now - service_start_at, _ZERO)
     return RestoreInterlock(

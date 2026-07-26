@@ -51,11 +51,13 @@ class JournalAudit:
       last line of a day leaves the chain adding up, because nothing points at
       a tail.
 
-    The residual limitation is named rather than papered over: an actor who
-    removes both a tail line **and** its head leaves nothing here to notice.
-    That is inherent to a journal with no external anchor, and it is why §6.4
-    signs the daily head — a head the controller has seen out of band cannot be
-    un-seen by deleting objects.
+    The residual limitation is named rather than papered over, and it is wider
+    than one line: an actor who removes a tail line **together with its head**
+    leaves nothing here to notice, and the same is true of a whole trailing day
+    removed with all of its heads — the previous day's last line then looks
+    like an ordinary attested tail again. That is inherent to a journal with no
+    external anchor, and it is why §6.4 signs the daily head: a head the
+    controller has seen out of band cannot be un-seen by deleting objects.
     """
 
     chain: ChainVerdict
@@ -133,9 +135,14 @@ class ObjectStoreErasureJournal:
         §6.4 fixes the line format at four fields; there is no completion field
         and appending a second `done` line would change a normative format. The
         composition in `TeeErasureJournal` keeps completion in
-        `diary.erasure_job`, and that costs a restore nothing: reconciliation
-        reads *this* journal, and each of its four actions is idempotent, so
-        re-running a finished one is a no-op rather than a mistake.
+        `diary.erasure_job`.
+
+        That costs a restore nothing it cannot pay: reconciliation reads *this*
+        journal, so it replays finished and unfinished erasures alike, and
+        replaying one changes no data. It is not literally a no-op — `sync_off`
+        and `security_reset` advance the revision counters and append a line
+        each time — which is why the runbook names a stopping rule instead of
+        inviting an extra pass.
         """
         del reference, at
 
@@ -196,16 +203,22 @@ class ObjectStoreErasureJournal:
         attested: set[str],
     ) -> tuple[str, ...]:
         by_day: dict[str, set[str]] = {}
-        parents: set[str] = set()
+        parents_by_day: dict[str, set[str]] = {}
         for item in lines:
             line = JournalLine.from_json(item.body)
-            by_day.setdefault(day_of(line.at), set()).add(line_hash(item.body))
-            parents.add(line.prev_hash)
+            day = day_of(line.at)
+            by_day.setdefault(day, set()).add(line_hash(item.body))
+            parents_by_day.setdefault(day, set()).add(line.prev_hash)
 
+        # A day's tail is a line no line *of that day* points at. Using the
+        # global parent set instead would silently exempt every day but the
+        # last: the final line of a day is the predecessor of the next day's
+        # first line, so it would never look like a tail and its head would
+        # never be checked.
         return tuple(
             day
             for day, digests in sorted(by_day.items())
-            if not (digests - parents) <= attested
+            if not (digests - parents_by_day.get(day, set())) <= attested
         )
 
     def _tail(self) -> str:

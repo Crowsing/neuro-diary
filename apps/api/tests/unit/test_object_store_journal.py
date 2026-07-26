@@ -170,9 +170,10 @@ def test_confirm_writes_nothing_to_the_store(
     """The line format of §6.4 has four fields and no completion.
 
     Appending a second `done` line would change a normative format, so the
-    external journal records intent only. Completion lives in `diary.erasure_job`
-    — which costs nothing during a restore, because reconciliation reads the
-    external journal and every one of its four actions is idempotent.
+    external journal records intent only. Completion lives in
+    `diary.erasure_job`, and a restore does not miss it: reconciliation reads
+    the external journal and replays finished and unfinished entries alike,
+    which changes no data either way.
     """
     reference = journal.record_intent(account_id=uuid4(), code="full", at=MOMENT)
     before = store.puts
@@ -288,6 +289,41 @@ def test_the_audit_names_a_day_whose_head_was_forged(
 
     assert audit.unsigned_days == ("2026-07-24",)
     # The chain itself is untouched: the two checks answer different questions.
+    assert audit.chain.intact
+
+
+def test_the_head_of_a_day_that_is_not_the_last_one_is_still_checked(
+    journal: ObjectStoreErasureJournal,
+    store: InMemoryObjectStore,
+) -> None:
+    """A day's tail is a line no line *of that day* points at.
+
+    Taking the parent set across the whole journal instead would exempt every
+    day but the last: the final line of a day is the predecessor of the next
+    day's first line, so it would never look like a tail and its head would
+    never be checked. Two days, first day's head deleted — it has to be named.
+    """
+    journal.record_intent(account_id=uuid4(), code="full", at=MOMENT)
+    journal.record_intent(
+        account_id=uuid4(), code="sync_off", at=MOMENT + timedelta(days=1)
+    )
+    first_day_tail = min(
+        (JournalLine.from_json(item.body).at, line_hash(item.body))
+        for item in journal.read()
+    )[1]
+    del store._objects[  # noqa: SLF001
+        next(
+            key
+            for key in store.list(PREFIX).keys
+            if key.endswith(f"{first_day_tail}.json") and "/head/" in key
+        )
+    ]
+
+    audit = journal.audit()
+
+    assert audit.unsigned_days == ("2026-07-24",)
+    assert not audit.trustworthy
+    # The chain is untouched — this is the head check doing its own job.
     assert audit.chain.intact
 
 

@@ -20,16 +20,29 @@ its line in CI. So there are two checks with different shapes:
   allowlist edit — which is exactly the moment somebody should confirm the
   number is still not the backup promise.
 
+Scanned: `apps/api/app/**` and `apps/bot/bot/**`. The bot is in scope because it
+is the other process that could restate the promise in an outbound message, and
+§10 keeps its wording on a short leash.
+
 Out of scope on purpose: `consent-copy/**` (the number is legitimate there and
 the file is frozen), `docs/**`, the tests themselves (their `timedelta(days=30)`
 assertions pin §4.3 and §6.2), and `apps/web/**` — the backup promise is a
 server-side quantity, and the client renders the text straight from
 `consent-copy`.
+
+**Known limit, stated rather than discovered later:** `NAMED_DURATION` is
+anchored to a single line, so reformatting a legitimate constant across lines
+(`SESSION_MAX_LIFETIME = timedelta(\\n    days=30,\\n)`) goes false-red. Ruff's
+formatter does not split these three, so it takes a deliberate edit — and the
+fix is one line either way, which is cheaper than a rule that parses Python to
+avoid it.
 """
 
 from __future__ import annotations
 
 import re
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -45,6 +58,7 @@ from app.domain.retention import (
 API_ROOT = Path(__file__).resolve().parents[2]
 APP_ROOT = API_ROOT / "app"
 REPO_ROOT = API_ROOT.parents[1]
+BOT_ROOT = REPO_ROOT / "apps" / "bot" / "bot"
 
 LITERAL = re.compile(r"days=30\b")
 NAMED_DURATION = re.compile(
@@ -110,14 +124,20 @@ def offences(path: str, source: str) -> list[str]:
     return found
 
 
+def _scanned() -> list[tuple[str, str]]:
+    """`(path as written in the allowlist, source)` for every file in scope."""
+    return [
+        (str(path.relative_to(API_ROOT)), path.read_text(encoding="utf-8"))
+        for path in sorted(APP_ROOT.rglob("*.py"))
+    ] + [
+        (str(path.relative_to(REPO_ROOT)), path.read_text(encoding="utf-8"))
+        for path in sorted(BOT_ROOT.rglob("*.py"))
+    ]
+
+
 def _scan() -> list[str]:
     return [
-        offence
-        for path in sorted(APP_ROOT.rglob("*.py"))
-        for offence in offences(
-            str(path.relative_to(API_ROOT)),
-            path.read_text(encoding="utf-8"),
-        )
+        offence for path, source in _scanned() for offence in offences(path, source)
     ]
 
 
@@ -128,12 +148,20 @@ def test_the_backup_promise_has_one_source_in_code() -> None:
     assert _scan() == []
 
 
+def test_the_scan_reaches_both_processes() -> None:
+    """A rule that silently stops covering a directory is worse than none."""
+    scanned = {path for path, _ in _scanned()}
+
+    assert "app/workers/outbox_dispatcher.py" in scanned
+    assert any(path.startswith("apps/bot/bot/") for path in scanned)
+
+
 def test_the_allowlist_has_no_dead_entries() -> None:
     """An entry nobody needs is a hole waiting for a coincidence to fill it."""
     present = {
-        (str(path.relative_to(API_ROOT)), _normalise(raw))
-        for path in APP_ROOT.rglob("*.py")
-        for raw in path.read_text(encoding="utf-8").splitlines()
+        (path, _normalise(raw))
+        for path, source in _scanned()
+        for raw in source.splitlines()
     }
 
     assert set(ALLOWED_PROSE) <= present
@@ -182,7 +210,7 @@ def test_it_rejects_a_new_prose_mention(source: str) -> None:
     ],
 )
 def test_it_accepts_what_is_not_the_promise(source: str) -> None:
-    """The four unrelated thirty-day values and the near misses around them.
+    """The three unrelated thirty-day durations and the near misses around them.
 
     A rule that fired on any of these would be switched off within a week.
     """
@@ -211,6 +239,32 @@ def test_the_promise_is_the_number_the_user_is_given() -> None:
     )
 
     assert f"через {BACKUP_PROMISE_DAYS} днів" in promise
+
+
+def test_the_retention_invariants_are_on_the_production_import_path() -> None:
+    """The `-O` argument is only worth making if a real process loads this.
+
+    `app/domain/retention.py` checks its invariants with `raise` rather than
+    `assert` precisely so `python -O` cannot strip them. That reasoning is
+    hollow unless the module is reached from the composition root — a retention
+    module only pytest imports dodges the letter of the problem and keeps all
+    of its substance.
+
+    A fresh interpreter, so an earlier test cannot have put it in `sys.modules`.
+    """
+    probe = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "import app.main, sys; print('app.domain.retention' in sys.modules)",
+        ],
+        cwd=API_ROOT,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+
+    assert probe.stdout.strip() == "True", probe.stderr
 
 
 def test_the_retention_invariants_hold() -> None:

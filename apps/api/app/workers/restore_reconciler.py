@@ -1,9 +1,15 @@
 """Reconciliation of a restored database against the erasure journal (§6.4).
 
 A restore puts back rows the service had already erased. The journal is the only
-record of *which* ones, because it lives outside the database that was restored
-— and this is the code that turns that record back into deletions, so the
-runbook is a procedure that runs rather than a page somebody follows by hand.
+record of *which* ones, because it lives outside the database that was restored,
+and this is the code that turns that record back into deletions.
+
+**It has no entry point yet, and that is not an oversight to read past.** There
+is no CLI and no scheduler here; the only caller today is the drill suite,
+because the reader it would consume — `ObjectStoreErasureJournal` over a real
+bucket — cannot be constructed until the transport of §6.5 exists
+(`app.main._object_store` refuses). Until then `docs/restore-runbook.md` is a
+procedure a person carries out with these pieces, not one they can start.
 
 **The boundary is `at >= t_b`, and the non-strict comparison is load-bearing.**
 A restore point is almost always chosen round (`10:00:00`), the journal rounds
@@ -14,10 +20,17 @@ most likely to exist.
 deletes written here. A private copy of "erase the vault" is a copy that drifts
 from the live path, and the drift would show up only during an incident.
 
-**Re-running is journalled again**, because it is a deletion that happens now.
-§6.4 already calls an entry without a completed erasure harmless: each of the
-four actions is idempotent, so an extra entry costs a no-op and never a wrong
-deletion.
+**Re-running never deletes the wrong thing, but it is not free.** Each of the
+four actions leaves the *data* where a first pass left it. Two of them do move
+other state on every pass: `sync_off` and `security_reset` go through
+`erase_vault`, which advances all three revision counters and appends a fresh
+journal line. So a second pass is safe and a tenth is still safe, but "run it
+again to be sure" is not a no-op and the runbook says how to stop.
+
+**What this module does not do is decide.** It refuses a restore the journal
+cannot answer for, it refuses to guess at a code it does not know, and it
+reports anything it could not finish — but every one of those is a stop for the
+controller, not a branch this code takes on its own.
 """
 
 from __future__ import annotations
@@ -27,7 +40,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from uuid import UUID
 
-from app.domain.erasure_journal import JournalLine, erasure_ref
+from app.domain.erasure_journal import JournalLine, erasure_ref, restore_interlock
 from app.services.erasure import (
     ERASURE_FULL,
     ERASURE_REMINDERS_OFF,
@@ -38,16 +51,49 @@ from app.services.erasure import (
 from app.services.ports import Clock, UnitOfWorkFactory
 
 
+class RestoreNotCovered(RuntimeError):
+    """The journal cannot answer for the period this restore reaches back into.
+
+    Step 2 of the runbook, made mechanical. Leaving it to a human to compute
+    `min(now − service_start_at, J)` before calling this would make "the steps
+    are blocking" a statement about discipline rather than about the code.
+    """
+
+
 @dataclass(frozen=True, slots=True)
 class ReconciliationResult:
     considered: int
     applied: int
     already_absent: int
     unknown_code: tuple[str, ...]
+    failed: int = 0
+
+    @property
+    def resolved(self) -> int:
+        return self.considered - self.already_absent
 
     @property
     def outstanding(self) -> bool:
-        return bool(self.unknown_code)
+        """Anything the controller has to look at before calling this done.
+
+        `resolved == 0` while entries were due is in here for a reason that is
+        not hypothetical: `erasure_ref` is `HMAC(k_erasure, account_id)`, and a
+        rotated or mistyped key makes *every* reference miss. Without this the
+        run would report `considered=N, applied=0` with an empty
+        `unknown_code`, and the runbook's completion criterion would read that
+        as success while not one erasure was replayed — the 24-hour promise
+        broken in silence.
+
+        It does fire on a legitimate second pass whose entries were all `full`
+        (the accounts are gone, so nothing resolves). That is the right way
+        round: a run that changed nothing asks for one look at the key, and the
+        first pass's numbers settle it.
+        """
+        return (
+            bool(self.unknown_code)
+            or self.failed > 0
+            or (self.considered > 0 and self.resolved == 0)
+        )
 
 
 class RestoreReconciler:
@@ -58,42 +104,72 @@ class RestoreReconciler:
         clock: Clock,
         *,
         erasure_key: bytes,
+        service_start_at: datetime,
     ) -> None:
         self._unit_of_work = unit_of_work
         self._erasure = erasure
         self._clock = clock
         self._erasure_key = erasure_key
+        self._service_start_at = service_start_at
 
     def reconcile(
         self,
         entries: Iterable[JournalLine],
         *,
         taken_at: datetime,
+        acknowledge_uncovered: bool = False,
     ) -> ReconciliationResult:
         now = self._clock.now()
+        interlock = restore_interlock(
+            now=now,
+            service_start_at=self._service_start_at,
+            backup_taken_at=taken_at,
+        )
+        if not interlock.covered and not acknowledge_uncovered:
+            # Fail closed, and overridable only in as many words — the same
+            # shape as the `acknowledge_incomplete` of §8, and for the same
+            # reason: the decision belongs to the controller, but it has to be
+            # a decision rather than an omission.
+            raise RestoreNotCovered(
+                "the journal covers"
+                f" {interlock.coverage.days} days and this restore reaches"
+                f" back {interlock.backup_age.days}"
+            )
+
         due = [line for line in entries if line.at >= taken_at]
         by_reference = self._live_accounts()
 
         applied = 0
         absent = 0
+        failed = 0
         unknown: list[str] = []
         references: list[UUID] = []
 
         for line in due:
+            if line.code not in _ACTIONS:
+                # A code this build has not been taught about is left for the
+                # controller rather than guessed at, and it is checked before
+                # the account is looked up: an unknown code for an account that
+                # happens to be absent is still an unknown code.
+                unknown.append(line.code)
+                continue
             account_id = by_reference.get(line.erasure_ref)
             if account_id is None:
                 # The account this entry names is not in the restored database:
-                # either the restore predates it, or a previous pass of this
-                # reconciliation already erased it. Both are done, not skipped.
+                # either the restore predates it, or an earlier entry of this
+                # same pass erased it. Both are done, not skipped.
                 absent += 1
                 continue
-            if line.code not in _ACTIONS:
-                # A code this build has not been taught about is left for the
-                # controller rather than guessed at. Guessing is how a
-                # reconciliation deletes the wrong thing.
-                unknown.append(line.code)
+            try:
+                reference = self._apply(line.code, account_id=account_id, now=now)
+            except Exception:
+                # One unreachable account must not cost every other account its
+                # deadline — the same reason `OutboxDispatcher` and
+                # `Housekeeper` take one transaction per item. The count goes
+                # into `outstanding`, so a partial run cannot read as a clean
+                # one, and the entries that did apply are still reported.
+                failed += 1
                 continue
-            reference = self._apply(line.code, account_id=account_id, now=now)
             if reference is not None:
                 references.append(reference)
                 applied += 1
@@ -106,6 +182,7 @@ class RestoreReconciler:
             applied=applied,
             already_absent=absent,
             unknown_code=tuple(sorted(set(unknown))),
+            failed=failed,
         )
 
     # --------------------------------------------------------------- internals
