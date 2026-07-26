@@ -19,6 +19,7 @@ from sqlalchemy import Engine, text
 from app.domain.events import (
     ACCOUNT_ERASURE_REQUESTED,
     CONSENT_REVOKED,
+    REMINDER_ERASURE_REQUESTED,
     VAULT_ERASURE_REQUESTED,
 )
 from app.infra.db.engine import SqlUnitOfWorkFactory
@@ -112,19 +113,29 @@ def test_revoking_publishes_an_event_that_never_names_the_consent(
     session: Caller,
     engine: Engine,
 ) -> None:
-    """§11 and §13.12: the kind stays on the domain event, not in the row."""
+    """§11 and §13.12: the kind stays on the domain event, not in the row.
+
+    Both events are asserted, not just the first: the erasure of the reminder
+    rows publishes one too (§6.4 `reminders_off`), and a payload that named the
+    consent would be just as much of a leak there.
+    """
     _grant_reminders(session)
 
     response = session.post("/v1/consents/revoke", {"kind": "telegram_reminders"})
 
     assert response.status_code == 200, response.text
     events = _events(engine)
-    assert [event[0] for event in events] == [CONSENT_REVOKED]
+    assert [event[0] for event in events] == [
+        CONSENT_REVOKED,
+        REMINDER_ERASURE_REQUESTED,
+    ]
     assert events[0][1] == {"account_id": str(_account_id(engine))}
-    assert events[0][2] is None
-    serialized = json.dumps(events[0][1])
-    for kind in CONSENT_KINDS:
-        assert kind not in serialized
+    for _type, payload, processed_at in events:
+        assert processed_at is None
+        assert payload["account_id"] == str(_account_id(engine))
+        serialized = json.dumps(payload)
+        for kind in CONSENT_KINDS:
+            assert kind not in serialized
 
 
 def test_a_full_erasure_leaves_exactly_one_event_and_it_is_its_own(
@@ -150,12 +161,13 @@ def test_an_erasure_removes_the_events_of_the_account_it_erases(
 ) -> None:
     """The same matrix entry, reached the other way round.
 
-    A reminders consent is revoked first — that publishes an event and leaves
-    the account alive — and only then does the account go.
+    A reminders consent is revoked first — that publishes two events (the
+    revocation and the erasure of the reminder rows) and leaves the account
+    alive — and only then does the account go.
     """
     _grant_reminders(session)
     session.post("/v1/consents/revoke", {"kind": "telegram_reminders"})
-    assert len(_events(engine)) == 1
+    assert len(_events(engine)) == 2
 
     session.post("/v1/consents/revoke", {"kind": "health_sync"})
 
@@ -176,11 +188,16 @@ def test_the_dispatcher_marks_what_it_handled_and_nothing_else(
 
     result = dispatcher.run_once()
 
-    assert result.events_processed == 1
+    # Both events: the revocation and the `reminders_off` erasure whose journal
+    # entry this run closes.
+    assert result.events_processed == 2
+    assert result.journals_confirmed == 1
     # Still holding `health_sync`, so nothing was orphaned and nothing erased.
     assert result.accounts_erased == 0
     assert _count(engine, "diary.account") == 1
-    assert _events(engine)[0][2] == clock.now()
+    assert [event[2] for event in _events(engine)] == [clock.now(), clock.now()]
+    assert _count(engine, "diary.erasure_job") == 1
+    assert _count(engine, "diary.erasure_job WHERE completed_at IS NULL") == 0
 
 
 def test_a_second_run_does_not_claim_an_event_it_already_settled(
@@ -224,14 +241,14 @@ def test_a_claimed_event_is_invisible_to_a_second_dispatcher(
 
     with unit_of_work() as first:
         held = first.outbox.claim(limit=10)
-        assert len(held) == 1
+        assert len(held) == 2
 
         with unit_of_work() as second:
             assert second.outbox.claim(limit=10) == []
 
-    # The lease ends with the transaction, so the event is claimable again.
+    # The lease ends with the transaction, so the events are claimable again.
     with unit_of_work() as after:
-        assert len(after.outbox.claim(limit=10)) == 1
+        assert len(after.outbox.claim(limit=10)) == 2
 
 
 def test_marking_an_event_processed_twice_keeps_the_first_timestamp(

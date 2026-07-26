@@ -9,13 +9,19 @@ from __future__ import annotations
 from datetime import datetime
 from uuid import UUID
 
-from app.domain.events import AccountErasureRequested, VaultErasureRequested
+from app.domain.events import (
+    AccountErasureRequested,
+    ReminderErasureRequested,
+    VaultErasureRequested,
+)
 from app.services.ports import ErasureJournalPort, UnitOfWork
 
 ERASURE_FULL = "full"
 #: §6.4 runbook: `DELETE vault_record + vault_key` plus the counter reset of
 #: §4.3. A partial erasure, not an account one — the account keeps living.
 ERASURE_SYNC_OFF = "sync_off"
+#: §6.4 runbook: `DELETE reminder_schedule + reminder_delivery`. Also partial.
+ERASURE_REMINDERS_OFF = "reminders_off"
 
 
 class ErasureService:
@@ -101,6 +107,40 @@ class ErasureService:
         # for good. Covering only the account erasure would leave the more
         # frequent half — withdrawal while another consent remains — unguarded.
         event = VaultErasureRequested(
+            account_id=account_id,
+            erasure_reference=reference,
+        )
+        unit.outbox.publish(
+            event_type=event.event_type,
+            payload=event.to_payload(),
+            now=now,
+        )
+        return reference
+
+    def erase_reminders(
+        self,
+        unit: UnitOfWork,
+        *,
+        account_id: UUID,
+        now: datetime,
+    ) -> UUID:
+        """Erase the reminder rows of a still-living account (§6.4 `reminders_off`).
+
+        Same ordering rule and same lock expectation as `erase_vault`: the
+        caller already holds the account row lock, and the journal entry goes
+        first because it is the only thing that survives a restore.
+
+        Both `reminders` tables go together. Neither carries a foreign key to
+        `diary.account` — there are no cross-schema keys — so no cascade would
+        take them, and §4.4 forbids a schedule row outliving its consent.
+        """
+        reference = self._journal.record_intent(
+            account_id=account_id,
+            code=ERASURE_REMINDERS_OFF,
+            at=now,
+        )
+        unit.schedules.delete(account_id)
+        event = ReminderErasureRequested(
             account_id=account_id,
             erasure_reference=reference,
         )

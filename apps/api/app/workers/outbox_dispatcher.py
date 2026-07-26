@@ -34,6 +34,7 @@ from uuid import UUID
 from app.domain.events import (
     ACCOUNT_ERASURE_REQUESTED,
     CONSENT_REVOKED,
+    REMINDER_ERASURE_REQUESTED,
     VAULT_ERASURE_REQUESTED,
 )
 from app.domain.identity import RevokeReason
@@ -101,6 +102,7 @@ class OutboxDispatcher:
                 elif event.event_type in (
                     ACCOUNT_ERASURE_REQUESTED,
                     VAULT_ERASURE_REQUESTED,
+                    REMINDER_ERASURE_REQUESTED,
                 ):
                     reference = _reference_of(event)
                     if reference is not None:

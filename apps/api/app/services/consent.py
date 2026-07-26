@@ -187,8 +187,6 @@ class ConsentService:
             reason=reason,
             now=now,
         )
-        if ConsentKind.TELEGRAM_REMINDERS in revoked:
-            unit.schedules.delete(account_id)
         if revoked:
             # Той самий нейтральний сигнал, що й при grant: пристрій дізнається
             # «щось зі згодами змінилося» і мусить перечитати їх ДО будь-якого
@@ -216,9 +214,24 @@ class ConsentService:
                 erasure_reference=reference,
             )
 
-        vault_reference: UUID | None = None
-        if ConsentKind.HEALTH_SYNC in revoked:
-            vault_reference = self._erasure.erase_vault(
+        # One erasure code per revocation, never two, and the partial erasures
+        # sit below the full one for the same reason `sync_off` already did: a
+        # full erasure deletes these rows itself, so journalling the partial
+        # code first would record two facts about one deletion.
+        #
+        # The branches are exclusive because they can be: `revoke` takes a
+        # single kind and the only cascade is `health_sync → cycle_sync`, so
+        # reminders and the vault are never lost in the same call. That is why
+        # one reference still describes the whole outcome.
+        partial_reference: UUID | None = None
+        if ConsentKind.TELEGRAM_REMINDERS in revoked:
+            partial_reference = self._erasure.erase_reminders(
+                unit,
+                account_id=account_id,
+                now=now,
+            )
+        elif ConsentKind.HEALTH_SYNC in revoked:
+            partial_reference = self._erasure.erase_vault(
                 unit,
                 account_id=account_id,
                 now=now,
@@ -231,7 +244,7 @@ class ConsentService:
         return RevocationOutcome(
             revoked=revoked,
             account_erased=False,
-            erasure_reference=vault_reference,
+            erasure_reference=partial_reference,
         )
 
     def _assert_device_has_everything(

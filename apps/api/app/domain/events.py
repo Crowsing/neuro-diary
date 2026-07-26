@@ -35,6 +35,7 @@ from app.domain.identity import ConsentKind
 CONSENT_REVOKED = "consent_revoked"
 ACCOUNT_ERASURE_REQUESTED = "account_erasure_requested"
 VAULT_ERASURE_REQUESTED = "vault_erasure_requested"
+REMINDER_ERASURE_REQUESTED = "reminder_erasure_requested"
 
 
 @dataclass(frozen=True, slots=True)
@@ -111,14 +112,49 @@ class VaultErasureRequested:
         }
 
 
-DomainEvent = ConsentRevoked | AccountErasureRequested | VaultErasureRequested
+@dataclass(frozen=True, slots=True)
+class ReminderErasureRequested:
+    """A reminder schedule was erased while its account went on living.
+
+    §6.4 code `reminders_off`. Same consumer and same reason as the two events
+    above: the journal entry is opened before the deletion and closed after it,
+    so the confirmation is outside the transaction either way.
+
+    The event says nothing about *which* consent was revoked — the name would
+    be the health inference §11 keeps out of storage, and migration 0004 makes
+    that a CHECK. That the deletion touched the `reminders` schema is already
+    implied by the code inside the journal, which never reaches this payload.
+    """
+
+    account_id: UUID
+    erasure_reference: UUID
+
+    @property
+    def event_type(self) -> str:
+        return REMINDER_ERASURE_REQUESTED
+
+    def to_payload(self) -> dict[str, Any]:
+        return {
+            "account_id": str(self.account_id),
+            "erasure_reference": str(self.erasure_reference),
+        }
+
+
+DomainEvent = (
+    ConsentRevoked
+    | AccountErasureRequested
+    | VaultErasureRequested
+    | ReminderErasureRequested
+)
 
 __all__ = [
     "ACCOUNT_ERASURE_REQUESTED",
     "CONSENT_REVOKED",
+    "REMINDER_ERASURE_REQUESTED",
     "VAULT_ERASURE_REQUESTED",
     "AccountErasureRequested",
     "ConsentRevoked",
     "DomainEvent",
+    "ReminderErasureRequested",
     "VaultErasureRequested",
 ]

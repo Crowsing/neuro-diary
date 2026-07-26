@@ -453,6 +453,125 @@ def test_revoking_another_consent_is_never_gated_by_the_vault(
     assert response.status_code == 200, response.text
 
 
+# ------------------------------------------------------------- reminders_off
+
+
+def _stocked_reminders(session: Caller, identity_database: Database) -> None:
+    """A schedule and a delivery — the two rows §6.4 names in this schema.
+
+    The delivery goes in through the admin connection because §6.3 gives
+    `api_rw` no INSERT there; phase 4's worker owns that write. Without the row
+    present, removing the DELETE from the repository leaves the suite green.
+    """
+    _grant_reminders(session)
+    with psycopg.connect(identity_database.admin_url, autocommit=True) as connection:
+        connection.execute(
+            "INSERT INTO reminders.reminder_delivery"
+            " (account_id, local_date, status, created_at)"
+            " SELECT id, DATE '2026-07-24', 'sent', now() FROM diary.account"
+        )
+
+
+def test_revoking_reminders_is_journalled_before_it_happens(
+    session: Caller,
+    engine: Engine,
+    clock: FrozenClock,
+    identity_database: Database,
+) -> None:
+    """§6.4 lists four codes; this is the one nothing used to write.
+
+    Deleting the schedule without a journal entry meant a restore could bring
+    both rows back with nothing to reconcile them against.
+    """
+    _stocked_reminders(session, identity_database)
+
+    response = session.post("/v1/consents/revoke", {"kind": "telegram_reminders"})
+
+    assert response.status_code == 200, response.text
+    assert _scalar(engine, "SELECT count(*) FROM reminders.reminder_schedule") == 0
+    assert _scalar(engine, "SELECT count(*) FROM reminders.reminder_delivery") == 0
+    with engine.connect() as connection:
+        row = connection.execute(
+            text(
+                "SELECT scope, requested_at, deletion_copy_version"
+                " FROM diary.erasure_job"
+            )
+        ).one()
+    assert row.scope == "reminders_off"
+    assert row.deletion_copy_version == "deletion@1.0"
+    assert row.requested_at == clock.now()
+
+
+def test_an_unwritable_journal_stops_the_reminder_erasure(
+    refusing_journal_api: FastAPI,
+    engine: Engine,
+    identity_database: Database,
+) -> None:
+    """§6.4: journal first, here too. Both rows stay and the consent stands."""
+    caller = Caller(refusing_journal_api)
+    response = caller.post(
+        "/v1/auth/telegram",
+        {
+            "init_data": sign_init_data(),
+            "grant": {
+                "kind": "health_sync",
+                "text_version": "health_sync@0.9",
+                "text_sha256": HEALTH_SYNC_SHA,
+            },
+        },
+    )
+    caller.token = str(response.json()["session_token"])
+    _stocked_reminders(caller, identity_database)
+
+    with pytest.raises(RuntimeError):
+        caller.post("/v1/consents/revoke", {"kind": "telegram_reminders"})
+
+    assert _scalar(engine, "SELECT count(*) FROM reminders.reminder_schedule") == 1
+    assert _scalar(engine, "SELECT count(*) FROM reminders.reminder_delivery") == 1
+    assert (
+        _scalar(
+            engine,
+            "SELECT count(*) FROM diary.consent WHERE revoked_at IS NOT NULL",
+        )
+        == 0
+    )
+
+
+def test_a_full_erasure_supersedes_the_reminders_one(
+    session: Caller,
+    engine: Engine,
+    identity_database: Database,
+) -> None:
+    """One code per erasure, the same rule `sync_off` already follows.
+
+    Losing the last consent erases the account, and a full erasure deletes the
+    schedule itself — so journalling `reminders_off` first would record two
+    facts about one deletion.
+    """
+    revision = _stocked_vault(session)
+    _stocked_reminders(session, identity_database)
+    session.post(
+        "/v1/consents/revoke",
+        {"kind": "health_sync", "last_acked_revision": revision},
+    )
+
+    response = session.post("/v1/consents/revoke", {"kind": "telegram_reminders"})
+
+    assert response.status_code == 200, response.text
+    assert response.json() == {"account_erased": True}
+    with engine.connect() as connection:
+        scopes = (
+            connection.execute(
+                text("SELECT scope FROM diary.erasure_job ORDER BY requested_at, scope")
+            )
+            .scalars()
+            .all()
+        )
+    assert scopes == ["full", "sync_off"]
+    assert _scalar(engine, "SELECT count(*) FROM reminders.reminder_schedule") == 0
+    assert _scalar(engine, "SELECT count(*) FROM reminders.reminder_delivery") == 0
+
+
 # ----------------------------------------------------------------- §9.7 cycle
 
 
