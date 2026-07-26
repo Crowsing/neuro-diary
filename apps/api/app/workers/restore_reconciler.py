@@ -127,8 +127,10 @@ class RestoreReconciler:
     def _apply(self, code: str, *, account_id: UUID, now: datetime) -> UUID | None:
         with self._unit_of_work() as unit:
             if not unit.accounts.lock(account_id):
-                # Gone between the enumeration and here. Nothing to erase, and
-                # never a journal entry for a row that is not there.
+                # The accounts were enumerated once, at the start; by the time a
+                # given entry is applied its account may be gone — most often
+                # because an earlier entry in this same pass erased it. Never a
+                # journal entry for a row that is not there.
                 return None
             if code == ERASURE_FULL:
                 reference = self._erasure.erase(unit, account_id=account_id, now=now)
@@ -138,7 +140,14 @@ class RestoreReconciler:
                 # it shares the implementation and keeps its own name in the
                 # journal. §6.4 writes the two rows separately for a reason:
                 # what they mean to the user differs, what they do does not.
-                unit.vault.ensure_counters(account_id)
+                #
+                # No `ensure_counters` here on purpose: an account only exists
+                # alongside a consent (§4.3), and `ConsentService.grant` creates
+                # the counters row in that same transaction. A missing row would
+                # mean a state this codebase cannot produce, and crashing the
+                # reconciliation loudly beats inventing counters for a vault
+                # whose history is unknown — the runbook's answer to a crash is
+                # "stop and escalate", which is the right answer here.
                 reference = self._erasure.erase_vault(
                     unit,
                     account_id=account_id,

@@ -414,6 +414,38 @@ def test_a_reminders_entry_removes_both_reminder_tables(
     assert _count(engine, "diary.account") == 1
 
 
+def test_a_second_entry_for_an_account_the_first_one_erased_does_nothing(
+    session: Caller,
+    engine: Engine,
+    external: ObjectStoreErasureJournal,
+    reconciler: RestoreReconciler,
+) -> None:
+    """The accounts are enumerated once; entries are applied one by one.
+
+    Two `full` entries for the same account is the ordinary shape of that — a
+    restore can easily carry more than one request for an account whose first
+    replay already erased it. The row lock is what notices, and without it the
+    second pass would journal an erasure of rows that are not there.
+    """
+    _stock_the_vault(session)
+    account_id = _account_id(engine)
+    external.record_intent(account_id=account_id, code="full", at=RESTORE_POINT)
+    external.record_intent(
+        account_id=account_id,
+        code="full",
+        at=RESTORE_POINT + timedelta(hours=1),
+    )
+
+    result = reconciler.reconcile(_entries(external), taken_at=RESTORE_POINT)
+
+    assert result.considered == 2
+    assert result.applied == 1
+    assert _count(engine, "diary.account") == 0
+    # Two entries in, one replay out: the journal did not grow by a second
+    # erasure of an account that was already gone.
+    assert [line.code for line in _entries(external)] == ["full", "full", "full"]
+
+
 def test_an_unknown_code_is_reported_rather_than_guessed(
     session: Caller,
     engine: Engine,
