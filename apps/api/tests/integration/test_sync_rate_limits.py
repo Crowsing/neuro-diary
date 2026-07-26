@@ -9,7 +9,7 @@ from typing import Any
 import pytest
 from sqlalchemy import Engine, text
 
-from app.domain.vault import KEY_READS_PER_HOUR, SYNC_REQUESTS_PER_MINUTE
+from app.domain.rate_limits import BUDGETS, RateBucket
 
 from conftest import REPO_ROOT, Caller, FrozenClock, sign_init_data
 
@@ -17,6 +17,9 @@ REGISTRY = REPO_ROOT / "consent-copy"
 HEALTH_SYNC_SHA = hashlib.sha256(
     (REGISTRY / "uk/health_sync/0.9.md").read_bytes()
 ).hexdigest()
+
+KEY_READS_PER_HOUR = BUDGETS[RateBucket.KEY_READ].limit
+SYNC_REQUESTS_PER_MINUTE = BUDGETS[RateBucket.SYNC].limit
 
 KEY_A = "aa" * 32
 CLIENT_TS = 1_768_435_200_000

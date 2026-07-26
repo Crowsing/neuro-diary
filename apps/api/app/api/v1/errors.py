@@ -57,6 +57,44 @@ STATUS_BY_ERROR: dict[type[DomainError], int] = {
 }
 
 
+class RateLimitRefusal(Exception):
+    """A §11 window is spent. Deliberately **not** a `DomainError`.
+
+    A domain error cannot carry a value — `test_no_domain_error_accepts_a_
+    constructor_argument` enforces that mechanically, because a field on the
+    exception is the shortest path back to echoing an input into a response
+    (§11). `Retry-After` is not an echo of an input: it is a server-computed
+    integer already on the §11 log allowlist. But the guard is worth more than
+    the convenience of reusing the base class, and a refusal that exists to
+    carry an HTTP **header** belongs in the HTTP layer regardless.
+
+    This is what closes the hole Phase 4's review named and left open: a 403
+    from `require_consent` cost nothing, because the budget was spent inside the
+    handler and the dependency refused before it. The dependency spends it now,
+    and the refusal it raises on an exhausted window has somewhere to put the
+    header — which is exactly what the review said a domain error could not do.
+    """
+
+    def __init__(self, retry_after_seconds: int) -> None:
+        super().__init__("rate_limited")
+        self.retry_after_seconds = retry_after_seconds
+
+
+async def rate_limit_refusal_handler(
+    request: Request,
+    error: Exception,
+) -> JSONResponse:
+    retry_after = (
+        error.retry_after_seconds if isinstance(error, RateLimitRefusal) else 1
+    )
+    request.state.error_code = "rate_limited"
+    return JSONResponse(
+        status_code=429,
+        content={"error": "rate_limited"},
+        headers={"Retry-After": str(retry_after)},
+    )
+
+
 async def request_validation_error_handler(
     request: Request,
     error: Exception,

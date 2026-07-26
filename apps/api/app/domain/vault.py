@@ -34,25 +34,18 @@ MAX_RECORDS_PER_PUSH = 200
 MAX_PUSH_BYTES = 1_048_576
 PULL_PAGE_LIMIT = 500
 
-# §11 per-account rate limits. `GET /v1/consents` deliberately does not share
-# the `sync` bucket: the post-410 rule of §9.4 forbids pruning without a fresh
-# consent answer, so exhausting the sync budget must not also block it.
-SYNC_REQUESTS_PER_MINUTE = 60
-PUSH_BYTES_PER_MINUTE = 5 * 1024 * 1024
-KEY_READS_PER_HOUR = 10
-SYNC_WINDOW = timedelta(minutes=1)
-KEY_READ_WINDOW = timedelta(hours=1)
+# §11 per-account rate limits moved to `app.domain.rate_limits` in Phase 5: the
+# buckets, their limits and their windows are now one registry, because
+# «which endpoints are limited» had to become a property a test can assert. What
+# was decided here and still holds: `GET /v1/consents` deliberately does not
+# share the `sync` bucket, and gets no bucket of its own either — the post-410
+# rule of §9.4 forbids pruning without a fresh consent answer, so an exhausted
+# budget must never block the answer that unblocks pruning.
 
 # §7: the previous envelope makes a mistaken or malicious overwrite reversible
 # without weakening anything — it is returned only under step-up.
 PREV_ENVELOPE_TTL = timedelta(days=7)
 PREV_ENVELOPE_MIN_INTERVAL = timedelta(hours=24)
-
-
-class RateBucket(StrEnum):
-    SYNC = "sync"
-    PUSH_BYTES = "push_bytes"
-    KEY_READ = "key_read"
 
 
 class KeyWriteMode(StrEnum):

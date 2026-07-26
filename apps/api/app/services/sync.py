@@ -18,23 +18,16 @@ from typing import Any
 from uuid import UUID
 
 from app.domain.identity import ConsentKind, ConsentPrecondition
-from app.domain.rate_limits import window_start
-from app.domain.records import RateVerdict, RecordWrite, StoredRecord, StoredVaultKey
+from app.domain.records import RecordWrite, StoredRecord, StoredVaultKey
 from app.domain.vault import (
-    KEY_READ_WINDOW,
-    KEY_READS_PER_HOUR,
     MAX_PUSH_BYTES,
     MAX_RECORD_BYTES,
     MAX_RECORDS_PER_PUSH,
     PREV_ENVELOPE_MIN_INTERVAL,
     PREV_ENVELOPE_TTL,
     PULL_PAGE_LIMIT,
-    PUSH_BYTES_PER_MINUTE,
-    SYNC_REQUESTS_PER_MINUTE,
-    SYNC_WINDOW,
     KeyWriteMode,
     PayloadTooLarge,
-    RateBucket,
     VaultForbidden,
     VaultGone,
     VaultReset,
@@ -207,6 +200,21 @@ class SyncService:
         if any(write.record_key == named for write in changes):
             raise ConsentPrecondition()
 
+    def _require_health_sync(self, unit: UnitOfWork, account_id: UUID) -> None:
+        """The second half of §11, for the endpoints that hold no lock.
+
+        `push` writes this check out inline as step 4 of the §9.1 order, where
+        it has to sit between two named locks. Everything else needs the same
+        two questions — is the account still active, is `health_sync` still
+        granted — asked inside the transaction that is about to act, because the
+        entry dependency answers them one round trip earlier and a revocation
+        commits in between.
+        """
+        if unit.accounts.status(account_id) != "active":
+            raise VaultForbidden()
+        if ConsentKind.HEALTH_SYNC not in unit.consents.active_kinds(account_id):
+            raise VaultForbidden()
+
     # ------------------------------------------------------------------ pull
 
     def pull(
@@ -218,10 +226,7 @@ class SyncService:
         limit: int,
         consent_epoch_seen: int,
     ) -> PullPage:
-        if unit.accounts.status(account_id) != "active":
-            raise VaultForbidden()
-        if ConsentKind.HEALTH_SYNC not in unit.consents.active_kinds(account_id):
-            raise VaultForbidden()
+        self._require_health_sync(unit, account_id)
 
         counters = unit.vault.counters(account_id)
         if since < counters.compacted_up_to:
@@ -250,6 +255,7 @@ class SyncService:
         stepped_up: bool,
         now: datetime,
     ) -> KeyView | None:
+        self._require_health_sync(unit, account_id)
         stored = unit.vault_keys.read(account_id)
         if stored is None:
             return None
@@ -290,6 +296,7 @@ class SyncService:
     ) -> KeyWriteOutcome:
         if not unit.accounts.lock(account_id):
             raise VaultForbidden()
+        self._require_health_sync(unit, account_id)
         current = unit.vault_keys.lock(account_id)
 
         if current is None:
@@ -376,6 +383,9 @@ class SyncService:
         """
         if not unit.accounts.lock(account_id):
             raise VaultForbidden()
+        # Before the journal entry: §6.4 keeps the journal a record of deletions
+        # that happened, and a refused reset is not one.
+        self._require_health_sync(unit, account_id)
         reference = self._erasure.record_security_reset(
             unit,
             account_id=account_id,
@@ -389,34 +399,9 @@ class SyncService:
         return VaultResetOutcome(revision=revision, erasure_reference=reference)
 
     # ----------------------------------------------------------- rate limits
-
-    def consume_budget(
-        self,
-        unit: UnitOfWork,
-        *,
-        account_id: UUID,
-        bucket: RateBucket,
-        cost: int,
-        now: datetime,
-    ) -> RateVerdict:
-        """§11 windows, committed separately from the work they guard.
-
-        If the budget were consumed inside the push transaction, every 409 and
-        every 410 would roll the counter back — and a looping client would push
-        for free exactly when it is misbehaving.
-        """
-        limit, window = {
-            RateBucket.SYNC: (SYNC_REQUESTS_PER_MINUTE, SYNC_WINDOW),
-            RateBucket.PUSH_BYTES: (PUSH_BYTES_PER_MINUTE, SYNC_WINDOW),
-            RateBucket.KEY_READ: (KEY_READS_PER_HOUR, KEY_READ_WINDOW),
-        }[bucket]
-        seconds = int(window.total_seconds())
-        return unit.rate_windows.consume(
-            account_id,
-            bucket=bucket.value,
-            cost=cost,
-            limit=limit,
-            window_start=window_start(now, seconds),
-            window_seconds=seconds,
-            now=now,
-        )
+    #
+    # The §11 windows moved to `app.services.rate_limits` in Phase 5. They were
+    # here and in `ReminderService` at once, and Phase 5 added a third caller —
+    # the entry dependency, which spends the budget before it knows whether the
+    # consent lets the request through. Three copies of a fixed window is how a
+    # limit silently becomes twice what §11 says.

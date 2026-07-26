@@ -39,9 +39,10 @@ def test_the_limits_match_the_plan() -> None:
     assert vault.MAX_RECORDS_PER_PUSH == 200
     assert vault.MAX_PUSH_BYTES == 1_048_576
     assert vault.PULL_PAGE_LIMIT == 500
-    assert vault.SYNC_REQUESTS_PER_MINUTE == 60
-    assert vault.PUSH_BYTES_PER_MINUTE == 5 * 1024 * 1024
-    assert vault.KEY_READS_PER_HOUR == 10
+    # The three §11 budget numbers that used to be asserted here moved to
+    # `tests/unit/test_rate_limits_domain.py` together with the constants, and
+    # what replaced them is stronger: every bucket's limit *and* window, plus the
+    # bucket set itself.
     assert vault.PREV_ENVELOPE_TTL == timedelta(days=7)
     assert vault.PREV_ENVELOPE_MIN_INTERVAL == timedelta(hours=24)
 
@@ -88,14 +89,6 @@ def test_no_domain_error_accepts_a_constructor_argument() -> None:
     for error in _domain_errors():
         signature = inspect.signature(error.__init__)
         assert list(signature.parameters) == ["self"], error.__name__
-
-
-def test_the_named_buckets_are_the_three_of_section_eleven() -> None:
-    assert {bucket.value for bucket in vault.RateBucket} == {
-        "sync",
-        "push_bytes",
-        "key_read",
-    }
 
 
 def test_the_key_write_modes_are_rewrap_and_rekey() -> None:

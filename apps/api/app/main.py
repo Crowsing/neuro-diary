@@ -22,7 +22,9 @@ from app.api.v1.auth import router as auth_router
 from app.api.v1.consents import router as consents_router
 from app.api.v1.deps import Services
 from app.api.v1.errors import (
+    RateLimitRefusal,
     domain_error_handler,
+    rate_limit_refusal_handler,
     request_validation_error_handler,
     unhandled_error_handler,
 )
@@ -43,6 +45,7 @@ from app.infra.telegram.initdata import InitDataValidator
 from app.services.auth import AuthService
 from app.services.consent import ConsentService
 from app.services.erasure import ErasureService
+from app.services.rate_limits import RateLimitService
 from app.services.reminder import ReminderService
 from app.services.sync import SyncService
 from app.services.ports import (
@@ -56,6 +59,30 @@ from app.services.ports import (
 CONSENT_COPY_ROOT = Path(__file__).resolve().parents[3] / "consent-copy"
 AUTH_ATTEMPTS_PER_MINUTE = 10
 RATE_LIMIT_WINDOW_SECONDS = 60
+
+#: Where the schema and the two documentation viewers live while developing.
+#: Outside `development` all three are absent, not merely unlinked.
+SCHEMA_URL = "/openapi.json"
+DOCS_URL = "/docs"
+REDOC_URL = "/redoc"
+
+
+def _schema_url(settings: Settings) -> str | None:
+    """Publish the schema where CI consumes it, and nowhere else.
+
+    Phase 5 needs the document served over HTTP: the schemathesis job fetches it
+    from a live process, and a fuzzer cannot describe an API it cannot read.
+    Production needs the opposite — `/docs` is an interactive client for every
+    endpoint, and the schema is a map of the whole surface for anyone who reaches
+    the host.
+
+    Closing the route does not hide the document from the test suite:
+    `tests/unit/test_openapi_surface.py` builds it by calling `app.openapi()`,
+    which does not go through a route at all. That is asserted rather than
+    assumed — `test_schema_exposure.py` builds a non-development app and reads
+    its schema in memory after finding the route gone.
+    """
+    return SCHEMA_URL if settings.is_development else None
 
 
 @dataclass(frozen=True, slots=True)
@@ -90,8 +117,18 @@ def create_app(dependencies: AppDependencies) -> FastAPI:
     )
     sync = SyncService(dependencies.clock, erasure)
     reminders = ReminderService(dependencies.clock)
+    rate_limits = RateLimitService(dependencies.clock)
 
-    application = FastAPI(title="Neuro Diary API")
+    schema_url = _schema_url(settings)
+    application = FastAPI(
+        title="Neuro Diary API",
+        openapi_url=schema_url,
+        # Both viewers are interactive clients for every endpoint, and FastAPI
+        # gives them `None` the same way it gives the schema `None`: the route is
+        # absent rather than merely unlinked.
+        docs_url=DOCS_URL if schema_url else None,
+        redoc_url=REDOC_URL if schema_url else None,
+    )
     application.state.services = Services(
         auth=auth,
         consents=consents,
@@ -100,6 +137,7 @@ def create_app(dependencies: AppDependencies) -> FastAPI:
         unit_of_work=dependencies.unit_of_work,
         sync=sync,
         reminders=reminders,
+        rate_limits=rate_limits,
         app_env=settings.app_env,
     )
 
@@ -108,6 +146,7 @@ def create_app(dependencies: AppDependencies) -> FastAPI:
         request_validation_error_handler,
     )
     application.add_exception_handler(DomainError, domain_error_handler)
+    application.add_exception_handler(RateLimitRefusal, rate_limit_refusal_handler)
     # Registered last so nothing reaches uvicorn.error with a SQL statement and
     # its bound parameters attached.
     application.add_exception_handler(Exception, unhandled_error_handler)

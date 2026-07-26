@@ -143,12 +143,12 @@ def forbidden_tokens_in(value: str) -> list[str]:
 
 # ------------------------------------------------------------- delivery timing
 
-#: §11: `reminders-settings 20/хв`, a per-account window in PostgreSQL like the
-#: other three application budgets — not the in-memory per-IP limiter, which
-#: §11 keeps for auth because its key is an address.
-SETTINGS_BUCKET = "reminders_settings"
-SETTINGS_REQUESTS_PER_MINUTE = 20
-SETTINGS_WINDOW = timedelta(minutes=1)
+#: §11's `reminders-settings 20/хв` is a per-account window in PostgreSQL like
+#: the other application budgets — not the in-memory per-IP limiter, which §11
+#: keeps for auth because its key is an address. The bucket, its limit and its
+#: window moved to `app.domain.rate_limits` in Phase 5 so that one registry can
+#: answer «which endpoints are limited»; this module keeps only the timings the
+#: worker reasons about.
 
 #: §10: everything one attempt may spend, including waiting out a `retry_after`.
 #: The worker writes `failed` itself when it runs out rather than leaving the

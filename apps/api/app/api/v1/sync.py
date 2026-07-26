@@ -4,6 +4,13 @@ Thin by construction: parse, call the service, serialize. The two responses
 that carry data on a refusal — `conflict_keys` and `current_wrap_version` — are
 built here as `JSONResponse`, because a domain error cannot hold a field and
 must not learn how (§11).
+
+§11 wants the consent checked twice on every endpoint carrying medical data.
+Phase 5 adds the first half here — `SyncConsentDep` and `KeyReadConsentDep` —
+and the §11 window moves into it with them. Before that the sync path had only
+the in-transaction half, and the envelope endpoints had neither: an account
+holding `telegram_reminders` alone could write a `wrapped_dek` and reset a
+vault it had never consented to keeping.
 """
 
 from __future__ import annotations
@@ -11,16 +18,17 @@ from __future__ import annotations
 from fastapi import APIRouter, Query, Request, Response
 from fastapi.responses import JSONResponse
 
-from app.api.v1.deps import BearerDep, ServicesDep
+from app.api.v1.deps import KeyReadConsentDep, ServicesDep, SyncConsentDep
+from app.api.v1.errors import RateLimitRefusal
 from app.api.v1.mapping import (
     decode_envelope,
     key_output,
     pull_payload,
     record_writes,
-    require_session,
 )
 from app.domain.identity import ProtectedOperation
-from app.domain.vault import KeyWriteMode, RateBucket
+from app.domain.rate_limits import RateBucket
+from app.domain.vault import KeyWriteMode
 from app.schemas.sync import (
     KeyOutput,
     KeyWriteAccepted,
@@ -34,50 +42,35 @@ from app.services.sync import KeyWriteApplied, PushApplied
 router = APIRouter(prefix="/v1", tags=["sync"])
 
 
-def _rate_limited(retry_after_seconds: int) -> JSONResponse:
-    return JSONResponse(
-        status_code=429,
-        content={"error": "rate_limited"},
-        headers={"Retry-After": str(retry_after_seconds)},
-    )
-
-
 @router.post("/sync/push", response_model=PushAccepted)
 def push(
     request: Request,
     payload: PushRequest,
     services: ServicesDep,
-    token: BearerDep,
+    session: SyncConsentDep,
 ) -> Response:
     now = services.sync.now()
     writes = record_writes(payload)
     volume = sum(0 if write.payload is None else len(write.payload) for write in writes)
 
-    # The budget is consumed in its own transaction, before the work: a 409 or
-    # a 410 must not refund it, or a looping client would push for free exactly
-    # when it is misbehaving.
+    # The request budget was charged at the door. The volume budget cannot be:
+    # it is the only §11 window whose cost is not one per request, and nothing
+    # outside the handler knows how many bytes arrived. Its own transaction
+    # commits before the work, for the same reason as the other windows — a 409
+    # or a 410 must not refund it.
     with services.unit_of_work() as unit:
-        session = require_session(services, unit, token)
-        request.state.account_id = session.account_id
-        refusal: int | None = None
-        for bucket, cost in ((RateBucket.SYNC, 1), (RateBucket.PUSH_BYTES, volume)):
-            verdict = services.sync.consume_budget(
-                unit,
-                account_id=session.account_id,
-                bucket=bucket,
-                cost=cost,
-                now=now,
-            )
-            if not verdict.allowed and refusal is None:
-                refusal = verdict.retry_after_seconds
+        verdict = services.rate_limits.consume(
+            unit,
+            account_id=session.account_id,
+            bucket=RateBucket.PUSH_BYTES,
+            cost=volume,
+            now=now,
+        )
         unit.commit()
-    if refusal is not None:
-        request.state.error_code = "rate_limited"
-        return _rate_limited(refusal)
+    if not verdict.allowed:
+        raise RateLimitRefusal(verdict.retry_after_seconds)
 
     with services.unit_of_work() as unit:
-        session = require_session(services, unit, token)
-        request.state.account_id = session.account_id
         outcome = services.sync.push(
             unit,
             account_id=session.account_id,
@@ -108,30 +101,12 @@ def push(
 def pull(
     request: Request,
     services: ServicesDep,
-    token: BearerDep,
+    session: SyncConsentDep,
     since: int = Query(default=0, ge=0),
     limit: int = Query(default=500, ge=1, le=500),
     consent_epoch: int = Query(default=0, ge=0),
 ) -> Response:
-    now = services.sync.now()
     with services.unit_of_work() as unit:
-        session = require_session(services, unit, token)
-        request.state.account_id = session.account_id
-        verdict = services.sync.consume_budget(
-            unit,
-            account_id=session.account_id,
-            bucket=RateBucket.SYNC,
-            cost=1,
-            now=now,
-        )
-        unit.commit()
-    if not verdict.allowed:
-        request.state.error_code = "rate_limited"
-        return _rate_limited(verdict.retry_after_seconds)
-
-    with services.unit_of_work() as unit:
-        session = require_session(services, unit, token)
-        request.state.account_id = session.account_id
         page = services.sync.pull(
             unit,
             account_id=session.account_id,
@@ -149,30 +124,10 @@ def pull(
 def read_key(
     request: Request,
     services: ServicesDep,
-    token: BearerDep,
+    session: KeyReadConsentDep,
 ) -> Response:
     now = services.sync.now()
     with services.unit_of_work() as unit:
-        session = require_session(services, unit, token)
-        request.state.account_id = session.account_id
-        # §11: this endpoint hands out the envelope, the salt and the KDF
-        # parameters, so a stolen session must not turn into an offline
-        # dictionary attack at leisure.
-        verdict = services.sync.consume_budget(
-            unit,
-            account_id=session.account_id,
-            bucket=RateBucket.KEY_READ,
-            cost=1,
-            now=now,
-        )
-        unit.commit()
-    if not verdict.allowed:
-        request.state.error_code = "rate_limited"
-        return _rate_limited(verdict.retry_after_seconds)
-
-    with services.unit_of_work() as unit:
-        session = require_session(services, unit, token)
-        request.state.account_id = session.account_id
         view = services.sync.read_key(
             unit,
             account_id=session.account_id,
@@ -191,15 +146,13 @@ def write_key(
     request: Request,
     payload: KeyWriteRequest,
     services: ServicesDep,
-    token: BearerDep,
+    session: SyncConsentDep,
 ) -> Response:
     now = services.sync.now()
     mode = KeyWriteMode(payload.mode)
     wrapped_dek = decode_envelope(payload.wrapped_dek)
 
     with services.unit_of_work() as unit:
-        session = require_session(services, unit, token)
-        request.state.account_id = session.account_id
         # §7 and §8: step-up on every write, both modes. The server is
         # zero-knowledge and cannot tell a valid envelope from arbitrary bytes,
         # so a mistaken overwrite is unrecoverable by construction.

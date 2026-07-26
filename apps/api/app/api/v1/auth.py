@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Request
 
-from app.api.v1.deps import BearerDep, ServicesDep
-from app.api.v1.mapping import consent_outputs, require_session, to_grant_request
+from app.api.v1.deps import AccountOpsDep, ServicesDep
+from app.api.v1.mapping import consent_outputs, to_grant_request
 from app.schemas.identity import (
     AuthRequest,
     AuthResponse,
@@ -34,11 +34,9 @@ def authenticate(payload: AuthRequest, services: ServicesDep) -> AuthResponse:
 def list_sessions(
     request: Request,
     services: ServicesDep,
-    token: BearerDep,
+    session: AccountOpsDep,
 ) -> SessionListOutput:
     with services.unit_of_work() as unit:
-        session = require_session(services, unit, token)
-        request.state.account_id = session.account_id
         summaries = services.auth.list_sessions(unit, session)
         unit.commit()
     return SessionListOutput(
@@ -59,11 +57,9 @@ def list_sessions(
 def revoke_other_sessions(
     request: Request,
     services: ServicesDep,
-    token: BearerDep,
+    session: AccountOpsDep,
 ) -> RevokedSessionsOutput:
     with services.unit_of_work() as unit:
-        session = require_session(services, unit, token)
-        request.state.account_id = session.account_id
         revoked = services.auth.revoke_other_sessions(unit, session)
         unit.commit()
     return RevokedSessionsOutput(revoked=revoked)

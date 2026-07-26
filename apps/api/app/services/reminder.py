@@ -27,14 +27,9 @@ from datetime import datetime, time
 from uuid import UUID
 
 from app.domain.identity import QuietHoursViolation
-from app.domain.rate_limits import window_start
-from app.domain.records import RateVerdict
 from app.domain.records import ReminderSchedule as ReminderScheduleRecord
 from app.domain.reminders import (
     BOT_BLOCKED,
-    SETTINGS_BUCKET,
-    SETTINGS_REQUESTS_PER_MINUTE,
-    SETTINGS_WINDOW,
     NoSchedule,
     in_quiet_hours,
     next_fire_at,
@@ -117,30 +112,6 @@ class ReminderService:
             now=now,
         )
         return _view(_require_schedule(unit, account_id))
-
-    def consume_budget(
-        self,
-        unit: UnitOfWork,
-        *,
-        account_id: UUID,
-        now: datetime,
-    ) -> RateVerdict:
-        """§11: `reminders-settings 20/хв`, per account, in its own transaction.
-
-        Same reasoning as the sync budgets it sits beside: consuming it inside
-        the write would refund every refusal, and a client looping on a 409
-        would then spend nothing exactly while it misbehaves.
-        """
-        seconds = int(SETTINGS_WINDOW.total_seconds())
-        return unit.rate_windows.consume(
-            account_id,
-            bucket=SETTINGS_BUCKET,
-            cost=1,
-            limit=SETTINGS_REQUESTS_PER_MINUTE,
-            window_start=window_start(now, seconds),
-            window_seconds=seconds,
-            now=now,
-        )
 
 
 def _require_schedule(unit: UnitOfWork, account_id: UUID) -> ReminderScheduleRecord:
