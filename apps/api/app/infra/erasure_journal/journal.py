@@ -92,10 +92,14 @@ class ObjectStoreErasureJournal:
         Nothing is swallowed: §6.4 makes a failed journal write stop the
         erasure, and that only works if the store's error travels out of here.
 
-        The returned reference is derived from the line's own hash rather than
-        invented, so a caller holding it can point at the exact object. It is
-        not written into the line: §6.4 fixes four fields and this is not one
-        of them.
+        The returned reference is the first 128 bits of the line's own hash
+        rather than an invented identifier, so it traces back to the object by
+        prefix. It is deliberately not written *into* the line: §6.4 fixes four
+        fields and this is not one of them, which also means the two journals
+        of `TeeErasureJournal` carry no cross-reference — that composition
+        returns the database row's identifier and discards this one. They are
+        joined by `erasure_ref` and by time, which is what the runbook works
+        with anyway.
         """
         line = JournalLine(
             erasure_ref=erasure_ref(self.erasure_key, account_id),
