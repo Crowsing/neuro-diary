@@ -274,9 +274,13 @@ class ConsentCopyPort(Protocol):
 class ErasureJournalPort(Protocol):
     """Append-only record of the fact of erasure, written *before* deleting.
 
-    Phase 1 writes it inside the same transaction; phase 3 replaces this with
-    the external append-only store of §6.4. The contract that matters here is
-    the ordering: a failure to record must stop the erasure.
+    Two implementations and one composition of them: `DatabaseErasureJournal`
+    writes `diary.erasure_job` in a transaction of its own,
+    `ObjectStoreErasureJournal` appends to the external store of §6.5, and
+    `TeeErasureJournal` puts the external one in front of the row.
+
+    The contract that matters here is the ordering: a failure to record must
+    stop the erasure, whichever of them is wired.
     """
 
     def record_intent(

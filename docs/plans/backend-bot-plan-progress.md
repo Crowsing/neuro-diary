@@ -3,7 +3,7 @@
 Джерело критеріїв: [backend-bot-plan.md](backend-bot-plan.md), §12.
 
 - Базовий стан: `779c112` (`initial: capture current local-only prototype`).
-- **Поточний етап: Фази 1–3 реалізовані (Фаза 3 — блоки 0–3 із чотирьох);
+- **Поточний етап: Фази 1–3 реалізовані (Фаза 3 — усі чотири блоки);
   Gate D лишається блокером продакшену.**
 - Фаза 0: **завершена** — реалізація, remote CI і блокуючі checks закриті.
 - Фаза 1: **реалізована** — усі пункти DoD закриті тестами. Продакшен
@@ -15,7 +15,7 @@
 
 ## Наскрізні gate-и кожної фази
 
-Числа — з останнього прогону (Фаза 3, блоки 0–3).
+Числа — з останнього прогону (Фаза 3, блок 4).
 
 - [x] Web unit-тести зелені. Evidence: `pnpm test` — 34 test files,
   516 tests passed.
@@ -24,9 +24,10 @@
 - [x] Web Playwright зелений. Evidence: `pnpm e2e` — 56 tests passed
   (mobile + desktop), включно з `ac8-no-network-no-deadends.spec.ts`:
   local-only режим лишився робочим без жодної згоди й без правок.
-- [x] API pytest і Ruff зелені. Evidence: `uv run --locked pytest` — 404
-  passed; `ruff check .` — passed; `ruff format --check .` — 100 files
-  formatted; `mypy --strict app` — 62 source files без помилок;
+  `apps/web` блок 4 не чіпав узагалі.
+- [x] API pytest і Ruff зелені. Evidence: `uv run --locked pytest` — 504
+  passed; `ruff check .` — passed; `ruff format --check .` — 113 files
+  formatted; `mypy --strict app` — 68 source files без помилок;
   `lint-imports` — 7 kept, 0 broken.
 - [x] Sync-e2e проти живого api з реальною PostgreSQL. Evidence:
   `SYNC_E2E=1 playwright test --project=sync` — 7 passed.
@@ -745,18 +746,21 @@ Remote-прогін
 - **Ім'я контролера і заморожування текстів згод до `1.0`** — блокер продакшену,
   не цієї фази. Стенд приймає згоди лише завдяки `APP_ENV=development`, і цей
   факт видимий в UI банером (під e2e).
-- **Бакети, ключі й restore drills Фази 3** (додано після блоків 0–3): бакет
-  erasure-журналу в іншого провайдера й іншої країни, обидва backup-бакети для
-  доказу строку через `ListObjectVersions`, ключ `k_erasure`, ключ підпису
-  денного head-а і можливість провести реальне відновлення. Нічого з цього не
-  було доступне в сесії блоків 0–3, тому блок 4 не починався. Це операційна
-  частина, і §6.5 прямо забороняє їй жити в цьому репозиторії.
+- **Бакети, ключі й реальне відновлення Фази 3** (уточнено після блоку 4): бакет
+  erasure-журналу в іншого провайдера й іншої країни разом із транспортом до
+  нього, обидва backup-бакети для доказу строку через `ListObjectVersions`,
+  lifecycle-правило `J = 90`, Object Lock і `NoncurrentVersionExpiration`, ключ
+  `k_erasure`, ключ підпису денного head-а і можливість провести реальне
+  відновлення. Код блоку 4 усе це вже вміє прийняти — бракує саме операційної
+  частини, і §6.5 прямо забороняє їй жити в цьому репозиторії. Наслідок для
+  продакшену названий у розділі блоку 4: без транспорту процес поза
+  `APP_ENV=development` не стартує.
 - **Відкликання згод не має клієнтського інтерфейсу.** Серверний контракт
   `POST /v1/consents/revoke` разом із 409 `confirm_required` реалізований і під
   тестами, але `apps/web` уміє лише надавати згоди — жодного виклику revoke в
   клієнті немає (`grep` по `src/sync` дає тільки `revoke-others` для сесій).
   Тобто §8 сьогодні перевіряється тестами, а не користувачкою; UI відкликання —
-  окрема робота, і в обсяг блоків 0–3 вона не входила.
+  окрема робота, і в обсяг Фази 3 вона не входила.
 
 ### Відкриті ризики, названі під час review і не закриті цією фазою
 
@@ -807,28 +811,32 @@ Remote-прогін
 - ~~409 `confirm_required` на відкликання `health_sync`~~ (§8) — реалізовано;
   джерело `last_acked_revision` зафіксоване сьомим відхиленням.
 
-## Фаза 3 — Erasure і відкликання згод (блоки 0–3 виконані)
+## Фаза 3 — Erasure і відкликання згод (виконана)
 
 Scope: outbox, erasure worker, vault reset, crypto-erasure, erasure-журнал і
 retention/backup runbook.
 
-Гілка `phase-3-erasure`,
+Блоки **0–3** — гілка `phase-3-erasure`,
 [PR #7](https://github.com/Crowsing/neuro-diary/pull/7), змерджано в `main`;
 CI-прогін
 [30171798280](https://github.com/Crowsing/neuro-diary/actions/runs/30171798280)
 зелений — усі п'ять job-ів (`web`, `api`, `bot`, `sync-e2e`, `gitleaks`).
-Продовження — [phase-3-completion.prompt.md](phase-3-completion.prompt.md).
 
-**Блок 4 (зовнішній append-only журнал, runbook після
-restore, retention і restore drills) у цій сесії свідомо не виконувався** —
-обсяг сесії був заданий як блоки 0–3, і жоден із бакетів, ключів чи механізмів
-відновлення не був доступний. Що з нього лишилося — нижче окремим переліком.
+Блок **4** — гілка `phase-3-completion`, промпт
+[phase-3-completion.prompt.md](phase-3-completion.prompt.md).
 
-Головне, що змінилося: **відкликання згоди перестало бути зняттям доступу й
-стало видаленням даних.** До цієї сесії `ConsentService.revoke` позначав
-`revoked_at`, каскадив `health_sync → cycle_sync`, прибирав розклад і піднімав
-`consent_epoch` — записи сейфа, конверт ключа й лічильники ревізій лишалися на
-місці.
+Головне, що змінилося в блоках 0–3: **відкликання згоди перестало бути зняттям
+доступу й стало видаленням даних.** До тієї сесії `ConsentService.revoke`
+позначав `revoked_at`, каскадив `health_sync → cycle_sync`, прибирав розклад і
+піднімав `consent_epoch` — записи сейфа, конверт ключа й лічильники ревізій
+лишалися на місці.
+
+Головне, що змінилося в блоці 4: **доказ видалення перестав жити в тій самій
+базі, яку він має пережити.** До цієї сесії єдиною реалізацією
+`ErasureJournalPort` був `DatabaseErasureJournal`, що пише в
+`diary.erasure_job` — тобто один інцидент забирав і дані, і запис про те, що їх
+треба стерти. Заразом закрилися дві дірки, які робили частину DoD недосяжною:
+з чотирьох кодів §6.4 писачів мали два, а `service_start_at` не існував ніде.
 
 ### DoD блоків 0–3
 
@@ -994,47 +1002,159 @@ NOT NULL-колонці; перелік named-key доменів жив у тр�
 не веде; вкладена транзакція журналу не самоблокується, бо `erasure_job` не має
 FK на `account`.
 
-### Що з Фази 3 не зроблено (блок 4)
+### DoD блоку 4
 
-Не «забуте», а не включене в обсяг сесії. Кожен пункт потребує того, чого в
-репозиторії немає й бути не може.
+- [x] `reminders_off` пишеться при відкликанні `telegram_reminders`, і дія не
+  стартує, якщо запис у журнал не вдався. Evidence:
+  `test_revocation_erasure.py::test_revoking_reminders_is_journalled_before_it_happens`
+  і `::test_an_unwritable_journal_stops_the_reminder_erasure`. Виклик
+  переміщено нижче за перевірку `remaining`, бо повна erasure видаляє розклад
+  сама; це закріплено `::test_a_full_erasure_supersedes_the_reminders_one`,
+  який червоніє, якщо повернути виклик на старе місце.
+- [x] `security_reset` пишеться при re-key, і дія не стартує, якщо запис не
+  вдався. Evidence: `test_security_reset_journal.py` — вісім тестів, зокрема
+  `::test_the_ordered_rekey_of_section_seven_leaves_two_entries`,
+  `::test_a_wrap_conflict_records_nothing`,
+  `::test_the_first_envelope_records_nothing`,
+  `::test_an_unwritable_journal_stops_the_rekey` і
+  `::test_an_unwritable_journal_stops_the_vault_reset`.
+- [x] Зовнішній append-only журнал: адаптер, ланцюг `prev_hash`, підпис денного
+  head-а, retention `J = 90` lifecycle-правилом бакета. Evidence:
+  `app/domain/erasure_journal.py` + `app/infra/erasure_journal/`;
+  `tests/unit/test_erasure_journal.py` (27) і
+  `tests/unit/test_object_store_journal.py` (13). `ObjectStorePort` **не має**
+  методу `delete` — «принципала з правом DELETE не існує» виражене типом
+  (`::test_the_store_port_has_no_delete`).
+- [x] Перевірка ланцюга цілісності знаходить розрив — під тестом, який червоніє
+  на підміненому рядку. Evidence:
+  `test_erasure_journal.py::test_a_removed_line_breaks_the_chain_at_its_successor`,
+  `::test_a_substituted_line_is_named_and_orphans_its_successor`,
+  `test_object_store_journal.py::test_the_audit_names_a_removed_middle_line` і
+  `::test_the_audit_names_a_truncated_tail`. Перевірено зняттям коду: без
+  перевірки `prev_hash` червоніють два тести, без перевірки
+  `key == sha256(body)` — один.
+- [x] «Erasure не стартує, якщо запис у журнал не вдався» — через **новий**
+  адаптер. Evidence:
+  `test_external_journal.py::test_an_unreachable_external_journal_stops_the_erasure`
+  — нуль видалених рядків **і** нуль рядків `erasure_job`, що доводить порядок
+  усередині `TeeErasureJournal`. Перевірено зняттям коду: перевертання порядку
+  червонить саме цей тест.
+- [x] Покриття рахується як `min(now − service_start_at, J)`, і тест доводить,
+  що порожній журнал на здоровому сервісі **не** блокує restore. Evidence:
+  `test_erasure_journal.py::test_an_empty_journal_on_a_healthy_service_does_not_block_a_restore`;
+  зворотні гілки — `::test_a_young_service_cannot_cover_an_older_backup`,
+  `::test_coverage_stops_at_the_retention`,
+  `::test_a_service_start_in_the_future_yields_no_coverage`.
+- [x] Restore бекапа з in-flight job повторно виконує erasure. Evidence:
+  `test_restore_drills.py::test_a_backup_with_an_in_flight_job_erases_again`.
+- [x] Restore бекапа до запиту erasure запускає reconciliation журналу й
+  повторне стирання. Evidence:
+  `::test_a_backup_taken_before_the_request_is_reconciled_from_the_journal` —
+  `diary.erasure_job` порожня, і єдиним джерелом є зовнішній журнал.
+- [x] Третій кейс drill — бекап, знятий **до** re-key, реконсилюється кодом
+  `security_reset`. Evidence:
+  `::test_a_backup_taken_before_a_rekey_is_reconciled_as_a_security_reset`.
+  «Стара фраза не працює» асертиться як «конверта немає»: сервер
+  zero-knowledge і фразу перевірити не може за побудовою.
+- [x] Тест межі `at >= t_b` на **круглій** точці відновлення. Evidence:
+  `::test_an_entry_exactly_at_a_round_restore_point_is_included` разом із
+  `::test_an_entry_from_before_the_restore_point_is_left_alone` — без другого
+  перший проходив би й на reconciler-і, що стирає все підряд.
+- [x] `BACKUP_PROMISE_DAYS = 30` і `BACKUP_CONFIG_MAX_AGE_DAYS = 28` зі
+  статичним assert. Evidence: `app/domain/retention.py` — три інваріанти
+  перевіряються на імпорті через `raise`, а не `assert` (`python -O` викидає
+  `assert`, тобто перевірка зникала б саме в продакшені); числа запінені
+  `test_backup_promise_guard.py::test_the_retention_invariants_hold`.
+- [x] Grep-правило CI: літерал «30 днів» не існує в коді поза
+  `BACKUP_PROMISE_DAYS`, і воно не червоніє на текстах згод і на чотирьох
+  інших 30-денних величинах. Evidence: `tests/unit/test_backup_promise_guard.py`
+  — 21 тест, із них дев'ять доводять, що правило вміє впасти
+  (`::test_it_rejects_a_new_unnamed_duration`,
+  `::test_it_rejects_a_new_prose_mention`) і вісім — що воно не б'є по
+  законному (`::test_it_accepts_what_is_not_the_promise`, включно з
+  `Literal[7, 30, 90]` і `"21:30"`). Перевірено на справжньому файлі: додавання
+  `timedelta(days=30)` у `app/domain/vault.py` червонить прогін.
+- [ ] Доказ строку бекапів через `ListObjectVersions` — **недоступно**:
+  backup-бакетів у цій сесії не було. Зафіксовано в runbook-у й нижче.
+- [ ] 30-денну модель бекапів відрепетирувано — **лише на фікстурах**: реального
+  відновлення не було. Три drills будують стан, який лишило б відновлення, і
+  доводять реконсиляцію, а не інструмент бекапів.
+- [x] Матриця erasure іменована по кожній із **14** таблиць. Evidence:
+  [restore-runbook.md](../restore-runbook.md) і
+  `test_erasure_matrix.py::test_the_matrix_names_every_table_the_migrations_create`,
+  який звіряє перелік із `information_schema` під роллю `api_rw`. Перевірено
+  зняттям рядка: без `reminders.message_cleanup` червоніють два тести.
+- [x] Runbook після повного restore — документ у репозиторії, кроки блокуючі,
+  включно з `min_auth_date`. Evidence: [restore-runbook.md](../restore-runbook.md);
+  `test_erasure_matrix.py::test_the_runbook_states_the_step_that_is_easiest_to_forget`
+  і `::test_the_runbook_keeps_the_operational_half_out_of_git`.
+- [x] `deletion_copy_version` посилається на наявну редакцію, і жодне число не
+  продубльоване в коді. Evidence:
+  `test_backup_promise_guard.py::test_the_promise_is_the_number_the_user_is_given`
+  — константа звіряється з текстом `uk/deletion/1.0.md`, який лишився
+  недоторканим.
 
-- **Зовнішній append-only erasure-журнал** (§6.4, §6.5) — в іншого провайдера й
-  іншої країни. Порт `ErasureJournalPort` існує з Фази 1 і саме для цього; чинна
-  реалізація — `DatabaseErasureJournal` у `diary.erasure_job`, і вона **не є**
-  журналом у сенсі §6.5: вона в тій самій БД, тож один інцидент забирає і дані,
-  і доказ того, що їх треба стерти. Формат рядка, ланцюг `prev_hash`, підпис
-  денного head-а, retention `J = 90` і покриття
-  `min(now − service_start_at, J)` — не реалізовані.
-- **Runbook після повного restore** (§6.4) — документа немає. Разом із ним
-  немає чотирьох дій за кодами (`full`, `sync_off`, `reminders_off`,
-  `security_reset`), реконсиляції з межею `at >= t_b` і тесту цієї межі на
-  круглій точці відновлення. Код `sync_off` уже пишеться цією фазою, тож
-  половина даних для runbook уже накопичується.
-- **`BACKUP_PROMISE_DAYS = 30`, `BACKUP_CONFIG_MAX_AGE_DAYS = 28`, статичний
-  assert і grep-правило CI** — не заведені. Правило свідомо не написане наосліп:
-  §6.4 вимагає, щоб воно не червоніло на текстах згод (де число законне і де
-  файли заморожені) і не плутало обіцянку бекапів із 30-денним вікном §4.3.
-  У коді цієї фази з'явилася третя неспоріднена константа з тим самим числом —
-  `OUTBOX_TTL = timedelta(days=30)` (§6.2), і вона теж **не** є обіцянкою
-  бекапів. Отже до написання правила треба звести всі чотири випадки.
-- **`ListObjectVersions`, Object Lock, `NoncurrentVersionExpiration`, restore
-  drills усіх трьох кейсів** — потребують реальних бакетів і реального
-  відновлення. У цій сесії не було доступне нічого з цього.
-- **Матриця erasure по всіх 12 таблицях іменовано** — покрито дві найважчі
-  (`outbox` — тестами цієї фази; `auth_replay` — має TTL 48 год із Фази 1), але
-  іменованого документа-матриці немає.
-- **`k_erasure` і ключ підпису head-а** — відсутні; тестових не генерувалося,
-  бо не було чого ними підписувати.
-- **Жоден воркер не має точки запуску.** `OutboxDispatcher`, `Housekeeper` і
-  `VaultCompactor` мають лише `run_once()`: ані планувальника, ані entrypoint-а,
-  ані запису в `[project.scripts]`, ані контейнера. Для двох останніх це
-  успадковано з Фаз 1–2, але для диспетчера це має ціну: вся його мотивація —
-  15-хвилинна стеля §4.3, тобто дедлайн, якого в розгорнутій системі сьогодні
-  ніхто не витримує. Названо незалежним review і свідомо не виправлено в цій
-  сесії: заведення планувальника для одного з трьох воркерів зробило б систему
-  менш послідовною, а не більш.
+### Зафіксовані рішення блоку 4
 
+- **`security_reset` має двох писачів** (девʼяте відхилення). Один момент
+  запису лишає вікно: бекап, знятий між `vault-reset` і записом конверта,
+  містить старий конверт, а запис від `vault-reset` для нього вже застарий
+  (`at < t_b`). Сервер до того ж не примушує порядок §7. Ціна названа: один
+  re-key лишає два рядки, і дублікат коштує один ідемпотентний no-op.
+- **`reminders_off` підкорився правилу супрематії**, якому вже підкорявся
+  `sync_off`: повна erasure видаляє розклад сама, тож журналювати частковий код
+  вище за перевірку `remaining` означало б два записи про одне видалення.
+  Сумарний ефект у БД не змінився.
+- **Розгалуження ланцюга — названий результат, а не помилка.** Диспетчер і
+  синхронний шлях revoke можуть дописувати проти одного хвоста. Conditional PUT
+  перетворив би гонку на невдалий запис у журнал, тобто на відмову стирати.
+- **Дірка, знайдена під час написання тестів: видалення хвоста ланцюг не
+  ловить** — на хвіст ніхто не вказує. Ловить її підписаний head, який лишається
+  без свого рядка (`missing_attested`). Залишкова межа названа прямо: хто
+  прибере і рядок, і head, тут непомітний; це властивість журналу без
+  зовнішнього якоря.
+- **`confirm` у зовнішньому журналі — свідомий no-op.** Формат §6.4 має рівно
+  чотири поля, і другий рядок «done» змінив би нормативний формат. Завершення
+  лишається в `diary.erasure_job`, і реконсиляції це не коштує нічого: вона
+  читає зовнішній журнал, а всі чотири дії ідемпотентні.
+- **Реконсиляція йде через наявний `ErasureService`**, а не через власні
+  DELETE: друга копія «стерти сейф» розійшлася б із живим шляхом, і розбіжність
+  виявилася б лише під час інциденту.
+- **Guard реалізований pytest-тестом, а не shell-grep.** Це форма, не зміст:
+  він іде наявним кроком `pytest` в job `api` і сам покритий тестами на власне
+  падіння. Правило, яке ніхто не може прогнати проти контрприкладу, — це
+  правило, про яке ніхто не знає, чи воно працює.
+- **Міграція `0005` не потрібна.** `ck_erasure_job_scope` (міграція `0002`) уже
+  приймає всі чотири коди — схему підготували, писачів не завели.
+  `service_start_at` за рішенням цієї сесії живе в конфігу, а не в БД.
+- **Виправлено твердження, яке код не виконував:** докстрінг
+  `ErasureJournalPort` казав «Phase 1 writes it inside the same transaction»,
+  тоді як `DatabaseErasureJournal` пише у власній транзакції.
+
+### Що з блоку 4 лишилося відкритим
+
+Не «забуте», а те, чого в репозиторії немає й бути не може (§6.5).
+
+- **Транспорт до бакета журналу не написаний.** Формат рядка, ланцюг, підписаний
+  head, адаптер, композиція і реконсиляція — написані й покриті тестами. Клієнта
+  до реального бакета немає: бакета для звірки не було, а непідтверджений
+  SigV4-підписувач був би твердженням, якого код не може показати. Тихо вибрати
+  `InMemoryObjectStore` було б гірше за обидва варіанти — це журнал, який не
+  переживає навіть перезапуску.
+- **Наслідок, названий прямо: продакшен тепер має ще один fail-closed блокер.**
+  Поза `APP_ENV=development` `ERASURE_JOURNAL_ENABLED` обовʼязковий (§6.5), а з
+  ним процес відмовляється стартувати, доки транспорту немає. Це поруч із
+  наявним блокером незамороженої consent copy, а не замість нього.
+- **`ListObjectVersions`, Object Lock і `NoncurrentVersionExpiration`** — потребують
+  реальних backup-бакетів. Недоступно.
+- **Жоден drill не проведено на реальному відновленні.** Усі три — на фікстурах.
+- **`k_erasure` і ключ підпису head-а** — продакшенних немає; тестові генеруються
+  в прогоні й у файли не потрапляють.
+- **Жоден воркер і далі не має точки запуску.** `OutboxDispatcher`,
+  `Housekeeper`, `VaultCompactor` і тепер `RestoreReconciler` мають лише методи
+  `run_once()`/`reconcile()`: ані планувальника, ані entrypoint-а, ані запису в
+  `[project.scripts]`. Для reconciler-а це доречно — його запускає людина за
+  runbook-ом, — але для диспетчера лишається ціною 15-хвилинна стеля §4.3.
 ## Фаза 4 — Нагадування (заблокована Gate D)
 
 Scope: reminders schema, worker, DST, quiet hours, ідемпотентність, reconciler
