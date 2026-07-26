@@ -13,6 +13,7 @@ from typing import Any, Protocol
 from uuid import UUID
 
 from app.domain.identity import ConsentKind, RevokeReason
+from app.domain.reminders import SendReceipt
 from app.domain.records import (
     ConsentRecord,
     ConsentText,
@@ -148,9 +149,9 @@ class ReminderScheduleRepositoryPort(Protocol):
     #: messages are deleted, and drained by the worker. `expires_at` is the hard
     #: 48-hour TTL, not a hint.
     #:
-    #: It takes no chat id and no message ids because it must not: the copy is
-    #: one `INSERT … SELECT` inside the database, so no chat id and no message
-    #: id ever reaches a service, a return value or a log on the way out.
+    #: It takes no chat id and no message ids, and returns none: the adapter
+    #: reads them from the rows that are about to be deleted and copies them
+    #: across, so nothing above this line ever holds one.
     def queue_cleanup(self, account_id: UUID, *, expires_at: datetime) -> int: ...
     def delete(self, account_id: UUID) -> None: ...
     def delete_deliveries_before(self, moment: datetime) -> int: ...
@@ -360,6 +361,17 @@ class ReminderUnitOfWorkFactory(Protocol):
     def __call__(self) -> AbstractContextManager[ReminderUnitOfWork]: ...
 
 
+class TelegramDeliveryPort(Protocol):
+    """The two Bot API methods §5.3 pt. 6 allows this system to call.
+
+    Nothing here takes a text, a label or a URL: §10 makes all three constants,
+    and a parameter would be the first place an interpolation could appear.
+    """
+
+    def send_reminder(self, *, chat_id: int, deadline: datetime) -> SendReceipt: ...
+    def delete_message(self, *, chat_id: int, message_id: int) -> bool: ...
+
+
 class ConsentCopyPort(Protocol):
     def grant_text(self, kind: ConsentKind, *, locale: str) -> ConsentText: ...
     def unfrozen_versions(self) -> list[str]: ...
@@ -428,9 +440,11 @@ __all__ = [
     "SessionRecord",
     "SessionRepositoryPort",
     "SessionSummary",
+    "SendReceipt",
     "StalePending",
     "StoredRecord",
     "StoredVaultKey",
+    "TelegramDeliveryPort",
     "TelegramIdentityRepositoryPort",
     "UnitOfWork",
     "UnitOfWorkFactory",

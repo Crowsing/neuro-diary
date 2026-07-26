@@ -149,6 +149,10 @@ class DueReminder:
     account_id: UUID
     telegram_chat_id: int
     timezone_name: str
+    #: Carried so the next fire time is resolved from the local calendar date
+    #: rather than by adding a day to `next_fire_at` — the one arithmetic §10
+    #: forbids outright.
+    local_time: time
     next_fire_at: datetime
 
 

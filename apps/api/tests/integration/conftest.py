@@ -131,7 +131,9 @@ def worker_engine(identity_database: Database) -> Iterator[Engine]:
     process is denied, and the isolation of §5.3 would be asserted nowhere.
     """
     created = create_engine(
-        identity_database.worker_url.replace("postgresql://", "postgresql+psycopg://", 1)
+        identity_database.worker_url.replace(
+            "postgresql://", "postgresql+psycopg://", 1
+        )
     )
     yield created
     created.dispose()

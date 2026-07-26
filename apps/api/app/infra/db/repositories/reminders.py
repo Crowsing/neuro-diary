@@ -48,6 +48,7 @@ class ReminderWorkerRepository:
                 ReminderSchedule.account_id,
                 ReminderSchedule.telegram_chat_id,
                 ReminderSchedule.tz,
+                ReminderSchedule.local_time,
                 ReminderSchedule.next_fire_at,
             )
             .where(
@@ -63,6 +64,7 @@ class ReminderWorkerRepository:
                 account_id=row.account_id,
                 telegram_chat_id=row.telegram_chat_id,
                 timezone_name=row.tz,
+                local_time=row.local_time,
                 next_fire_at=row.next_fire_at,
             )
             for row in rows

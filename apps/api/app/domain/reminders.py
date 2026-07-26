@@ -20,8 +20,11 @@ the duplicate it exists to prevent.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import UTC, date, datetime, time, timedelta
 from enum import StrEnum
+from functools import lru_cache
+from importlib import resources
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from app.domain.identity import DomainError, UnknownTimezone
@@ -55,6 +58,29 @@ class Decision(StrEnum):
     SEND = "send"
     SKIP_QUIET = "skip_quiet"
     SKIP_STALE = "skip_stale"
+
+
+class SendOutcome(StrEnum):
+    """What Telegram did with one attempt, in the three shapes §10 acts on.
+
+    `FAILED` deliberately covers 400, every 5xx, a timeout and an exhausted
+    budget as one outcome, because the worker's response to all four is
+    identical: write `failed`, change neither the schedule nor the consent, and
+    never try that day again. Splitting them would create a branch whose only
+    possible use is to retry something at-most-once forbids retrying.
+    """
+
+    SENT = "sent"
+    BLOCKED = "blocked"
+    FAILED = "failed"
+
+
+@dataclass(frozen=True, slots=True)
+class SendReceipt:
+    outcome: SendOutcome
+    #: Present exactly when `outcome is SENT`. It is what §6.4 later needs to
+    #: delete the message, and the only value Telegram returns that is kept.
+    message_id: int | None = None
 
 
 class NoSchedule(DomainError):
@@ -177,11 +203,48 @@ def in_quiet_hours(value: time) -> bool:
 
 
 def zone_for(timezone_name: str) -> ZoneInfo:
-    """Validate through the timezone database, storing the name verbatim (§10)."""
+    """Validate through the **pinned** timezone database (§10).
+
+    Not `ZoneInfo(name)`. That constructor searches `TZPATH` first, and on every
+    machine this code has ever run on — macOS, the CI image, a Debian container
+    — `/usr/share/zoneinfo` exists and wins. The pinned `tzdata` dependency
+    would then be an unused package, every DST fixture in this suite would
+    silently assert a property of the host image, and §10's «а не tzdata
+    хоста» would be a sentence rather than a fact.
+
+    Loading the file out of the package sidesteps that without mutating global
+    state: `zoneinfo.reset_tzpath` would work too, but it does not invalidate
+    the `ZoneInfo` cache, so any zone another module had already constructed
+    would keep the host's rules and nothing would say so.
+
+    The name is stored verbatim by the caller; no alias is canonicalised here,
+    which is why the membership test is against the package's own list rather
+    than against a set of canonical zones.
+    """
     try:
-        return ZoneInfo(timezone_name)
-    except (ZoneInfoNotFoundError, ValueError) as error:
+        return _packaged_zone(timezone_name)
+    except (ZoneInfoNotFoundError, ValueError, OSError, ModuleNotFoundError) as error:
         raise UnknownTimezone() from error
+
+
+@lru_cache(maxsize=None)
+def _zone_names() -> frozenset[str]:
+    """Every name the pinned database ships, canonical zones and links alike."""
+    listing = resources.files("tzdata").joinpath("zones").read_text(encoding="utf-8")
+    return frozenset(listing.split())
+
+
+@lru_cache(maxsize=None)
+def _packaged_zone(timezone_name: str) -> ZoneInfo:
+    if timezone_name not in _zone_names():
+        # Also the traversal guard: only names the package itself lists ever
+        # reach the resource lookup below.
+        raise UnknownTimezone()
+    package, _, leaf = f"tzdata.zoneinfo.{timezone_name}".replace("/", ".").rpartition(
+        "."
+    )
+    with resources.files(package).joinpath(leaf).open("rb") as handle:
+        return ZoneInfo.from_file(handle, key=timezone_name)
 
 
 def next_fire_at(
@@ -217,6 +280,59 @@ def resolve_local(day: date, local_time: time, zone: ZoneInfo) -> datetime:
         # Unambiguous, or ambiguous with the first occurrence earlier.
         return early
     return _transition_between(late, early, zone)
+
+
+def local_date_of(instant: datetime, timezone_name: str) -> date:
+    """The calendar day an occurrence belongs to, in the schedule's own zone.
+
+    This is the second half of the `reminder_delivery` primary key, so it is the
+    identity of the occurrence rather than a display value: two instants that
+    map to one local date are the same reminder, and one of them is never sent.
+    """
+    return instant.astimezone(zone_for(timezone_name)).date()
+
+
+def decide(
+    *,
+    scheduled_for: datetime,
+    now: datetime,
+    timezone_name: str,
+) -> Decision:
+    """§10, in the order §10 states it: catch-up, same day, quiet hours.
+
+    The quiet check is on the **actual** moment of sending, not on the planned
+    one. That is the whole difference between the two skip statuses: a schedule
+    at 21:30 delayed by forty minutes is inside the catch-up window and on the
+    right day, and it is still refused — at 22:10 the message would arrive in
+    the hours Gate D closed, and a reminder that wakes someone is precisely the
+    harm the feature exists to avoid.
+    """
+    zone = zone_for(timezone_name)
+    if now - scheduled_for > CATCH_UP_WINDOW:
+        return Decision.SKIP_STALE
+    if now.astimezone(zone).date() != scheduled_for.astimezone(zone).date():
+        return Decision.SKIP_STALE
+    if in_quiet_hours(now.astimezone(zone).time()):
+        return Decision.SKIP_QUIET
+    return Decision.SEND
+
+
+def attempt_deadline(*, started_at: datetime, timezone_name: str) -> datetime:
+    """When this attempt must be over: the budget, or nightfall, whichever first.
+
+    §10 allows `retry_after` to be honoured «в межах вікна валідності тієї ж
+    доби», and quiet hours are what ends that window: an occurrence claimed for
+    one local date must not be delivered after 22:00 local, whatever budget is
+    left. Taking the minimum keeps both rules in one value, so no caller can
+    satisfy one of them and forget the other.
+    """
+    zone = zone_for(timezone_name)
+    nightfall = resolve_local(
+        started_at.astimezone(zone).date(),
+        QUIET_HOURS_START,
+        zone,
+    )
+    return min(started_at + ATTEMPT_BUDGET, nightfall)
 
 
 def _transition_between(lower: datetime, upper: datetime, zone: ZoneInfo) -> datetime:

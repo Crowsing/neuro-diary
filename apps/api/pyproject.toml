@@ -7,6 +7,12 @@ dependencies = [
     "alembic==1.18.5",
     "cryptography==49.0.0",
     "fastapi==0.139.2",
+    # Runtime since phase 4: the reminder worker is the first outbound HTTP
+    # caller in this codebase. It is here rather than in the dev group so the
+    # adapter itself runs under test through `httpx.MockTransport` — a fake
+    # implementing the port would leave the real request-building code, which
+    # is where the §10 allowlist lives, exercised by nothing.
+    "httpx==0.28.1",
     "psycopg[binary]==3.3.4",
     "pydantic==2.13.4",
     "sqlalchemy==2.0.51",
@@ -17,7 +23,6 @@ dependencies = [
 
 [dependency-groups]
 dev = [
-    "httpx==0.28.1",
     "import-linter==2.13",
     "mypy==2.3.0",
     "pytest==9.1.1",
@@ -25,6 +30,14 @@ dev = [
     "ruff==0.15.22",
     "testcontainers[postgres]==4.14.2",
 ]
+
+#: Phase 4. Before it, not one worker had a way to be started; §10 is the first
+#: deadline a person would notice missing, so the scheduler arrives for all of
+#: them at once rather than for the one that forced the issue.
+[project.scripts]
+neuro-maintenance = "app.worker_main:maintenance"
+neuro-reminders = "app.worker_main:reminders"
+neuro-restore-reconcile = "app.worker_main:restore_reconcile"
 
 [build-system]
 requires = ["hatchling"]

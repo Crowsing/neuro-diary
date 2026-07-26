@@ -38,8 +38,10 @@ from app.domain.events import (
     SECURITY_RESET_REQUESTED,
     VAULT_ERASURE_REQUESTED,
 )
-from app.domain.identity import RevokeReason
+from app.domain.identity import ConsentKind, ConsentPrecondition, RevokeReason
 from app.domain.records import PendingEvent
+from app.domain.reminders import BOT_BLOCKED_STREAK
+from app.services.consent import ConsentService
 from app.services.erasure import ErasureService
 from app.services.ports import Clock, UnitOfWork, UnitOfWorkFactory
 
@@ -57,6 +59,7 @@ class DispatchResult:
     journals_confirmed: int
     deliveries_removed: int
     events_removed: int
+    consents_timed_out: int
 
 
 class OutboxDispatcher:
@@ -64,10 +67,12 @@ class OutboxDispatcher:
         self,
         unit_of_work: UnitOfWorkFactory,
         erasure: ErasureService,
+        consents: ConsentService,
         clock: Clock,
     ) -> None:
         self._unit_of_work = unit_of_work
         self._erasure = erasure
+        self._consents = consents
         self._clock = clock
 
     def run_once(self) -> DispatchResult:
@@ -125,6 +130,8 @@ class OutboxDispatcher:
         for reference in [*erased, *confirmed]:
             self._erasure.confirm(reference, now=now)
 
+        timed_out = self._reconcile_blocked_bots(now=now)
+
         with self._unit_of_work() as unit:
             deliveries = unit.schedules.delete_deliveries_before(
                 now - REMINDER_DELIVERY_TTL
@@ -138,7 +145,61 @@ class OutboxDispatcher:
             journals_confirmed=len(confirmed),
             deliveries_removed=deliveries,
             events_removed=events,
+            consents_timed_out=timed_out,
         )
+
+    def _reconcile_blocked_bots(self, *, now: datetime) -> int:
+        """§10: a block that has stood for fourteen days reaches the consent.
+
+        **Why this is a scan and not an event handler.** §10 points at the
+        dispatcher's unknown-`event_type` branch, and the dispatcher is indeed
+        where this belongs — but not as a consumer, because there is nobody to
+        produce the event. The only process that learns about a 403 is the
+        reminder worker, and §6.3 gives it zero privileges on `diary`, so it
+        cannot write `diary.outbox` at all. An event would need either a wider
+        role for the process holding `BOT_TOKEN` or a second writer with no
+        source of truth. The state is already durable in
+        `reminder_schedule.disabled_at`; reading it is cheaper than inventing a
+        message about it. The branch stays as it was, still refusing to swallow
+        an event it was not taught.
+
+        **Why `disabled_reason` and never `enabled`.** A pause the user asked
+        for is `enabled = false` with no reason and no `disabled_at`, and it
+        must never cost her a consent however long it lasts (§10). The index
+        this scan reads is partial on `disabled_reason IS NOT NULL`, so a paused
+        schedule is not merely filtered out — it is not in the index.
+
+        Revocation goes through `ConsentService` rather than through the
+        repository so the cascade of §4.3 stays in one place: the reason is not
+        the user's, so the account is *not* erased now — it gets the thirty-day
+        window `Housekeeper` owns — while the schedule rows go immediately,
+        because §4.4 forbids one outliving its consent.
+        """
+        with self._unit_of_work() as unit:
+            overdue = unit.schedules.blocked_since(now - BOT_BLOCKED_STREAK)
+
+        reconciled = 0
+        for account_id in overdue:
+            # One transaction per account, for the reason every other worker
+            # gives: one account that cannot be revoked must not cost the rest
+            # of them their deadline.
+            with self._unit_of_work() as unit:
+                try:
+                    self._consents.revoke(
+                        unit,
+                        account_id=account_id,
+                        kind=ConsentKind.TELEGRAM_REMINDERS,
+                        now=now,
+                        reason=RevokeReason.BOT_BLOCKED_TIMEOUT,
+                    )
+                except ConsentPrecondition:
+                    # Already revoked — a redelivery, a race with the user, or a
+                    # schedule row that outlived its consent. Nothing to do, and
+                    # nothing worth failing the batch over.
+                    continue
+                unit.commit()
+            reconciled += 1
+        return reconciled
 
     def _erase_if_orphaned(
         self,

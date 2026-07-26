@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 from datetime import datetime, time
-from typing import Any, cast
 from uuid import UUID, uuid4
 
-from sqlalchemy import CursorResult, delete, func, insert, select, text, update
+from sqlalchemy import delete, func, insert, select, text, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.domain.identity import ConsentKind, RevokeReason
@@ -304,39 +304,62 @@ class ReminderScheduleRepository:
     def queue_cleanup(self, account_id: UUID, *, expires_at: datetime) -> int:
         """§6.4: hand the sent messages to the worker before the rows go.
 
-        One `INSERT … SELECT`, so the chat id and the message ids are copied
-        inside the database and never surface in this process. `api_rw` holds
-        `INSERT` and nothing else on the target, which is also why there is no
-        `RETURNING` here — reading back what was written would need a privilege
-        §6.3 deliberately withholds.
+        **Why one statement per message, and not `INSERT … SELECT`.** The set
+        version needs `ON CONFLICT … DO NOTHING` to be idempotent, and
+        PostgreSQL requires `SELECT` on the target for that clause — a
+        privilege §6.3 withholds from `api_rw` on purpose («fills it but never
+        reads it back»). Widening the grant to keep the query tidy would trade
+        a real isolation property for one round trip. A conflicting row also
+        aborts the whole set statement, so the tidy version would silently drop
+        the messages that did *not* conflict.
 
-        `ON CONFLICT DO NOTHING` makes a repeated erasure harmless and keeps the
-        first `expires_at` — extending the TTL on a retry would quietly lengthen
-        the window §6.4 promises to be at most forty-eight hours.
+        A duplicate is reachable in exactly one situation: a restore puts the
+        delivery rows back while an earlier queue entry is still inside its
+        forty-eight hours. Skipping it keeps the **first** `expires_at`, which
+        is the conservative half — re-queueing would extend a window §6.4
+        promises to be at most that long.
+
+        The identifiers do pass through this method, and they go no further:
+        nothing here returns them, logs them, or hands them to a service. Only
+        the count leaves.
         """
-        result = cast(
-            "CursorResult[Any]",
-            self._session.execute(
-                text(
-                    """
-                INSERT INTO reminders.message_cleanup
-                    (account_id, chat_id, message_id, expires_at)
-                SELECT delivery.account_id,
-                       schedule.telegram_chat_id,
-                       delivery.telegram_message_id,
-                       :expires_at
-                FROM reminders.reminder_delivery AS delivery
-                JOIN reminders.reminder_schedule AS schedule
-                  ON schedule.account_id = delivery.account_id
-                WHERE delivery.account_id = :account_id
-                  AND delivery.telegram_message_id IS NOT NULL
-                ON CONFLICT ON CONSTRAINT pk_message_cleanup DO NOTHING
-                """
-                ),
-                {"account_id": account_id, "expires_at": expires_at},
-            ),
-        )
-        return result.rowcount
+        rows = self._session.execute(
+            select(
+                ReminderSchedule.telegram_chat_id,
+                ReminderDelivery.telegram_message_id,
+            )
+            .join(
+                ReminderDelivery,
+                ReminderDelivery.account_id == ReminderSchedule.account_id,
+            )
+            .where(
+                ReminderSchedule.account_id == account_id,
+                ReminderDelivery.telegram_message_id.is_not(None),
+            )
+        ).all()
+
+        queued = 0
+        for row in rows:
+            try:
+                with self._session.begin_nested():
+                    self._session.execute(
+                        text(
+                            "INSERT INTO reminders.message_cleanup"
+                            " (account_id, chat_id, message_id, expires_at)"
+                            " VALUES (:account_id, :chat_id, :message_id,"
+                            " :expires_at)"
+                        ),
+                        {
+                            "account_id": account_id,
+                            "chat_id": row.telegram_chat_id,
+                            "message_id": row.telegram_message_id,
+                            "expires_at": expires_at,
+                        },
+                    )
+            except IntegrityError:
+                continue
+            queued += 1
+        return queued
 
     def delete(self, account_id: UUID) -> None:
         """§4.4: no schedule row may outlive its consent."""
