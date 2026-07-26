@@ -8,6 +8,7 @@ checklist.
 from __future__ import annotations
 
 import dataclasses
+import secrets
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -30,6 +31,21 @@ BASE_ENV = {
 }
 
 
+def _journal_env() -> dict[str, str]:
+    """§6.5 makes the external journal mandatory outside development.
+
+    The keys are minted per call rather than written down: gitleaks scans the
+    whole history, and a 64-character hex literal would keep CI red long after
+    it left HEAD.
+    """
+    return {
+        "ERASURE_JOURNAL_ENABLED": "true",
+        "ERASURE_JOURNAL_KEY": secrets.token_bytes(32).hex(),
+        "ERASURE_JOURNAL_HEAD_KEY": secrets.token_bytes(32).hex(),
+        "SERVICE_START_AT": "2026-01-01T00:00:00Z",
+    }
+
+
 def test_reads_the_documented_environment() -> None:
     settings = Settings.from_env(BASE_ENV)
 
@@ -43,9 +59,85 @@ def test_reads_the_documented_environment() -> None:
 
 
 def test_production_is_the_default_environment() -> None:
-    env = {key: value for key, value in BASE_ENV.items() if key != "APP_ENV"}
+    env = {
+        **{key: value for key, value in BASE_ENV.items() if key != "APP_ENV"},
+        **_journal_env(),
+    }
 
     assert Settings.from_env(env).app_env == "production"
+
+
+# ------------------------------------------------------------- erasure journal
+
+
+def test_production_refuses_to_start_without_the_external_journal() -> None:
+    """§6.5: the journal in another country is not optional.
+
+    Without it a single incident takes the data and the proof that it has to be
+    erased — `diary.erasure_job` is inside the very database it would have to
+    outlive. A deployment that cannot satisfy this must fail to start rather
+    than run with a journal that answers for nothing.
+    """
+    env = {**BASE_ENV, "APP_ENV": "production"}
+
+    with pytest.raises(ConfigurationError, match="ERASURE_JOURNAL_ENABLED"):
+        Settings.from_env(env)
+
+
+def test_development_may_run_on_the_database_journal_alone() -> None:
+    settings = Settings.from_env(BASE_ENV)
+
+    assert settings.erasure_journal_enabled is False
+    assert settings.erasure_journal_key is None
+    assert settings.service_start_at is None
+
+
+@pytest.mark.parametrize(
+    "missing",
+    ["ERASURE_JOURNAL_KEY", "ERASURE_JOURNAL_HEAD_KEY", "SERVICE_START_AT"],
+)
+def test_an_enabled_journal_needs_its_keys_and_its_start(missing: str) -> None:
+    env = {**BASE_ENV, **_journal_env()}
+    del env[missing]
+
+    with pytest.raises(ConfigurationError, match=missing):
+        Settings.from_env(env)
+
+
+def test_the_two_journal_keys_must_differ() -> None:
+    """One key would let whoever audits a daily head recompute the pseudonym of
+    an account they name."""
+    shared = secrets.token_bytes(32).hex()
+    env = {
+        **BASE_ENV,
+        **_journal_env(),
+        "ERASURE_JOURNAL_KEY": shared,
+        "ERASURE_JOURNAL_HEAD_KEY": shared,
+    }
+
+    with pytest.raises(ConfigurationError, match="must differ"):
+        Settings.from_env(env)
+
+
+def test_the_journal_keys_are_thirty_two_bytes() -> None:
+    env = {**BASE_ENV, **_journal_env(), "ERASURE_JOURNAL_KEY": "aa" * 16}
+
+    with pytest.raises(ConfigurationError, match="32 bytes"):
+        Settings.from_env(env)
+
+
+def test_the_service_start_carries_an_offset() -> None:
+    env = {**BASE_ENV, **_journal_env(), "SERVICE_START_AT": "2026-01-01T00:00:00"}
+
+    with pytest.raises(ConfigurationError, match="timezone offset"):
+        Settings.from_env(env)
+
+
+def test_the_journal_prefix_has_a_default() -> None:
+    settings = Settings.from_env({**BASE_ENV, **_journal_env()})
+
+    assert settings.erasure_journal_prefix == "erasure"
+    assert settings.service_start_at == datetime(2026, 1, 1, tzinfo=UTC)
 
 
 @pytest.mark.parametrize("fallback", ["true", "false"])

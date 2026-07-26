@@ -31,10 +31,12 @@ from app.api.v1.sync import router as sync_router
 from app.api.v1.middleware import RateLimitMiddleware, RequestContextMiddleware
 from app.domain.identity import DomainError
 from app.infra.clock import SystemClock
-from app.infra.config import Settings
+from app.infra.config import ConfigurationError, Settings
 from app.infra.consent_copy import FileConsentCopyRegistry
 from app.infra.db.engine import SqlUnitOfWorkFactory, build_engine
-from app.services.erasure_journal import DatabaseErasureJournal
+from app.infra.erasure_journal.journal import ObjectStoreErasureJournal
+from app.infra.erasure_journal.store import ObjectStorePort
+from app.services.erasure_journal import DatabaseErasureJournal, TeeErasureJournal
 from app.infra.logging import ensure_configured, get_logger
 from app.infra.telegram.initdata import InitDataValidator
 from app.services.auth import AuthService
@@ -125,6 +127,7 @@ def create_app(dependencies: AppDependencies) -> FastAPI:
     )
 
     _disclose_copy_state(dependencies, settings)
+    _disclose_journal_state(dependencies)
 
     application.include_router(health_router)
     application.include_router(auth_router)
@@ -154,6 +157,72 @@ def _disclose_copy_state(
     get_logger().warning(event, record_count=len(unfrozen))
 
 
+def _disclose_journal_state(dependencies: AppDependencies) -> None:
+    """Say at startup which erasure journal this process is actually writing to.
+
+    The same shape as the consent-copy disclosure above, and for the same
+    reason: a weakened guarantee has to be visible in the log of the running
+    process, not only in the configuration somebody set months ago.
+
+    It reads the wired dependency rather than the settings flag on purpose. The
+    flag says what the environment asked for; only the object says what this
+    process will do, and a log line that reports the wrong one is exactly the
+    kind of claim this codebase keeps failing to keep.
+    """
+    event = (
+        "erasure_journal_external"
+        if isinstance(dependencies.erasure_journal, TeeErasureJournal)
+        else "erasure_journal_database_only"
+    )
+    get_logger().warning(event)
+
+
+def _object_store(settings: Settings) -> ObjectStorePort:
+    """The one piece of §6.5 this repository does not have.
+
+    Everything above it is written and tested: the line format, the chain, the
+    signed head, the adapter, and the composition below. What is missing is a
+    client that speaks to a real bucket with another provider in another
+    country — and no bucket was available to verify a signer against. Shipping
+    an unverified one would be a claim the code cannot demonstrate, and quietly
+    selecting `InMemoryObjectStore` would be worse than either: a journal that
+    does not survive a restart, let alone the incident it exists for.
+
+    So this refuses loudly, and the refusal is the honest state of the
+    deployment rather than a bug.
+    """
+    del settings
+    raise ConfigurationError(
+        "ERASURE_JOURNAL_ENABLED is set, but no object store transport is"
+        " implemented yet — see docs/restore-runbook.md"
+    )
+
+
+def _erasure_journal(
+    settings: Settings,
+    unit_of_work: UnitOfWorkFactory,
+    consent_copy: ConsentCopyPort,
+) -> ErasureJournalPort:
+    """The external journal in front, the row behind it (§6.4, §6.5)."""
+    database = DatabaseErasureJournal(unit_of_work, consent_copy)
+    if not settings.erasure_journal_enabled:
+        return database
+    if (
+        settings.erasure_journal_key is None
+        or settings.erasure_journal_head_key is None
+    ):
+        # `Settings.from_env` already refuses this; repeating it here keeps the
+        # composition safe against a hand-built `Settings` in a future caller.
+        raise ConfigurationError("the erasure journal is enabled without its keys")
+    external = ObjectStoreErasureJournal(
+        _object_store(settings),
+        erasure_key=settings.erasure_journal_key,
+        head_key=settings.erasure_journal_head_key,
+        prefix=settings.erasure_journal_prefix,
+    )
+    return TeeErasureJournal(external, database)
+
+
 def build_dependencies(env: Mapping[str, str] | None = None) -> AppDependencies:
     settings = Settings.from_env(env if env is not None else os.environ)
     unit_of_work = SqlUnitOfWorkFactory(build_engine(settings.api_database_url))
@@ -170,7 +239,7 @@ def build_dependencies(env: Mapping[str, str] | None = None) -> AppDependencies:
             hmac_secret=settings.webapp_hmac_secret,
         ),
         consent_copy=consent_copy,
-        erasure_journal=DatabaseErasureJournal(unit_of_work, consent_copy),
+        erasure_journal=_erasure_journal(settings, unit_of_work, consent_copy),
     )
 
 

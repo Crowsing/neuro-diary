@@ -7,6 +7,7 @@ grant that still wrote something would be a consent nobody gave.
 from __future__ import annotations
 
 import hashlib
+import secrets
 from pathlib import Path
 
 import pytest
@@ -396,6 +397,14 @@ def test_production_refuses_unfrozen_copy_and_writes_nothing(
                         settings.telegram_ed25519_public_key.hex()
                     ),
                     "LOG_ACCOUNT_REF_KEY": bytes(range(32)).hex(),
+                    # §6.5 makes the external journal mandatory outside
+                    # development, so a production `Settings` cannot be built
+                    # without it. Minted here rather than written down —
+                    # gitleaks scans the whole history.
+                    "ERASURE_JOURNAL_ENABLED": "true",
+                    "ERASURE_JOURNAL_KEY": secrets.token_bytes(32).hex(),
+                    "ERASURE_JOURNAL_HEAD_KEY": secrets.token_bytes(32).hex(),
+                    "SERVICE_START_AT": "2026-01-01T00:00:00Z",
                 }
             ),
             unit_of_work=dependencies.unit_of_work,
