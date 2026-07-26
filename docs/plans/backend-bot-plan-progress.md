@@ -1227,29 +1227,336 @@ privacy-контракту перевірені окремо й підтверд
   `run_once()`/`reconcile()`: ані планувальника, ані entrypoint-а, ані запису в
   `[project.scripts]`. Для reconciler-а це доречно — його запускає людина за
   runbook-ом, — але для диспетчера лишається ціною 15-хвилинна стеля §4.3.
-## Фаза 4 — Нагадування (заблокована Gate D)
+  **Закрито Фазою 4** — три console scripts у `apps/api/pyproject.toml`; рядок
+  лишається як опис стану на кінець блоку 4, а не як чинний борг.
 
-Scope: reminders schema, worker, DST, quiet hours, ідемпотентність, reconciler
-і settings endpoints.
+## Фаза 4 — Нагадування (виконана)
+
+Scope: ресурс `ReminderSettings`, воркер доставки, DST, quiet hours,
+ідемпотентність, reconciler 403, черга прибирання повідомлень і точки запуску
+воркерів.
 
 ### DoD
 
-- [ ] DST-тести Europe/Kyiv покривають обидва переходи, неіснуючий і подвійний
-  локальний час. Evidence: _pending_.
-- [ ] Роль `reminder_worker` отримує permission denied на `diary.*`.
-  Evidence: _pending_.
-- [ ] Позитивний GRANT-тест покриває повний цикл insert-before-send під
-  `reminder_worker` і провізію/деактивацію під `api_rw`. Evidence: _pending_.
-- [ ] Збій між send і confirm не створює дубль; повторна доставка перевірена.
-  Evidence: _pending_.
-- [ ] Mock 403 встановлює `enabled=false` і `disabled_reason='bot_blocked'`,
-  а reconciler ставить `revoked_at` і створює `ConsentRevoked`.
-  Evidence: _pending_.
-- [ ] Усі outbound тексти й labels мають exact-allowlist тести.
-  Evidence: _pending_.
-- [ ] Telegram API 429 і 403 покриті mock-тестами. Evidence: _pending_.
-- [ ] Private-chat binding та opt-in/revoke покриті інтеграційними тестами.
-  Evidence: _pending_.
+- [x] DST-тести Europe/Kyiv покривають обидва переходи, неіснуючий і подвійний
+  локальний час — **на реальному шляху воркера**, а не лише в домені. Evidence:
+  `tests/integration/test_reminder_worker.py::test_the_worker_reschedules_across_both_kyiv_transitions`
+  (фікстури §10: `2026-03-28T18:00Z → 2026-03-29T17:00Z`, рівно 23 год; зворотний
+  перехід — рівно 25 год) і
+  `::test_a_schedule_at_a_nonexistent_local_time_still_moves`. Доменні десять
+  тестів лишились на місці; до них додано
+  `tests/unit/test_reminder_domain.py::test_the_occurrence_is_named_by_the_local_day_it_belongs_to`.
+- [x] Негативний GRANT-тест: роль `reminder_worker` → permission denied на
+  `diary.*`. Evidence:
+  `::test_the_worker_role_is_denied_every_table_in_diary` — пʼять таблиць,
+  перевірка за `sqlstate == "42501"`, а не за текстом помилки.
+- [x] Позитивний GRANT-тест: повний цикл insert-before-send під **реальною**
+  роллю `reminder_worker`. Evidence:
+  `::test_the_whole_cycle_is_reachable_under_the_worker_role` — claim, send,
+  confirm і перерахунок, усе через `worker_engine`, який автентифікується як
+  `reminder_worker`. Провізія й деактивація — під `api_rw` (`test_reminder_settings.py`).
+  Без цього позитивного тесту негативні проходили б і на ролі без жодних прав.
+- [x] `DELETE` на `reminder_delivery` під роллю `reminder_worker` → permission
+  denied. Evidence: `::test_the_worker_role_cannot_delete_a_delivery`. Плюс
+  дзеркальний `::test_the_worker_role_cannot_fill_the_cleanup_queue`.
+- [x] Краш-тест ідемпотентності: обрив між send і confirm не створює дубля.
+  Evidence:
+  `::test_a_crash_between_send_and_confirm_never_produces_a_second_message` —
+  три послідовні прогони: обрив лишає `pending`, наступний прогін нічого не
+  надсилає, sweeper через 16 хв закриває рядок як `failed` і **теж** нічого не
+  надсилає. Плюс `::test_a_second_worker_cannot_claim_the_same_day`.
+- [x] Клейм передує відправці, і це спостережено, а не виведено. Evidence:
+  `::test_the_day_is_claimed_before_the_message_leaves` — фейковий Telegram
+  читає таблицю **зсередини** `send_reminder` і бачить `pending`. Твердження про
+  кінцевий стан пройшло б і на порядку send-then-insert.
+- [x] mock 403 → `enabled=false` + `disabled_reason='bot_blocked'`; reconciler →
+  `revoked_at` + `ConsentRevoked`. Evidence:
+  `::test_a_block_switches_the_schedule_off_and_starts_the_streak` і
+  `tests/integration/test_reminder_reconciler.py::test_a_block_of_fourteen_days_reaches_the_consent`.
+- [x] 403 **не** відкликає згоду одразу, а лише після 14 діб поспіль. Evidence:
+  `::test_a_block_of_thirteen_days_does_not_touch_the_consent` (нуль відкликань)
+  і `::test_acknowledging_a_block_starts_the_streak_again` — «поспіль» означає,
+  що підтвердження блокування користувачкою розриває серію.
+- [x] Пауза `enabled=false` не веде до відкликання згоди. Evidence:
+  `::test_a_pause_never_reaches_the_consent_however_long_it_lasts` — рік паузи,
+  нуль відкликань. Reconciler читає виключно `disabled_reason`; частковий індекс
+  `ix_reminder_schedule_blocked` побудований на `disabled_reason IS NOT NULL`,
+  тож пауза не просто відфільтрована — її в індексі немає.
+- [x] 400 і 5xx не змінюють ані розкладу, ані згоди. Evidence:
+  `::test_a_refusal_that_is_not_a_block_changes_neither_schedule_nor_consent` і
+  `tests/unit/test_telegram_bot_api.py::test_a_bad_request_or_a_server_error_fails_without_a_second_attempt`
+  (400, 500, 502, 503 — рівно одна спроба).
+- [x] mock Telegram API з 429 і 403; `retry_after` честиться в межах бюджету
+  спроби. Evidence: `test_telegram_bot_api.py::test_a_throttled_request_is_retried_once_the_wait_is_over`,
+  `::test_a_wait_that_would_outlive_the_budget_is_refused`,
+  `::test_a_wait_that_would_cross_into_quiet_hours_is_refused`,
+  `::test_a_retry_after_header_is_honoured_when_the_body_has_none`. Тести — проти
+  **справжнього** будівника запиту через `httpx.MockTransport`; фейк порту
+  лишив би неперевіреним саме той код, у якому живе allowlist.
+- [x] exact-allowlist-тести всіх outbound text і labels. Evidence:
+  `::test_the_outbound_message_is_exactly_the_two_allowlisted_strings`,
+  `::test_the_body_carries_nothing_but_the_chat_and_the_constant` (склад тіла —
+  рівно три ключі; нуль `callback_data`; жодного сигналу стану щоденника),
+  `::test_the_message_never_ends_with_a_full_stop`,
+  `::test_only_the_two_methods_of_section_five_three_are_reachable`.
+- [x] Інтеграційні тести private-chat binding і opt-in/revoke. Evidence:
+  provision через реальний grant у `_arrange`/`_grant` усіх трьох нових
+  інтеграційних модулів (`chat_id = telegram_user_id`, приватний чат);
+  `test_reminder_reconciler.py::test_revoking_reminders_hands_the_sent_messages_to_the_worker`
+  і `::test_deleting_the_account_hands_them_over_too`.
+- [x] `PUT` із `local_time` у `[22:00, 08:00)` → 422 `quiet_hours_violation` на
+  всіх межах. Evidence:
+  `tests/integration/test_reminder_settings.py::test_quiet_hours_are_refused_at_every_boundary`
+  (07:59, 22:00, 00:00, 03:30, 23:59) плюс зворотний бік —
+  `::test_the_edges_just_outside_quiet_hours_are_accepted` (08:00, 21:59), без
+  якого правило могло б відхиляти геть усе.
+- [x] Розклад 21:30 із затримкою 40 хв → `skipped_quiet`. Evidence:
+  `test_reminder_worker.py::test_a_schedule_delayed_past_ten_is_skipped_quiet` —
+  нічого не надіслано, розклад просунуто.
+- [x] Catch-up на 61-й хвилині → `skipped_stale`. Evidence:
+  `::test_catch_up_on_the_sixty_first_minute_is_stale` і зворотний бік
+  `::test_catch_up_on_the_sixtieth_minute_still_sends`.
+- [x] Жоден ендпоінт не віддає список доставок. Evidence:
+  `tests/unit/test_openapi_surface.py::test_the_reminder_surface_is_only_the_settings_resource`
+  (уся підмножина `/v1/reminders` — рівно один ресурс),
+  `::test_the_settings_resource_returns_no_history` (склад тіла — рівно пʼять
+  полів) і `test_reminder_settings.py::test_the_response_carries_no_delivery_of_any_kind`,
+  написаний проти БД, у якій доставка **є**.
+- [x] Окремий тест стверджує очікувану версію `tzdata` (§10). Evidence:
+  `tests/unit/test_tzdata_version.py` — і, що виявилось важливішим,
+  `::test_the_host_database_cannot_override_the_pinned_one`. Див. «Зафіксовані
+  рішення».
+- [x] Інваріант «бюджет спроби < поріг sweeper» перевіряється на імпорті, а не
+  коментарем. Evidence: `app/domain/reminders.py` — три `raise` на рівні модуля
+  за зразком `app/domain/retention.py`; на шляху імпорту продакшену це доведено
+  `tests/unit/test_worker_entrypoints.py::test_the_timing_invariants_are_on_the_worker_import_path`
+  (свіжий інтерпретатор, `import app.worker_main` → `app.domain.reminders` у
+  `sys.modules`).
+- [x] Рішення з пункту 1 «Чотирьох речей» реалізоване; матриця erasure в
+  runbook-у відповідає коду. Evidence:
+  `test_reminder_reconciler.py::test_revoking_reminders_hands_the_sent_messages_to_the_worker`,
+  `::test_the_worker_takes_the_message_back_and_forgets_it`,
+  `::test_a_refused_deletion_keeps_the_row_until_its_ttl_and_no_longer`,
+  `::test_a_revocation_without_a_delivery_queues_nothing`; рядок
+  `reminders.message_cleanup` у `docs/restore-runbook.md` переписаний, повнота —
+  під наявним `test_erasure_matrix.py`.
+- [x] Тест поверхні §10 читає метадані бота й `WEBAPP_URL`, пропускається без
+  токена і **червоніє з ним**. Evidence:
+  `tests/integration/test_telegram_surface.py` — три червоні перевірки на
+  `Neuronium` / `@neuronium_bot`. Це не дефект прогону, а відкритий блокер
+  продакшену; див. «Що лишилося за людиною».
+- [x] Усі чотири воркери мають точку запуску; жоден тест не вимагає `BOT_TOKEN`
+  для зеленого прогону. Evidence: `tests/unit/test_worker_entrypoints.py` —
+  `::test_every_worker_is_constructed_by_an_entry_point` читає AST
+  `app/worker_main.py` і вимагає саме **конструювання**, а не імпорт (тест на
+  імпорти пройшов би на стані, який Фаза 3 і залишила);
+  `::test_no_entry_point_needs_a_bot_token_to_be_imported` — свіжий інтерпретатор
+  із порожнім оточенням.
+
+### Наскрізні gate-и
+
+Прогін від 2026-07-26, локально.
+
+- `pnpm test` — 516 тестів, 34 файли. Зелено.
+- `pnpm build` + `node apps/web/scripts/assert-bundle.mjs apps/web/dist` — зелено
+  («2 files, local-only build»).
+- `pnpm e2e` — 56 тестів. Зелено. `ac8-no-network-no-deadends.spec.ts` не
+  правився і лишився зеленим.
+- `cd apps/api && pytest` — **674 passed, 2 skipped, 3 failed**. Усі три —
+  `test_telegram_surface.py`, і всі три про ім'я бота. У формі CI (жодного
+  `.env` у репозиторії немає, обидва в `.gitignore`, тож токен недоступний і
+  модуль пропускається) — **671 passed**.
+- `pytest tests/contract` — зелено; `ruff check`, `ruff format --check`,
+  `mypy --strict app`, `lint-imports` — зелено, **7 контрактів** цілі.
+- `cd apps/bot && pytest` (5), `ruff check`, `mypy --strict bot` — зелено.
+  `apps/bot` не змінювався.
+- `pytest tests/unit/test_initdata_validator.py --cov=app.infra.telegram.initdata
+  --cov-branch --cov-fail-under=100` — зелено.
+- `SYNC_E2E=1 pnpm --filter web exec playwright test --project=sync` проти
+  локального стенду — 7 тестів, зелено. Міграція `0005` застосувалась на стенді
+  без правок.
+
+### Зафіксовані рішення
+
+- **`message_cleanup` наповнюється на боці API до видалення рядків** (пункт 1
+  «Чотирьох речей»). §6.4 обіцяє, що «до 48 годин після видалення на сервері
+  лишаються `chat_id` і номери повідомлень — саме щоб їх прибрати», а код Фази 3
+  видаляв обидві таблиці негайно, тож обіцянка не виконувалась ні для кого.
+  `ErasureService` тепер копіює їх у чергу **перед** видаленням, воркер вичитує
+  і видаляє повідомлення, а рядок безумовно зникає за TTL — незалежно від того,
+  чи Telegram погодився. Розділ привілеїв §6.3 лишився: `api_rw` має лише
+  `INSERT`, воркер — лише `SELECT`/`DELETE`.
+- **`ON CONFLICT DO NOTHING` виявився недоступним `api_rw`.** PostgreSQL вимагає
+  під цю конструкцію `SELECT` на цільовій таблиці, а §6.3 його свідомо не дає
+  («api_rw fills it but never reads it back»). Розширення гранта заради охайності
+  запиту віддало б реальну властивість ізоляції за один round-trip, тому
+  вставка йде по одному повідомленню в `SAVEPOINT`. Побічний ефект тієї самої
+  заміни: конфлікт в одному рядку більше не скасовує вставку решти.
+- **Колонка `disabled_at` (міграція `0005`) як лічильник «14 діб поспіль»**
+  (пункт 2). `updated_at` не годиться: він рухається від будь-якої правки
+  розкладу, тож користувачка, яка міняє час у заблокованому стані, нескінченно
+  відсувала б відкликання. `ck_reminder_schedule_disabled_at_matches_reason`
+  робить причину й час однією річчю: `(disabled_reason IS NULL) = (disabled_at
+  IS NULL)`.
+- **Пауза — окремий стан, і блокування знімає лише `enabled: true`.** Перша
+  редакція гасила `disabled_reason` на будь-якому успішному `PUT`, і незалежний
+  review показав, що це гірше за проблему, заради якої заводили `disabled_at`:
+  користувачка, яка просто переносить нагадування з восьмої на девʼяту, поки
+  бот заблокований, мовчки знищувала б власний дедлайн — розклад лишається
+  вимкненим, нової спроби не буде, нового 403 не буде, і 14-денне відкликання
+  не спрацює ніколи. Тепер запис із `enabled: false` проносить блокування
+  недоторканим, а `enabled: true` — єдиний акт, що означає «я розблокувала
+  бота»: він приймається, бо сервер перевірити це не може, відмова лишила б
+  стан без виходу, а відкликання згоди знищило б акаунт, у якого вона єдина.
+- **`reminders-settings 20/хв` — per-account вікно в PostgreSQL, а не per-IP.**
+  §11 перелічує цей ліміт серед застосункових поруч із sync-бюджетами, а не
+  серед reverse-proxy. Наслідок — новий bucket у `ck_rate_window_bucket`
+  (міграція `0005`), а не запис у `RateLimitMiddleware`.
+- **`ConsentRequired` і `VaultForbidden` — один клас.** §9.2 і §10 дають один
+  код `consent_required`, і наявний `test_error_codes_are_stable_ascii_and_unique`
+  впіймав спробу завести другий клас із тим самим кодом. Клас живе в
+  `domain/identity.py`, бо контракт «Reminder worker never touches vault»
+  забороняє `app.services.reminder` імпортувати `app.domain.vault`.
+- **Reconciler — скан, а не обробник події.** §10 вказує на гілку невідомого
+  `event_type` у диспетчері, і диспетчер справді є його місцем, але **не як
+  споживач**: єдиний процес, який дізнається про 403, — воркер, а §6.3 не дає
+  йому жодних привілеїв на `diary`, тож писати `diary.outbox` він не може.
+  Подія потребувала б або ширшої ролі для процесу з `BOT_TOKEN`, або другого
+  писача без джерела істини. Стан уже довговічний у `disabled_at`. Гілка
+  невідомого типу лишилась незмінною і далі не ковтає подій.
+- **Один тест поверхні OpenAPI довелося змінити, і заміна строгіша за зняте.**
+  `test_no_path_names_a_domain_a_date_or_a_record` забороняв підрядок
+  `reminders`, а §10 називає `GET/PUT /v1/reminders/settings` дослівно.
+  Властивість, яку та перевірка захищала, не втрачена: шлях не має нести **назви
+  згоди**, і `telegram_reminders` — це згода, а `reminders` — механізм, як і
+  `sync`; це й далі тримає `test_no_path_template_carries_a_consent_name`.
+  Натомість зʼявилися дві сильніші: уся підмножина `/v1/reminders` пінується
+  одним ресурсом, а склад тіла відповіді — пʼятьма полями, тож список доставок
+  червонить CI, хто б його не додав.
+
+### Відхилення від плану
+
+Одинадцяте й дванадцяте — обидва з розділу «Чотири речі», обидва реалізовані, а
+не обійдені (див. «Зафіксовані рішення», пункти про `message_cleanup` і
+`disabled_at`). Плюс два, знайдені на коді:
+
+- **Тринадцяте: `tzdata` була запінена, але не використовувалась.** §10 вимагає
+  «явна запінена залежність `apps/api`, а не tzdata хоста». Фактично
+  `ZoneInfo(name)` спершу шукає в `TZPATH`, а `/usr/share/zoneinfo` існує і на
+  macOS, і на `ubuntu-latest`, і в кожному Debian-образі — тобто пін нічого не
+  вирішував, а всі DST-фікстури мовчки стверджували властивість образу CI.
+  `zone_for` тепер читає файл із самого пакета; `zoneinfo.reset_tzpath` не
+  підійшов, бо не інвалідує кеш `ZoneInfo`. Доказ, що різниця реальна, а не на
+  папері: тест підкладає в `TZPATH` зону Токіо під іменем `Europe/Kyiv` —
+  плаский конструктор ловиться, `zone_for` ні.
+- **Чотирнадцяте (дрібне, фактологічне): контрактів import-linter сім, а не
+  вісім.** Промпт Фази 4 називає «7 контрактів» і окремо «восьмий контракт», але
+  `Reminder worker never touches vault` і є сьомим. Число в наскрізних gate-ах
+  виправлено на фактичне.
+- **Пʼятнадцяте: код `bot_blocked` (409) зі списку §10 не емітується.** Він
+  відповідав би на `PUT`, що вмикає нагадування при чинному блокуванні. Кожен
+  шлях із такої відмови гірший за прийняття: гасити блокування на будь-якому
+  записі — мовчки знищувати 14-денний дедлайн звичайною зміною години; вимагати
+  відкликання згоди — знищувати акаунт, у якого вона єдина; відмовляти без
+  виходу — лишати стан, з якого користувачка не вибереться. Тому `enabled: true`
+  приймається і переозброює розклад, а якщо бота справді не розблоковано,
+  наступна спроба дістає 403 і серія починається **заново** — що «поспіль» і
+  означає. Стан лишається видимим: `GET` і далі віддає `bot_blocked`. Причина
+  записана в `app/domain/reminders.py`, а не залишена мовчазною дірою.
+
+### Незалежний code review
+
+Два рецензенти-субагенти з різними лінзами: приватність і дублювання
+повідомлень; строгість тестів і правдивість тверджень. Обом передані
+privacy-правила промпту. Обидва перевіряли знахідки **зняттям коду**, а не
+міркуванням, і обидва лишили робоче дерево чистим.
+
+Підтверджено як тримається: at-most-once (трасування двох воркерів, обриву між
+claim і send, гонок sweeper-а, catch-up, DST і відновлення — зламати не
+вдалося); склад outbound-тіла; чотири нові `get_logger()` не виносять нічого,
+крім `event` і allowlisted `retry_after`; `app/infra/logging.py` не змінювався;
+`apps/bot` і `apps/web` недоторкані; GRANT-ізоляція, guard `WEBAPP_URL`, guard
+ролі в DSN, guard `BOT_TOKEN`-repr, пін tzdata і тести поверхні OpenAPI —
+справжні й червоніють при поламанні.
+
+**Дві зупинки, обидві виправлені:**
+
+1. **Повідомлення після відкликання згоди.** Рецензент відтворив пробою:
+   `SENT AFTER REVOKE`, осиротілий рядок `reminder_delivery` для акаунта без
+   згоди, і повідомлення, номер якого вже ніколи не потрапить у чергу
+   прибирання. Виправлено перечитуванням розкладу під `FOR UPDATE` у транзакції
+   клейму плюс негайним відкликанням повідомлення, якщо клейм зник, поки воно
+   було в дорозі.
+2. **Quiet hours рахувались від початку батчу.** Відтворено пробою на двох
+   акаунтах: друге повідомлення пішло о 22:10 і записалось `sent` — рівно
+   сценарій, названий у DoD §10. Наявний тест його не бачив, бо в
+   одноакаунтному батчі початок батчу і є часом відправки.
+
+**Вісім серйозних** — усі про розрив між кодом і його твердженнями: тест
+інваріанта перевіряв власну копію; `deadline` не доходив до адаптера в жодному
+тесті; безумовний TTL 48 год доводився здоровим фейком (тобто іншою гілкою);
+ключ ідемпотентності можна було взяти від `now`; безумовний `reschedule`,
+guard `pending` і обидві половини §11 знімались поодинці без жодного червоного;
+жодна з двох довгоживучих точок запуску не виконувалась, а `TelegramBotApi` і
+`ReminderWorker` ніде не зустрічались.
+
+**Одинадцять дрібних** — виправлені або названі: мертвий параметр `moment` у
+`due_cleanups`, `# pragma: no cover` без тесту, хибний ланцюг імпорту в
+докстрінгу домену, ізоляція, що не покривала sweeper і чергу, голодування
+батчу нерезолвною зоною, необмежений цикл на `retry_after: 0`, незакритий
+`httpx.Client`, індекс, перевірений лише за іменем, і два майже порожні тести.
+
+**Не виправлено, названо свідомо:** 403 від `require_consent` не витрачає
+per-account бюджет — щоб це закрити, довелося б або винести витрату бюджету в
+dependency (де домені помилки не можуть нести `Retry-After`), або зламати
+форму `require_consent(kind)`, яку §11 називає прямо. Ліміти понад ліміт нових
+ендпоінтів §12 віддає Фазі 5.
+
+Після правок проведено власну перевірку зняттям коду по кожній зупинці:
+прибирання перечитування розкладу → 2 червоні; звуження guard-а лише до
+відсутнього рядка (пауза прослизає) → 1 червоний; один `now` на батч →
+1 червоний; зняття трьох `raise` з домену → 3 червоні.
+
+### Що лишилося за людиною
+
+Оновлено під фактичний стан. Операційне помічено окремо.
+
+- **Ім'я та `@username` бота порушують §10 просто зараз** — *операційне,
+  блокер продакшену*. `Neuronium` і `@neuronium_bot` містять `neuro`. Назва чату
+  видно на екрані блокування й у списку чатів, тобто будь-кому, хто гляне на
+  телефон. `setMyName` є в Bot API, але `@username` і аватар змінюються лише в
+  BotFather. `tests/integration/test_telegram_surface.py` червоніє, поки це не
+  зроблено, і це його єдина робота.
+- **`can_join_groups: true`** — *операційне*. §10 цього не забороняє і код
+  ігнорує все, крім `ChatType.PRIVATE`, тож це не порушення, а зайва поверхня
+  при вимозі «private chats only». Вимикається в BotFather. Червоного тесту на
+  це свідомо немає: тест про правило, якого воно не ламає, був би шумом.
+- **Домен `WEBAPP_URL` ще не існує** — *операційне, і незворотне після першого
+  сертифіката*. Зараз `http://localhost:4174`, тобто в публічних CT-логах його
+  немає. Ім'я домену треба вибрати **до** видачі сертифіката; тест на заборонені
+  токени в домені вже написаний і зараз нічого не коштує.
+- **Кнопка «Відкрити щоденник» у реальному чаті не відкриється** — *операційне*.
+  Telegram відкриває Mini App лише через HTTPS, а HTTPS-тунелю немає. Саме
+  повідомлення надсилається, `deleteMessages` спрацьовує, 403 і 429
+  відтворюються — тобто вся доставка перевіряється, а кнопка ні. URL у тесті не
+  підмінявся: allowlist §10 дозволяє рівно сконфігурований `WEBAPP_URL`.
+- **Реальний round-trip у Telegram не проведено** — потребує `chat_id` живої
+  людини, яка запустила бота, і ручного блокування бота для спостереження 403.
+  Надсилання повідомлення реальній людині — дія назовні, і вона не робилась без
+  прямої згоди власника. Уся доставка покрита mock-тестами проти справжнього
+  будівника запиту; неперевіреним лишається лише поводження живого Bot API.
+- **UI нагадувань у web не існує** — свідомо поза Фазою 4. §10 називає лише
+  префіл 20:00 у пікері; сам екран, мапінг ASCII-кодів на українську копію і
+  тексти станів із Gate D — окрема робота. Наслідок, який варто назвати:
+  `fixtures/contract/quiet-hours.json` наразі читає лише api-сторона, і це
+  записано в `fixtures/contract/README.md` прямо.
+- **UI відкликання згод так само немає** — успадкована дірка з Фази 2,
+  не закрита.
+- **Транспорт до бакета erasure-журналу** — лишається за людиною з Фази 3.
+  `neuro-restore-reconcile` свідомо composed із `DatabaseErasureJournal`, бо
+  зовнішнього стору не існує; це названо в докстрінгу команди, а не обійдено.
+- **Тексти згод лишаються `0.9`, контролер не названий** — блокер продакшену з
+  Фази 1, не зрушений.
 
 ## Фаза 5 — Hardening і gates (не розпочата)
 
