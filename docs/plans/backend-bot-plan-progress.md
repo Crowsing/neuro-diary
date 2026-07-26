@@ -45,7 +45,12 @@
   надсилає трьома параметрами.
 - [x] Schemathesis по OpenAPI проти живого api. Evidence:
   `scripts/fuzz-openapi.sh` — **15 із 15 операцій, 642 тест-кейси, нуль
-  провалів**, seed `20260726`. Блокуючий job `schemathesis` у CI.
+  провалів**, seed `20260726`. Блокуючий job `schemathesis` у CI: прогін
+  30217850659 — «Усі 15 операцій пройшли» за 2 хв 39 с.
+- [x] **CI-прогін 30217850659 зелений — усі шість job-ів** (`web`, `api`, `bot`,
+  `sync-e2e`, `schemathesis`, `gitleaks`). У формі CI api дає **871 passed, 7
+  skipped**: три §10-тести про ім'я бота там пропускаються, бо токена в CI немає,
+  і саме тому вони червоні лише локально.
 - [x] Bot pytest і Ruff зелені. Evidence: 5 tests passed; Ruff passed;
   `mypy --strict bot` — 2 source files без помилок.
 - [x] Нова інфраструктура має інтеграційні, privacy та failure-mode тести.
