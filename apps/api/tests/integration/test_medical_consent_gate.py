@@ -38,6 +38,7 @@ from sqlalchemy import Engine, text
 
 from app.domain.identity import ConsentRequired
 from app.domain.rate_limits import BUDGETS, RateBucket
+from app.domain.records import RecordWrite
 from app.domain.vault import KeyWriteMode
 from app.services.erasure import ErasureService
 from app.services.sync import SyncService
@@ -56,6 +57,11 @@ REMINDERS_GRANT: dict[str, object] = {
     "text_version": "telegram_reminders@0.9",
     "text_sha256": _sha256_of("uk/telegram_reminders/0.9.md"),
     "settings": {"time": "20:00", "timezone": "Europe/Kyiv"},
+}
+HEALTH_SYNC_GRANT: dict[str, object] = {
+    "kind": "health_sync",
+    "text_version": "health_sync@0.9",
+    "text_sha256": _sha256_of("uk/health_sync/0.9.md"),
 }
 
 ENVELOPE = base64.b64encode(b"envelope-without-consent").decode()
@@ -92,6 +98,19 @@ def reminded(caller: Caller, engine: Engine) -> Caller:
     response = caller.post(
         "/v1/auth/telegram",
         {"init_data": sign_init_data(), "grant": REMINDERS_GRANT},
+    )
+    assert response.status_code == 200, response.text
+    caller.token = str(response.json()["session_token"])
+    return caller
+
+
+@pytest.fixture
+def synced(caller: Caller, engine: Engine) -> Caller:
+    """The mirror of `reminded`: `health_sync` and nothing else."""
+    del engine
+    response = caller.post(
+        "/v1/auth/telegram",
+        {"init_data": sign_init_data(), "grant": HEALTH_SYNC_GRANT},
     )
     assert response.status_code == 200, response.text
     caller.token = str(response.json()["session_token"])
@@ -356,3 +375,77 @@ def test_the_barrier_refuses_a_vault_reset(
                 now=dependencies.clock.now(),
             )
     assert _count(engine, "diary.erasure_job") == 0
+
+
+def _one_write() -> list[RecordWrite]:
+    return [
+        RecordWrite(
+            record_key=bytes.fromhex("aa" * 32),
+            payload=b"x" * 16,
+            tombstone=False,
+            client_ts_ms=1_768_435_200_000,
+        )
+    ]
+
+
+def test_the_barrier_refuses_a_push_with_no_dependency_in_the_picture(
+    reminded: Caller,
+    engine: Engine,
+    dependencies: Any,
+    sync_service: SyncService,
+) -> None:
+    """Крок 4 порядку §9.1 — половина, якої не спостерігав жоден тест.
+
+    Знайдено незалежним review Фази 5, і це рівно те твердження, яке докстрінг
+    цього модуля робив про **усі** медичні ендпоінти: «кожна половина має тест,
+    що падає лише від її зняття». Для push воно було хибним. Двері відмовляють
+    цьому акаунту 403 незалежно від того, що робить сервіс, тож жоден HTTP-тест
+    двох конструкцій не розрізняв — а це саме той ендпоінт, який записує
+    щоденник, і саме та половина, що стоїть під `accounts.lock`, тим самим, який
+    бере транзакція стирання §9.8.
+    """
+    del reminded
+    account_id = _account_id(engine)
+
+    with dependencies.unit_of_work() as unit:
+        with pytest.raises(ConsentRequired):
+            sync_service.push(
+                unit,
+                account_id=account_id,
+                base_revision=0,
+                changes=_one_write(),
+                now=dependencies.clock.now(),
+            )
+    assert _count(engine, "diary.vault_record") == 0
+
+
+def test_the_barrier_refuses_a_push_for_an_account_that_is_no_longer_active(
+    synced: Caller,
+    engine: Engine,
+    dependencies: Any,
+    sync_service: SyncService,
+) -> None:
+    """Друга половина того самого кроку 4, і теж не спостережена нічим.
+
+    Через HTTP вона майже недосяжна — стирання прибирає і сесії, і згоди, — але
+    з-під `accounts.lock` вона єдина, що серіалізується проти §9.8, і зникнути
+    могла безслідно.
+    """
+    del synced
+    account_id = _account_id(engine)
+    with engine.begin() as connection:
+        connection.execute(
+            text("UPDATE diary.account SET status = 'erasing' WHERE id = :id"),
+            {"id": account_id},
+        )
+
+    with dependencies.unit_of_work() as unit:
+        with pytest.raises(ConsentRequired):
+            sync_service.push(
+                unit,
+                account_id=account_id,
+                base_revision=0,
+                changes=_one_write(),
+                now=dependencies.clock.now(),
+            )
+    assert _count(engine, "diary.vault_record") == 0

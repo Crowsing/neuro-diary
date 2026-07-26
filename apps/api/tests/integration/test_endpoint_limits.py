@@ -300,3 +300,39 @@ def test_the_named_wait_is_never_zero(synced: Caller, clock: FrozenClock) -> Non
     refused = synced.get("/v1/sessions")
     assert refused.status_code == 429
     assert int(refused.headers["Retry-After"]) >= 1
+
+
+# --------------------------- ендпоінти, що мали лише «карту», без «території»
+
+
+def test_the_twenty_first_session_revocation_in_a_minute_is_rate_limited(
+    synced: Caller,
+) -> None:
+    """Знайдено незалежним review: цей ендпоінт мав лише структурний тест.
+
+    Реєстр `DECLARED_BUDGETS` пишуть самі фабрики залежностей, тож застаріла
+    таблиця неможлива — але «bucket і тест» означало тут «bucket і рядок у
+    таблиці», а не «bucket і 429». Тепер обидва.
+    """
+    for _ in range(ACCOUNT_OPS_LIMIT):
+        assert synced.post("/v1/sessions/revoke-others").status_code == 200
+
+    refused = synced.post("/v1/sessions/revoke-others")
+    assert refused.status_code == 429
+    assert int(refused.headers["Retry-After"]) > 0
+
+
+def test_the_sixty_first_vault_reset_in_a_minute_is_rate_limited(
+    synced: Caller,
+) -> None:
+    """Те саме для vault-reset, який іде у вікно `sync` як запис у сейф.
+
+    Кожен виклик руйнівний і кожен журналюється як `security_reset` — тим більше
+    підстав, щоб межа була межею, а не записом у таблиці.
+    """
+    for _ in range(SYNC_LIMIT):
+        assert synced.post("/v1/account/vault-reset").status_code == 200
+
+    refused = synced.post("/v1/account/vault-reset")
+    assert refused.status_code == 429
+    assert int(refused.headers["Retry-After"]) > 0

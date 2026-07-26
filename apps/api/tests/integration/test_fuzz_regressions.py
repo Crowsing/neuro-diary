@@ -392,3 +392,30 @@ def test_the_real_client_parameters_are_still_accepted(session: Caller) -> None:
     )
 
     assert accepted.status_code == 200, accepted.text
+
+
+def test_the_eleventh_authentication_attempt_in_a_minute_is_rate_limited(
+    caller: Caller,
+    engine: Engine,
+) -> None:
+    """Per-IP вікно §11 — поведінково, у справжньому застосунку.
+
+    Знайдено незалежним review: зняття реєстрації `RateLimitMiddleware` у
+    `create_app` червонило рівно один тест, і той структурний (читає
+    `application.user_middleware`). Механіку лічильника перевіряв юніт-тест на
+    власноруч зібраному стеку; що зібраний `create_app` відповідає 429 на
+    одинадцятій спробі, не перевіряв ніхто.
+
+    Сусідній `test_an_unreadable_query_never_spends_the_authentication_window`
+    тут не допомагає — він доводить, що вікно **не** витрачається, і проходить
+    навіть зовсім без лімітера.
+    """
+    del engine
+    for _ in range(AUTH_ATTEMPTS_PER_MINUTE):
+        refused = caller.post("/v1/auth/telegram", {"init_data": "not-signed"})
+        assert refused.status_code == 401, refused.text
+
+    throttled = caller.post("/v1/auth/telegram", {"init_data": "not-signed"})
+    assert throttled.status_code == 429
+    assert throttled.json() == {"error": "rate_limited"}
+    assert int(throttled.headers["Retry-After"]) > 0
