@@ -95,9 +95,49 @@ class RecordingTransport implements SyncTransport {
   }
 }
 
-async function engineWith(transport: SyncTransport, retries = 2): Promise<SyncEngine> {
+async function engineWith(
+  transport: SyncTransport,
+  retries = 2,
+  sleep?: (milliseconds: number) => Promise<void>
+): Promise<SyncEngine> {
   const subkeys = await deriveSubkeys(new Uint8Array(32).fill(0x11));
-  return new SyncEngine({ transport, subkeys, deviceId: DEVICE, retries });
+  return new SyncEngine({ transport, subkeys, deviceId: DEVICE, retries, sleep });
+}
+
+/** Записує кожну паузу замість того, щоб її витримувати. */
+function recordingSleep(): {
+  waits: number[];
+  sleep: (milliseconds: number) => Promise<void>;
+} {
+  const waits: number[] = [];
+  return {
+    waits,
+    sleep: async (milliseconds) => {
+      waits.push(milliseconds);
+    }
+  };
+}
+
+/** Сервер, що віддає 429 задану кількість разів, а тоді приймає пуш. */
+class ThrottlingTransport extends RecordingTransport {
+  constructor(
+    private refusalsLeft: number,
+    private readonly retryAfterSeconds: number | null
+  ) {
+    super();
+  }
+
+  override async push(
+    baseRevision: number,
+    changes: readonly EncryptedChange[]
+  ): Promise<PushResult> {
+    if (this.refusalsLeft > 0) {
+      this.refusalsLeft -= 1;
+      this.pushes.push({ baseRevision, changes: [...changes] });
+      throw new SyncError('rate_limited', this.retryAfterSeconds);
+    }
+    return super.push(baseRevision, changes);
+  }
 }
 
 describe('planChunks — the limits of §9.5', () => {
@@ -241,5 +281,91 @@ describe('initialUpload', () => {
     expect(report.records).toBe(0);
     expect(transport.pushes).toHaveLength(1);
     expect(transport.pushes[0].changes).toHaveLength(1);
+  });
+});
+
+// §11 віддає `Retry-After` на всіх трьох шляхах, і до Фази 5 у нього не було
+// споживача: цикл спроб не мав жодної паузи, тож бюджет `5 MiB/хв` робив перший
+// вивантаж великого щоденника непроходимим — обидві спроби витрачались за
+// мілісекунди в тому самому вікні.
+describe('SyncEngine — 429 і Retry-After (§11)', () => {
+  it('чекає названу сервером кількість секунд, а тоді повторює ті самі байти', async () => {
+    const transport = new ThrottlingTransport(1, 7);
+    const timer = recordingSleep();
+    const engine = await engineWith(transport, 2, timer.sleep);
+
+    const report = await engine.initialUpload([entry('2026-01-15')], {
+      vaultSeq: 0,
+      keyVersion: 1,
+      clientTs: T0
+    });
+
+    expect(timer.waits).toEqual([7000]);
+    expect(report.records).toBe(1);
+    // Ті самі байти: перешифрування зламало б sha256, зафіксований у manifest.
+    const [first, second] = transport.pushes;
+    expect(second.changes.map((item) => item.payloadB64)).toEqual(
+      first.changes.map((item) => item.payloadB64)
+    );
+  });
+
+  it('не чекає, коли сервер не відмовляв', async () => {
+    const transport = new RecordingTransport();
+    const timer = recordingSleep();
+    const engine = await engineWith(transport, 2, timer.sleep);
+
+    await engine.initialUpload([entry('2026-01-15')], {
+      vaultSeq: 0,
+      keyVersion: 1,
+      clientTs: T0
+    });
+
+    expect(timer.waits).toEqual([]);
+  });
+
+  it('обрізає названу сервером годину до стелі в шістдесят секунд', async () => {
+    // Проти зламаного або ворожого сервера: без стелі один заголовок підвісив би
+    // вивантаження на годину.
+    const transport = new ThrottlingTransport(1, 3600);
+    const timer = recordingSleep();
+    const engine = await engineWith(transport, 2, timer.sleep);
+
+    await engine.initialUpload([entry('2026-01-15')], {
+      vaultSeq: 0,
+      keyVersion: 1,
+      clientTs: T0
+    });
+
+    expect(timer.waits).toEqual([60_000]);
+  });
+
+  it('без заголовка чекає секунду, а не нуль', async () => {
+    const transport = new ThrottlingTransport(1, null);
+    const timer = recordingSleep();
+    const engine = await engineWith(transport, 2, timer.sleep);
+
+    await engine.initialUpload([entry('2026-01-15')], {
+      vaultSeq: 0,
+      keyVersion: 1,
+      clientTs: T0
+    });
+
+    expect(timer.waits).toEqual([1000]);
+  });
+
+  it('віддає 429 користувачці, коли спроби скінчились', async () => {
+    // Межа лишається межею: пауза не робить бюджет нескінченним.
+    const transport = new ThrottlingTransport(5, 3);
+    const timer = recordingSleep();
+    const engine = await engineWith(transport, 2, timer.sleep);
+
+    await expect(
+      engine.initialUpload([entry('2026-01-15')], {
+        vaultSeq: 0,
+        keyVersion: 1,
+        clientTs: T0
+      })
+    ).rejects.toMatchObject({ code: 'rate_limited' });
+    expect(timer.waits).toEqual([3000, 3000]);
   });
 });
