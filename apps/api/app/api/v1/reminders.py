@@ -9,17 +9,21 @@ it worked.
 The consent is checked twice, as §11 requires: `RemindersConsentDep` before the
 handler, and again inside the transaction that writes. Both refusals answer
 `consent_required` with 403.
+
+The §11 settings window is charged by that same dependency from Phase 5 on, and
+that is what closes the hole Phase 4 named: while the budget was spent inside
+the handler, a token holder without the consent collected 403s for free.
 """
 
 from __future__ import annotations
 
 from datetime import time
-from uuid import UUID
 
-from fastapi import APIRouter, Request, Response
+from fastapi import APIRouter, Response
 from fastapi.responses import JSONResponse
 
-from app.api.v1.deps import RemindersConsentDep, Services, ServicesDep
+from app.api.v1.deps import RemindersConsentDep, ServicesDep
+from app.api.v1.responses import refusals
 from app.domain.identity import ConsentKind
 from app.schemas.reminders import ReminderSettingsOutput, ReminderSettingsUpdate
 from app.services.reminder import ReminderSettingsView
@@ -39,45 +43,15 @@ def _resource(view: ReminderSettingsView) -> ReminderSettingsOutput:
     )
 
 
-def _rate_limited(retry_after_seconds: int) -> JSONResponse:
-    return JSONResponse(
-        status_code=429,
-        content={"error": "rate_limited"},
-        headers={"Retry-After": str(retry_after_seconds)},
-    )
-
-
-def _spend_budget(
-    request: Request,
-    services: Services,
-    account_id: UUID,
-) -> JSONResponse | None:
-    """§11: one request of the per-account window, committed on its own."""
-    now = services.reminders.now()
-    with services.unit_of_work() as unit:
-        verdict = services.reminders.consume_budget(
-            unit,
-            account_id=account_id,
-            now=now,
-        )
-        unit.commit()
-    if verdict.allowed:
-        return None
-    request.state.error_code = "rate_limited"
-    return _rate_limited(verdict.retry_after_seconds)
-
-
-@router.get("/reminders/settings", response_model=ReminderSettingsOutput)
+@router.get(
+    "/reminders/settings",
+    response_model=ReminderSettingsOutput,
+    responses=refusals(401, 403, 404, 429),
+)
 def read_settings(
-    request: Request,
     services: ServicesDep,
     session: RemindersConsentDep,
 ) -> Response:
-    request.state.account_id = session.account_id
-    refusal = _spend_budget(request, services, session.account_id)
-    if refusal is not None:
-        return refusal
-
     with services.unit_of_work() as unit:
         services.consents.require_active(
             unit,
@@ -91,18 +65,16 @@ def read_settings(
     )
 
 
-@router.put("/reminders/settings", response_model=ReminderSettingsOutput)
+@router.put(
+    "/reminders/settings",
+    response_model=ReminderSettingsOutput,
+    responses=refusals(400, 401, 403, 404, 429, domain_422=True),
+)
 def write_settings(
-    request: Request,
     payload: ReminderSettingsUpdate,
     services: ServicesDep,
     session: RemindersConsentDep,
 ) -> Response:
-    request.state.account_id = session.account_id
-    refusal = _spend_budget(request, services, session.account_id)
-    if refusal is not None:
-        return refusal
-
     hour, minute = payload.time.split(":")
     now = services.reminders.now()
     with services.unit_of_work() as unit:

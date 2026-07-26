@@ -60,6 +60,35 @@ export interface EngineDeps {
   readonly deviceId: string;
   /** Скільки разів повторювати чанк тими самими байтами. */
   readonly retries?: number;
+  /** Пауза між спробами. Підмінюється в тестах, щоб не чекати по-справжньому. */
+  readonly sleep?: (milliseconds: number) => Promise<void>;
+}
+
+/**
+ * Стеля очікування за `Retry-After`, у секундах.
+ *
+ * Сервер на шляху пуша не назве більшого: вікна §11 для `sync` і `push_bytes`
+ * — хвилинні. Стеля існує проти зламаного або ворожого сервера, який назве
+ * годину й підвісив би вивантаження: після неї спроба просто повториться і
+ * дістане свій 429, а користувачка побачить помилку замість зависання.
+ */
+const MAX_RETRY_AFTER_SECONDS = 60;
+
+/** Скільки чекати, коли сервер відповів 429 без заголовка. */
+const FALLBACK_RETRY_AFTER_SECONDS = 1;
+
+/**
+ * Скільки секунд чекати після 429.
+ *
+ * Заголовок сервера, обрізаний стелею; відсутній заголовок читається як одна
+ * секунда, а не як нуль — інакше «почекай» перетворювалося б на негайний ретрай.
+ */
+function waitFor(error: SyncError): number {
+  const named = error.retryAfterSeconds;
+  if (named === null || !Number.isFinite(named) || named <= 0) {
+    return FALLBACK_RETRY_AFTER_SECONDS;
+  }
+  return Math.min(named, MAX_RETRY_AFTER_SECONDS);
 }
 
 /** Один зашифрований запис разом із дайджестом для manifest. */
@@ -77,9 +106,13 @@ interface LiveEntry {
 
 export class SyncEngine {
   private readonly retries: number;
+  private readonly sleep: (milliseconds: number) => Promise<void>;
 
   constructor(private readonly deps: EngineDeps) {
     this.retries = deps.retries ?? 2;
+    this.sleep =
+      deps.sleep ??
+      ((milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds)));
   }
 
   private async seal(record: PlainRecord): Promise<SealedRecord> {
@@ -311,6 +344,14 @@ export class SyncEngine {
             error.code === 'payload_too_large')
         ) {
           throw error;
+        }
+        // 429 минеться саме — але рівно через названу кількість секунд, а не
+        // одразу. Без цієї паузи бюджет `5 MiB/хв` (§11) робив перший вивантаж
+        // великого щоденника непроходимим: обидві спроби витрачались за
+        // мілісекунди в тому самому вікні, і користувачка бачила помилку там,
+        // де сервер попросив почекати.
+        if (error instanceof SyncError && error.code === 'rate_limited') {
+          await this.sleep(waitFor(error) * 1000);
         }
       }
     }

@@ -4,8 +4,9 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Request
 
-from app.api.v1.deps import BearerDep, ServicesDep
+from app.api.v1.deps import BearerDep, ServicesDep, SyncConsentDep
 from app.api.v1.mapping import require_session
+from app.api.v1.responses import refusals
 from app.domain.identity import ProtectedOperation
 from app.schemas.identity import AccountDeletedResponse
 from app.schemas.sync import VaultResetResponse
@@ -13,7 +14,11 @@ from app.schemas.sync import VaultResetResponse
 router = APIRouter(prefix="/v1", tags=["account"])
 
 
-@router.post("/account/delete", response_model=AccountDeletedResponse)
+@router.post(
+    "/account/delete",
+    response_model=AccountDeletedResponse,
+    responses=refusals(401, 403),
+)
 def delete_account(
     request: Request,
     services: ServicesDep,
@@ -36,11 +41,15 @@ def delete_account(
     return AccountDeletedResponse(status="erased")
 
 
-@router.post("/account/vault-reset", response_model=VaultResetResponse)
+@router.post(
+    "/account/vault-reset",
+    response_model=VaultResetResponse,
+    responses=refusals(401, 403, 429),
+)
 def reset_vault(
     request: Request,
     services: ServicesDep,
-    token: BearerDep,
+    session: SyncConsentDep,
 ) -> VaultResetResponse:
     """Drop the server copy and move all three counters past it (§9.4).
 
@@ -49,11 +58,14 @@ def reset_vault(
     the new envelope arrives right after through `POST /v1/sync/key`. Deleting
     the envelope here would break the very flow this endpoint serves. Erasing it
     belongs to revocation, where no new envelope follows.
+
+    §11 gates it on `health_sync` from Phase 5 on. Step-up is not a substitute:
+    it proves the person is at the keyboard, not that she agreed to a server
+    copy — and this endpoint writes a `security_reset` line into the erasure
+    journal on every call.
     """
     now = services.sync.now()
     with services.unit_of_work() as unit:
-        session = require_session(services, unit, token)
-        request.state.account_id = session.account_id
         services.auth.require_step_up(session, ProtectedOperation.VAULT_RESET)
         outcome = services.sync.vault_reset(
             unit,

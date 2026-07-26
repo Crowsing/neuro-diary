@@ -12,11 +12,10 @@ contract test pins the two spellings together.
 
 from __future__ import annotations
 
-import re
+from pydantic import BaseModel, ConfigDict, Field
 
-from pydantic import BaseModel, ConfigDict, field_validator
-
-_TIME = re.compile(r"^([01]\d|2[0-3]):[0-5]\d$")
+#: Той самий патерн, що в `app.schemas.identity`; контрактний тест пінує обидва.
+TIME_PATTERN = r"^([01]\d|2[0-3]):[0-5]\d$"
 
 
 class ContractModel(BaseModel):
@@ -33,25 +32,11 @@ class ReminderSettingsUpdate(ContractModel):
     """
 
     enabled: bool
-    time: str
-    timezone: str
-
-    @field_validator("time")
-    @classmethod
-    def _validate_time(cls, value: str) -> str:
-        if not _TIME.match(value):
-            raise ValueError("time must be HH:mm")
-        return value
-
-    @field_validator("timezone")
-    @classmethod
-    def _validate_timezone(cls, value: str) -> str:
-        # Shape only. The tz database is the authority and lives in the domain,
-        # so an unknown-but-well-formed zone is a 422 `unknown_timezone` from
-        # there rather than a validation error here.
-        if not value.strip():
-            raise ValueError("timezone is required")
-        return value
+    time: str = Field(pattern=TIME_PATTERN)
+    # Shape only. The tz database is the authority and lives in the domain, so an
+    # unknown-but-well-formed zone is a 422 `unknown_timezone` from there rather
+    # than a validation error here.
+    timezone: str = Field(min_length=1)
 
 
 class ReminderSettingsOutput(ContractModel):

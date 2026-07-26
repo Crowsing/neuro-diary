@@ -217,7 +217,10 @@ consent            (id uuid PK, account_id uuid REFERENCES account,
   -- UNIQUE INDEX ux_consent_active ON consent(account_id, kind) WHERE revoked_at IS NULL;
   -- Фаза 2 додає record_key_cycle bytea NULL (§9.7): 32 байти, лише для kind='cycle_sync'.
   -- Фаза 2 додає diary.rate_window(account_id, bucket) PK — вікна лімітів §11 без Redis;
-  --   три фіксовані слоти на акаунт, тож TTL-job не потрібен, і рядки зникають каскадом.
+  --   по одному фіксованому слоту на bucket, тож TTL-job не потрібен, і рядки
+  --   зникають каскадом. Слотів було три, потім чотири (Фаза 4), тепер п'ять
+  --   (шістнадцяте відхилення); аргумент «TTL не потрібен» тримається на
+  --   обмеженості переліку, а не на числі.
 session_token      (id uuid PK, account_id uuid NOT NULL REFERENCES account, token_hash bytea NOT NULL,
                     created_at, expires_at, last_used_at, revoked_at);  -- INDEX (token_hash)
 auth_replay        (initdata_hash bytea PK, seen_at timestamptz);       -- одноразовість initData; TTL-чистка
@@ -606,7 +609,20 @@ CRDT повного профілю не виправданий (одна кор�
 
 ### 9.5 Initial upload / re-key / backpressure
 
-Перший push після згоди: повний снапшот чанками ≤200 records / ≤1 MiB, `base_revision=0`, послідовно; обрив → retry чанка (ідемпотентно по record_key+вміст; часткова ревізія, видима іншому пристрою, — коректний стан optimistic-протоколу). **`manifest` оновлюється в кожному чанку, а не один раз наприкінці**: інакше посилений manifest (§7) оголошує проміжний стан помилкою цілісності — а це саме те вікно, у яке інші пристрої гарантовано потрапляють після re-key, бо вони вже змушені на повний ресинк. Клієнт персистить `sha256(payload)` per record разом із `last_acked_revision`: в інкрементальному режимі він тримає plaintext, а не байти шифротексту, і без збережених дайджестів не може перерахувати manifest, не перешифрувавши все (що заборонено правилом nonce, §7). Ліміт payload per record 64 KiB → 413; per-account rate limit → 429 + `Retry-After`; експоненційний backoff. Re-key (§7) = vault-reset + повторний upload під новим DEK в одному клієнтському флоу.
+Перший push після згоди: повний снапшот чанками ≤200 records / ≤1 MiB, `base_revision=0`, послідовно; обрив → retry чанка (ідемпотентно по record_key+вміст; часткова ревізія, видима іншому пристрою, — коректний стан optimistic-протоколу). **`manifest` оновлюється в кожному чанку, а не один раз наприкінці**: інакше посилений manifest (§7) оголошує проміжний стан помилкою цілісності — а це саме те вікно, у яке інші пристрої гарантовано потрапляють після re-key, бо вони вже змушені на повний ресинк. Клієнт персистить `sha256(payload)` per record разом із `last_acked_revision`: в інкрементальному режимі він тримає plaintext, а не байти шифротексту, і без збережених дайджестів не може перерахувати manifest, не перешифрувавши все (що заборонено правилом nonce, §7). Ліміт payload per record 64 KiB → 413; per-account rate limit → 429 + `Retry-After`; експоненційний backoff.
+
+**Сімнадцяте відхилення (Фаза 5): дріт має вужчі межі, ніж колонки.** Кожен
+лічильник, що переходить дріт (`base_revision`, `client_ts_ms`, `since`,
+`consent_epoch`, `last_acked_revision`, `expected_wrap_version`), обмежений
+`2^53 − 1`, а не стелею `bigint` із §6.2, і конверт §7 обмежений одним кілобайтом
+до кодування. Три причини, кожна знайдена на коді:
+без будь-якої межі курсор `10**22` доходив до PostgreSQL як параметр поза
+діапазоном і запит відповідав **500** (знайдено фаззером §12); межа рівно в
+`2^63 − 1` виходить із документа OpenAPI як `2^63`, бо FastAPI типізує `maximum`
+як float, тобто схема обіцяла б на одиницю більше, ніж приймає код; а конверт без
+верхньої межі дозволяв автентифікованій сесії зі step-up записати довільно
+великий блоб під ключем, якого сервер навіть не читає. Колонки не змінюються:
+`2^53` мс — це близько 285 000 років, а ревізія видається на запис. Re-key (§7) = vault-reset + повторний upload під новим DEK в одному клієнтському флоу.
 
 ### 9.6 Демо-дані при першому синку
 
@@ -661,7 +677,7 @@ Erasure-транзакція воркера (DELETE `vault_record` + `vault_key`
 ## 11. Безпека
 
 - **Згоди**: dependency `require_consent(kind)` на кожному ендпоінті з медичними даними + повторна перевірка всередині write-транзакції (§9.1); джерело істини — таблиця `consent` (partial unique index активності).
-- **Rate limits**: reverse proxy per-IP (auth 10/хв); застосункові per-account (sync 60/хв, push-обсяг 5 MiB/хв, reminders-settings 20/хв, **`GET /v1/sync/key` 10/год**); вікна в PG (без Redis на старті). Ліміт на `/v1/sync/key` не косметичний: ендпоінт віддає `wrapped_dek`, сіль і `kdf_params`, тож без нього компрометація сесії миттєво перетворюється на офлайн-перебір фрази. Per-IP лічильник живе **виключно в пам'яті процесу** з вікном ≤60 с — IP не потрапляє ні в PostgreSQL, ні в логи, ні в метрики.
+- **Rate limits**: reverse proxy per-IP (auth 10/хв); застосункові per-account (sync 60/хв, push-обсяг 5 MiB/хв, reminders-settings 20/хв, **`GET /v1/sync/key` 10/год**); вікна в PG (без Redis на старті). **Цей перелік — підлога, а не стеля (шістнадцяте відхилення, Фаза 5):** ендпоінти, яких він не називає, отримали власне вікно `account_ops 20/хв`, окрім трьох, де вікно шкодило б праву — `POST /v1/consents/revoke` (Art. 7(3)), `GET /v1/consents` (пост-410 правило §9.4) і `POST /v1/account/delete` (Art. 17 з Art. 12(3)). Статус кожної операції щодо ліміту зафіксований як дані в `apps/api/tests/unit/test_rate_limit_surface.py`. Ліміт на `/v1/sync/key` не косметичний: ендпоінт віддає `wrapped_dek`, сіль і `kdf_params`, тож без нього компрометація сесії миттєво перетворюється на офлайн-перебір фрази. Per-IP лічильник живе **виключно в пам'яті процесу** з вікном ≤60 с — IP не потрапляє ні в PostgreSQL, ні в логи, ні в метрики.
 - **Логи білим списком** (structlog-процесор викидає все поза allowlist): `timestamp, level, event, request_id, route_template, method, status_code, duration_ms, account_ref, record_count, revision, error_code, retry_after`. `account_ref` = перші 16 hex від `HMAC(k_log, account_id)`, де `k_log` має епоху 7 днів і знищується при ротації; сирий `account_id` у лог не пишеться взагалі. Retention логів — 7 днів. Це строго сильніше за псевдонім із постійним ключем: без ротації епохи журнали за різні місяці join-яться між собою за часом активності. Заборонено назавжди: raw URL/query, initData, `telegram_user_id`, імена, payload/`record_key`, дати записів, echo вхідних значень у помилках валідації — кастомний exception handler віддає generic-повідомлення і вирізає `input` з деталей Pydantic ValidationError (інакше Pydantic повернув би/залогував медичний вміст). Клієнтське дзеркало: заборона `location.href`/initData у будь-якому web-логері.
 - **CORS**: allowlist лише origin `WEBAPP_URL`; Bearer-only, без cookies → CSRF-поверхні немає.
 - **Secrets**: `.env.example` без значень; `BOT_TOKEN` — лише bot і reminder_worker (незмінно); api — публічний Ed25519-ключ Telegram, несекретний `TELEGRAM_BOT_ID`, DSN своєї ролі та (лише за увімкненого флага) похідний `WEBAPP_HMAC_SECRET`; три DB-ролі (`api_rw`, `reminder_worker`, `migrator`); gitleaks у CI; запінити версії залежностей (fastapi, uvicorn, pydantic явно, import-linter ≥ 2.0).

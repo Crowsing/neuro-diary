@@ -11,12 +11,14 @@ only things worth checking are shapes the storage itself requires.
 
 from __future__ import annotations
 
-import re
-from typing import Literal
+from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
 
-_RECORD_KEY_HEX = re.compile(r"^[0-9a-f]{64}$")
+#: 32 байти в нижньому регістрі. Патерн живе в схемі, а не лише у валідаторі:
+#: `field_validator` не потрапляє в OpenAPI, тож документ дозволяв `""` — і
+#: schemathesis Фази 5 справедливо називав 422 на схемно-валідних даних.
+RECORD_KEY_PATTERN = r"^[0-9a-f]{64}$"
 
 KdfLiteral = Literal["argon2id", "pbkdf2-sha256"]
 KeyWriteModeLiteral = Literal["rewrap", "rekey"]
@@ -25,23 +27,66 @@ KeyWriteModeLiteral = Literal["rewrap", "rekey"]
 #: є помилкою валідації. Розміри в байтах перевіряє сервіс і відповідає 413.
 MAX_CHANGES_PER_REQUEST = 200
 
+#: Стеля кожного лічильника, що переходить дріт — найбільше ціле, яке JSON несе
+#: точно (2^53 − 1), а не стеля `bigint`. Причина в самому документі OpenAPI:
+#: FastAPI типізує `maximum` як float, тож 2^63 − 1 виходить із документа як
+#: 2^63 — на одиницю БІЛЬШЕ за те, що приймає код.
+#:
+#: Дослівно повторює `app.domain.vault.MAX_COUNTER` — контракт «Schemas are
+#: standalone» забороняє імпорт домену, а `tests/test_schemas.py` пінує обидва
+#: написання разом.
+MAX_COUNTER = 2**53 - 1
+
+
+def _base64_chars(byte_count: int) -> int:
+    """Скільки символів base64 дає рівно `byte_count` байтів."""
+    return 4 * ((byte_count + 2) // 3)
+
+
+#: Найдовший base64, який може дати найбільший дозволений запис (§9.5, 64 КіБ).
+#:
+#: Це вимога до **схеми**, а не нова межа: сервіс і далі відповідає 413 на
+#: завеликий payload, і ця гілка лишається досяжною, бо base64 доповнює до
+#: чотирьох — 65 536, 65 537 і 65 538 байтів дають однакову довжину рядка.
+#: Причина, з якої межа потрібна саме в схемі: без неї coverage-фаза
+#: schemathesis будувала масив на 200 записів із рядками довільної довжини, і
+#: прогін одного ендпоінта займав дев'ять хвилин замість секунди.
+MAX_PAYLOAD_B64_CHARS = _base64_chars(65_536)
+
+#: Те саме для конверта (§7): `R` — 32 байти, кілобайт — запас на три порядки.
+#: Дослівно повторює `app.domain.vault.MAX_ENVELOPE_BYTES`.
+MAX_ENVELOPE_B64_CHARS = _base64_chars(1_024)
+
+#: Скільки полів і якої довжини вміщає `kdf_params`.
+#:
+#: Сервер zero-knowledge щодо **значень** цих параметрів — §7 прямо кладе перевірку
+#: підлоги на клієнта, і Фаза 2 зафіксувала це рішення. Але «не судити значень» не
+#: означає «не мати межі»: колонка має тип `jsonb`, а `ck_vault_key_kdf_params`
+#: перевіряє лише `jsonb_typeof = 'object'`, тож до Фази 5 сесія зі step-up могла
+#: покласти під ключ, якого сервер навіть не читає, багатомегабайтний блоб.
+#: Знайдено незалежним review Фази 5 — рівно поруч із межею конверта, яку та сама
+#: фаза щойно додала, через сусіднє поле того самого тіла.
+#:
+#: Числа обрані з запасом до реального клієнта: він надсилає щонайбільше чотири
+#: ключі (`m_kib`, `t`, `p`, `salt_hex`) або два (`iterations`, `salt_hex`), і
+#: найдовше значення — сіль у hex.
+MAX_KDF_PARAMS = 8
+MAX_KDF_VALUE_CHARS = 256
+
+#: Значення параметра: ціле або короткий рядок, і нічого вкладеного. Вкладений
+#: об'єкт — це те, чим межу на кількість ключів обходять.
+KdfParamValue = int | Annotated[str, StringConstraints(max_length=MAX_KDF_VALUE_CHARS)]
+
 
 class ContractModel(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
 
 
 class ChangeInput(ContractModel):
-    record_key: str
-    client_ts_ms: int = Field(gt=0)
-    payload_b64: str | None = None
+    record_key: str = Field(pattern=RECORD_KEY_PATTERN)
+    client_ts_ms: int = Field(gt=0, le=MAX_COUNTER)
+    payload_b64: str | None = Field(default=None, max_length=MAX_PAYLOAD_B64_CHARS)
     tombstone: bool = False
-
-    @field_validator("record_key")
-    @classmethod
-    def _validate_record_key(cls, value: str) -> str:
-        if not _RECORD_KEY_HEX.match(value):
-            raise ValueError("record_key must be 32 lowercase hex bytes")
-        return value
 
     @model_validator(mode="after")
     def _payload_belongs_to_updates_only(self) -> ChangeInput:
@@ -53,7 +98,7 @@ class ChangeInput(ContractModel):
 
 
 class PushRequest(ContractModel):
-    base_revision: int = Field(ge=0)
+    base_revision: int = Field(ge=0, le=MAX_COUNTER)
     changes: list[ChangeInput] = Field(
         min_length=1,
         max_length=MAX_CHANGES_PER_REQUEST,
@@ -89,7 +134,7 @@ class PullResponse(ContractModel):
 class KeyOutput(ContractModel):
     wrapped_dek: str
     kdf: str
-    kdf_params: dict[str, object]
+    kdf_params: dict[str, KdfParamValue]
     key_version: int
     wrap_version: int
     #: Віддається лише при step-up і лише поки живий TTL (§7).
@@ -98,10 +143,10 @@ class KeyOutput(ContractModel):
 
 class KeyWriteRequest(ContractModel):
     mode: KeyWriteModeLiteral
-    expected_wrap_version: int = Field(ge=0)
-    wrapped_dek: str = Field(min_length=1)
+    expected_wrap_version: int = Field(ge=0, le=MAX_COUNTER)
+    wrapped_dek: str = Field(min_length=1, max_length=MAX_ENVELOPE_B64_CHARS)
     kdf: KdfLiteral
-    kdf_params: dict[str, object]
+    kdf_params: dict[str, KdfParamValue] = Field(max_length=MAX_KDF_PARAMS)
 
 
 class KeyWriteAccepted(ContractModel):

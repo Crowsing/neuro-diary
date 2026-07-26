@@ -30,29 +30,49 @@ JOURNAL_TTL = TOMBSTONE_TTL
 # constraint of migration 0001 would answer 500 where the contract says 413.
 RECORD_KEY_BYTES = 32
 MAX_RECORD_BYTES = 65_536
+
+# §7: the envelope is the root secret `R` — 32 bytes — wrapped by a KEK, so a
+# kilobyte is three orders of magnitude of slack. It is bounded because
+# «unbounded» is not a size: `ck_vault_key_wrapped_dek_nonempty` of migration
+# 0001 refuses an empty envelope and says nothing about a large one, and the
+# server is zero-knowledge about the *contents*, not about the length.
+MAX_ENVELOPE_BYTES = 1_024
 MAX_RECORDS_PER_PUSH = 200
 MAX_PUSH_BYTES = 1_048_576
 PULL_PAGE_LIMIT = 500
 
-# §11 per-account rate limits. `GET /v1/consents` deliberately does not share
-# the `sync` bucket: the post-410 rule of §9.4 forbids pruning without a fresh
-# consent answer, so exhausting the sync budget must not also block it.
-SYNC_REQUESTS_PER_MINUTE = 60
-PUSH_BYTES_PER_MINUTE = 5 * 1024 * 1024
-KEY_READS_PER_HOUR = 10
-SYNC_WINDOW = timedelta(minutes=1)
-KEY_READ_WINDOW = timedelta(hours=1)
+# The largest integer a counter may carry across the wire.
+#
+# Without a bound at all, a cursor of `10**22` reached PostgreSQL as an
+# out-of-range parameter, the driver raised, and the sanitized handler answered
+# **500** — found by the schemathesis run of Phase 5, on
+# `GET /v1/sync/pull?since=3138421778880289832960`. 422 is the right answer: the
+# value is outside the contract, not a server fault.
+#
+# It is 2^53 − 1 rather than the `bigint` ceiling of 2^63 − 1, and the reason is
+# the wire rather than the column. A JSON number is an IEEE-754 double almost
+# everywhere, including in the OpenAPI document itself: FastAPI's spec model
+# types `maximum` as a float, so a declared bound of 2^63 − 1 comes back out of
+# the document as 2^63 — one **larger** than what the code accepts, which is a
+# schema that lies in the direction that matters. At 2^53 − 1 the value survives
+# every round-trip exactly.
+#
+# The gap to the column is unreachable, not merely unlikely: 2^53 milliseconds is
+# roughly 285 000 years, and a revision is issued per record.
+MAX_COUNTER = 2**53 - 1
+
+# §11 per-account rate limits moved to `app.domain.rate_limits` in Phase 5: the
+# buckets, their limits and their windows are now one registry, because
+# «which endpoints are limited» had to become a property a test can assert. What
+# was decided here and still holds: `GET /v1/consents` deliberately does not
+# share the `sync` bucket, and gets no bucket of its own either — the post-410
+# rule of §9.4 forbids pruning without a fresh consent answer, so an exhausted
+# budget must never block the answer that unblocks pruning.
 
 # §7: the previous envelope makes a mistaken or malicious overwrite reversible
 # without weakening anything — it is returned only under step-up.
 PREV_ENVELOPE_TTL = timedelta(days=7)
 PREV_ENVELOPE_MIN_INTERVAL = timedelta(hours=24)
-
-
-class RateBucket(StrEnum):
-    SYNC = "sync"
-    PUSH_BYTES = "push_bytes"
-    KEY_READ = "key_read"
 
 
 class KeyWriteMode(StrEnum):

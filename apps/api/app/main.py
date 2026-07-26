@@ -22,14 +22,20 @@ from app.api.v1.auth import router as auth_router
 from app.api.v1.consents import router as consents_router
 from app.api.v1.deps import Services
 from app.api.v1.errors import (
+    RateLimitRefusal,
     domain_error_handler,
+    rate_limit_refusal_handler,
     request_validation_error_handler,
     unhandled_error_handler,
 )
 from app.api.v1.health import router as health_router
 from app.api.v1.reminders import router as reminders_router
 from app.api.v1.sync import router as sync_router
-from app.api.v1.middleware import RateLimitMiddleware, RequestContextMiddleware
+from app.api.v1.middleware import (
+    QueryParameterAllowlistMiddleware,
+    RateLimitMiddleware,
+    RequestContextMiddleware,
+)
 from app.domain.identity import DomainError
 from app.infra.clock import SystemClock
 from app.infra.config import ConfigurationError, Settings
@@ -43,6 +49,7 @@ from app.infra.telegram.initdata import InitDataValidator
 from app.services.auth import AuthService
 from app.services.consent import ConsentService
 from app.services.erasure import ErasureService
+from app.services.rate_limits import RateLimitService
 from app.services.reminder import ReminderService
 from app.services.sync import SyncService
 from app.services.ports import (
@@ -56,6 +63,30 @@ from app.services.ports import (
 CONSENT_COPY_ROOT = Path(__file__).resolve().parents[3] / "consent-copy"
 AUTH_ATTEMPTS_PER_MINUTE = 10
 RATE_LIMIT_WINDOW_SECONDS = 60
+
+#: Where the schema and the two documentation viewers live while developing.
+#: Outside `development` all three are absent, not merely unlinked.
+SCHEMA_URL = "/openapi.json"
+DOCS_URL = "/docs"
+REDOC_URL = "/redoc"
+
+
+def _schema_url(settings: Settings) -> str | None:
+    """Publish the schema where CI consumes it, and nowhere else.
+
+    Phase 5 needs the document served over HTTP: the schemathesis job fetches it
+    from a live process, and a fuzzer cannot describe an API it cannot read.
+    Production needs the opposite — `/docs` is an interactive client for every
+    endpoint, and the schema is a map of the whole surface for anyone who reaches
+    the host.
+
+    Closing the route does not hide the document from the test suite:
+    `tests/unit/test_openapi_surface.py` builds it by calling `app.openapi()`,
+    which does not go through a route at all. That is asserted rather than
+    assumed — `test_schema_exposure.py` builds a non-development app and reads
+    its schema in memory after finding the route gone.
+    """
+    return SCHEMA_URL if settings.is_development else None
 
 
 @dataclass(frozen=True, slots=True)
@@ -90,8 +121,18 @@ def create_app(dependencies: AppDependencies) -> FastAPI:
     )
     sync = SyncService(dependencies.clock, erasure)
     reminders = ReminderService(dependencies.clock)
+    rate_limits = RateLimitService(dependencies.clock)
 
-    application = FastAPI(title="Neuro Diary API")
+    schema_url = _schema_url(settings)
+    application = FastAPI(
+        title="Neuro Diary API",
+        openapi_url=schema_url,
+        # Both viewers are interactive clients for every endpoint, and FastAPI
+        # gives them `None` the same way it gives the schema `None`: the route is
+        # absent rather than merely unlinked.
+        docs_url=DOCS_URL if schema_url else None,
+        redoc_url=REDOC_URL if schema_url else None,
+    )
     application.state.services = Services(
         auth=auth,
         consents=consents,
@@ -100,6 +141,7 @@ def create_app(dependencies: AppDependencies) -> FastAPI:
         unit_of_work=dependencies.unit_of_work,
         sync=sync,
         reminders=reminders,
+        rate_limits=rate_limits,
         app_env=settings.app_env,
     )
 
@@ -108,6 +150,7 @@ def create_app(dependencies: AppDependencies) -> FastAPI:
         request_validation_error_handler,
     )
     application.add_exception_handler(DomainError, domain_error_handler)
+    application.add_exception_handler(RateLimitRefusal, rate_limit_refusal_handler)
     # Registered last so nothing reaches uvicorn.error with a SQL statement and
     # its bound parameters attached.
     application.add_exception_handler(Exception, unhandled_error_handler)
@@ -119,12 +162,23 @@ def create_app(dependencies: AppDependencies) -> FastAPI:
         allow_methods=["GET", "POST"],
         allow_headers=["Authorization", "Content-Type"],
     )
+    # Starlette runs middleware in reverse order of registration, so what is
+    # written last runs first. The order that matters, outermost inward:
+    #
+    #   RequestContextMiddleware → QueryParameterAllowlistMiddleware
+    #     → RateLimitMiddleware → CORSMiddleware → router
+    #
+    # The logger is outermost so every refusal below it is still one allowlisted
+    # line. The query allowlist sits above the limiter on purpose: a request
+    # carrying a parameter this API does not read is not an authentication
+    # attempt, and refusing it must not spend somebody's §11 window.
     application.add_middleware(
         RateLimitMiddleware,
-        limits={"/v1/auth/telegram": AUTH_ATTEMPTS_PER_MINUTE},
+        limits={("POST", "/v1/auth/telegram"): AUTH_ATTEMPTS_PER_MINUTE},
         window_seconds=RATE_LIMIT_WINDOW_SECONDS,
         secret=settings.log_account_ref_key,
     )
+    application.add_middleware(QueryParameterAllowlistMiddleware)
     application.add_middleware(
         RequestContextMiddleware,
         secret=settings.log_account_ref_key,

@@ -8,6 +8,7 @@ these methods; nothing here decides policy on its own.
 from __future__ import annotations
 
 from datetime import datetime, timedelta
+from math import ceil
 from typing import Any
 from uuid import UUID
 
@@ -476,8 +477,16 @@ class RateWindowRepository:
         # Скільки лишилося до кінця вікна, а не яка воно завдовжки: рахунок від
         # `window_start` давав би константу — 3600 секунд для key_read навіть
         # тоді, коли вікно закривається за секунду.
+        #
+        # Округлення ВГОРУ, і це не косметика. `int()` обрізає, тож вікно, що
+        # закривається через 59.6 с, називало б 59 — і клієнт, який чекає рівно
+        # названу кількість секунд (а саме так і має робити клієнт, і саме так
+        # робить `apps/web/src/sync/engine.ts`), просинався б за 0.4 с до
+        # відкриття й отримував другий 429. Знайдено навантажувальним smoke Фази 5:
+        # вивантаж на 5.3 МіБ зупинявся на 18-му чанку після паузи, яку сервер сам
+        # і назвав.
         closes_at = row.window_start + timedelta(seconds=window_seconds)
-        remaining = int((closes_at - now).total_seconds())
+        remaining = ceil((closes_at - now).total_seconds())
         return RateVerdict(allowed=False, retry_after_seconds=max(remaining, 1))
 
     def clear(self, account_id: UUID) -> None:
