@@ -25,12 +25,15 @@
   (mobile + desktop), включно з `ac8-no-network-no-deadends.spec.ts`:
   local-only режим лишився робочим без жодної згоди й без правок.
   `apps/web` блок 4 не чіпав узагалі.
-- [x] API pytest і Ruff зелені. Evidence: `uv run --locked pytest` — 504
+- [x] API pytest і Ruff зелені. Evidence: `uv run --locked pytest` — 507
   passed; `ruff check .` — passed; `ruff format --check .` — 113 files
   formatted; `mypy --strict app` — 68 source files без помилок;
   `lint-imports` — 7 kept, 0 broken.
 - [x] Sync-e2e проти живого api з реальною PostgreSQL. Evidence:
-  `SYNC_E2E=1 playwright test --project=sync` — 7 passed.
+  `SYNC_E2E=1 playwright test --project=sync` — 7 passed проти локального
+  стенду. Прогін навмисний, хоча клієнта блок 4 не чіпав: конфіг api змінився,
+  і треба було довести, що новий guard не ламає `APP_ENV=development`.
+  Стартовий лог стенду підтвердив `erasure_journal_database_only`.
 - [x] Bot pytest і Ruff зелені. Evidence: 5 tests passed; Ruff passed;
   `mypy --strict bot` — 2 source files без помилок.
 - [x] Нова інфраструктура має інтеграційні, privacy та failure-mode тести.
