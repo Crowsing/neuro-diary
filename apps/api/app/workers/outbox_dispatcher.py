@@ -35,6 +35,7 @@ from app.domain.events import (
     ACCOUNT_ERASURE_REQUESTED,
     CONSENT_REVOKED,
     REMINDER_ERASURE_REQUESTED,
+    SECURITY_RESET_REQUESTED,
     VAULT_ERASURE_REQUESTED,
 )
 from app.domain.identity import RevokeReason
@@ -103,6 +104,7 @@ class OutboxDispatcher:
                     ACCOUNT_ERASURE_REQUESTED,
                     VAULT_ERASURE_REQUESTED,
                     REMINDER_ERASURE_REQUESTED,
+                    SECURITY_RESET_REQUESTED,
                 ):
                     reference = _reference_of(event)
                     if reference is not None:

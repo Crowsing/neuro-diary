@@ -84,7 +84,7 @@ def create_app(dependencies: AppDependencies) -> FastAPI:
         consents,
         dependencies.clock,
     )
-    sync = SyncService(dependencies.clock)
+    sync = SyncService(dependencies.clock, erasure)
 
     application = FastAPI(title="Neuro Diary API")
     application.state.services = Services(

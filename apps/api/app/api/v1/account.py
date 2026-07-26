@@ -50,11 +50,17 @@ def reset_vault(
     the envelope here would break the very flow this endpoint serves. Erasing it
     belongs to revocation, where no new envelope follows.
     """
+    now = services.sync.now()
     with services.unit_of_work() as unit:
         session = require_session(services, unit, token)
         request.state.account_id = session.account_id
         services.auth.require_step_up(session, ProtectedOperation.VAULT_RESET)
-        revision = services.sync.vault_reset(unit, account_id=session.account_id)
+        outcome = services.sync.vault_reset(
+            unit,
+            account_id=session.account_id,
+            now=now,
+        )
         unit.commit()
-    request.state.revision = revision
-    return VaultResetResponse(new_revision=revision)
+    services.erasure.confirm(outcome.erasure_reference, now=now)
+    request.state.revision = outcome.revision
+    return VaultResetResponse(new_revision=outcome.revision)

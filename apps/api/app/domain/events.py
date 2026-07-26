@@ -36,6 +36,7 @@ CONSENT_REVOKED = "consent_revoked"
 ACCOUNT_ERASURE_REQUESTED = "account_erasure_requested"
 VAULT_ERASURE_REQUESTED = "vault_erasure_requested"
 REMINDER_ERASURE_REQUESTED = "reminder_erasure_requested"
+SECURITY_RESET_REQUESTED = "security_reset_requested"
 
 
 @dataclass(frozen=True, slots=True)
@@ -140,21 +141,48 @@ class ReminderErasureRequested:
         }
 
 
+@dataclass(frozen=True, slots=True)
+class SecurityResetRequested:
+    """The passphrase that opened the server copy stopped being the current one.
+
+    §6.4 code `security_reset`, and the only one of the four that is not an
+    erasure the user asked for: it marks the moment after which a restore would
+    put an *old* envelope back into a live service (§7). Same consumer as the
+    others — the dispatcher closes the journal entry.
+    """
+
+    account_id: UUID
+    erasure_reference: UUID
+
+    @property
+    def event_type(self) -> str:
+        return SECURITY_RESET_REQUESTED
+
+    def to_payload(self) -> dict[str, Any]:
+        return {
+            "account_id": str(self.account_id),
+            "erasure_reference": str(self.erasure_reference),
+        }
+
+
 DomainEvent = (
     ConsentRevoked
     | AccountErasureRequested
     | VaultErasureRequested
     | ReminderErasureRequested
+    | SecurityResetRequested
 )
 
 __all__ = [
     "ACCOUNT_ERASURE_REQUESTED",
     "CONSENT_REVOKED",
     "REMINDER_ERASURE_REQUESTED",
+    "SECURITY_RESET_REQUESTED",
     "VAULT_ERASURE_REQUESTED",
     "AccountErasureRequested",
     "ConsentRevoked",
     "DomainEvent",
     "ReminderErasureRequested",
+    "SecurityResetRequested",
     "VaultErasureRequested",
 ]

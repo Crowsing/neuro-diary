@@ -11,7 +11,6 @@ import base64
 import hashlib
 import threading
 import time
-from datetime import datetime
 from typing import Any
 from uuid import UUID
 
@@ -20,8 +19,6 @@ import pytest
 from fastapi import FastAPI
 from sqlalchemy import Engine, text
 
-from app.infra.config import Settings
-from app.main import AppDependencies, create_app
 from conftest import Database, FrozenClock, REPO_ROOT, Caller, sign_init_data
 
 REGISTRY = REPO_ROOT / "consent-copy"
@@ -752,27 +749,5 @@ def test_a_push_racing_the_revocation_never_leaves_records_behind(
     assert _scalar(engine, "SELECT count(*) FROM diary.vault_key") == 0
 
 
-class RefusingJournal:
-    def record_intent(self, *, account_id: UUID, code: str, at: datetime) -> UUID:
-        del account_id, code, at
-        raise RuntimeError("journal unavailable")
-
-    def confirm(self, reference: UUID, *, at: datetime) -> None:  # pragma: no cover
-        del reference, at
-
-
-@pytest.fixture
-def refusing_journal_api(
-    dependencies: AppDependencies,
-    settings: Settings,
-) -> FastAPI:
-    return create_app(
-        AppDependencies(
-            settings=settings,
-            unit_of_work=dependencies.unit_of_work,
-            clock=dependencies.clock,
-            init_data=dependencies.init_data,
-            consent_copy=dependencies.consent_copy,
-            erasure_journal=RefusingJournal(),
-        )
-    )
+# `RefusingJournal` and `refusing_journal_api` live in conftest: every erasure
+# code owes a test against them, not only the two this file covers.

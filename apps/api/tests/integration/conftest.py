@@ -15,6 +15,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 from urllib.parse import quote
+from uuid import UUID
 
 import httpx
 import psycopg
@@ -187,6 +188,39 @@ def dependencies(
 @pytest.fixture
 def api(dependencies: AppDependencies) -> FastAPI:
     return create_app(dependencies)
+
+
+class RefusingJournal:
+    """An `ErasureJournalPort` that cannot record anything.
+
+    §6.4 puts the journal write before the deletion and says a failure to write
+    it must stop the erasure. Every code that erases owes a test against this,
+    so it lives here rather than in the file of whichever suite needed it first.
+    """
+
+    def record_intent(self, *, account_id: UUID, code: str, at: datetime) -> UUID:
+        del account_id, code, at
+        raise RuntimeError("journal unavailable")
+
+    def confirm(self, reference: UUID, *, at: datetime) -> None:  # pragma: no cover
+        del reference, at
+
+
+@pytest.fixture
+def refusing_journal_api(
+    dependencies: AppDependencies,
+    settings: Settings,
+) -> FastAPI:
+    return create_app(
+        AppDependencies(
+            settings=settings,
+            unit_of_work=dependencies.unit_of_work,
+            clock=dependencies.clock,
+            init_data=dependencies.init_data,
+            consent_copy=dependencies.consent_copy,
+            erasure_journal=RefusingJournal(),
+        )
+    )
 
 
 class Caller:

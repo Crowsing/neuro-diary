@@ -12,6 +12,7 @@ from uuid import UUID
 from app.domain.events import (
     AccountErasureRequested,
     ReminderErasureRequested,
+    SecurityResetRequested,
     VaultErasureRequested,
 )
 from app.services.ports import ErasureJournalPort, UnitOfWork
@@ -22,6 +23,11 @@ ERASURE_FULL = "full"
 ERASURE_SYNC_OFF = "sync_off"
 #: §6.4 runbook: `DELETE reminder_schedule + reminder_delivery`. Also partial.
 ERASURE_REMINDERS_OFF = "reminders_off"
+#: §6.4 runbook: `DELETE vault_key + vault_record`, `reset_revision =
+#: current_revision + 1`. Not an erasure the user asked for — it marks the
+#: moment after which restoring a backup would hand an old passphrase a live
+#: service (§7).
+ERASURE_SECURITY_RESET = "security_reset"
 
 
 class ErasureService:
@@ -141,6 +147,40 @@ class ErasureService:
         )
         unit.schedules.delete(account_id)
         event = ReminderErasureRequested(
+            account_id=account_id,
+            erasure_reference=reference,
+        )
+        unit.outbox.publish(
+            event_type=event.event_type,
+            payload=event.to_payload(),
+            now=now,
+        )
+        return reference
+
+    def record_security_reset(
+        self,
+        unit: UnitOfWork,
+        *,
+        account_id: UUID,
+        now: datetime,
+    ) -> UUID:
+        """Journal a `security_reset` before the caller performs it (§6.4, §7).
+
+        Unlike the three erasures above, the deletion itself belongs to the
+        caller: a vault-reset and an envelope write are two different mutations
+        of two different tables, and both mark the same fact — the passphrase
+        that used to open the server copy no longer does.
+
+        The event is published before that mutation rather than after it, which
+        is safe only because nothing on these paths sweeps the outbox. A full
+        erasure has to publish last for exactly the opposite reason.
+        """
+        reference = self._journal.record_intent(
+            account_id=account_id,
+            code=ERASURE_SECURITY_RESET,
+            at=now,
+        )
+        event = SecurityResetRequested(
             account_id=account_id,
             erasure_reference=reference,
         )
