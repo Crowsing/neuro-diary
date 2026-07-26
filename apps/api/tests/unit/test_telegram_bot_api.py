@@ -347,3 +347,34 @@ def test_the_token_bucket_paces_sends_at_the_configured_rate() -> None:
     # A clock that never moves means every message after the first has to wait
     # its whole interval: two waits for three messages.
     assert sleeps == [pytest.approx(0.04), pytest.approx(0.08)]
+
+
+def test_a_method_outside_the_allowlist_cannot_be_called() -> None:
+    """§5.3 pt. 6 as a runtime refusal, not only as a constant.
+
+    The guard used to carry `# pragma: no cover - defended by tests` while no
+    test ever entered it: the allowlist assertion above compares a frozenset,
+    which says nothing about reachability.
+    """
+    api = _build(Telegram())
+
+    with pytest.raises(TelegramConfigurationError):
+        api._call("getChatMember", {"chat_id": CHAT_ID})
+
+
+def test_a_server_that_always_throttles_is_not_hammered_for_ten_minutes() -> None:
+    """`retry_after: 0` is legal, and a deadline alone does not stop it.
+
+    Without an attempt ceiling the bucket would issue thousands of requests
+    inside one budget — aimed at a service that had just asked to be left alone.
+    """
+    telegram = Telegram(*[_throttled(0) for _ in range(20)])
+    sleeps: list[float] = []
+
+    receipt = _build(telegram, sleeps=sleeps).send_reminder(
+        chat_id=CHAT_ID,
+        deadline=NOW + timedelta(minutes=10),
+    )
+
+    assert receipt.outcome is SendOutcome.FAILED
+    assert len(telegram.calls) == 5

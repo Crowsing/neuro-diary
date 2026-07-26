@@ -22,7 +22,12 @@ import psycopg
 import pytest
 from sqlalchemy import Engine, text
 
-from app.domain.reminders import SendOutcome, SendReceipt
+from app.domain.reminders import (
+    ATTEMPT_BUDGET,
+    SendOutcome,
+    SendReceipt,
+    attempt_deadline,
+)
 from app.infra.db.engine import SqlReminderUnitOfWorkFactory
 from app.workers.reminder_worker import ReminderWorker
 
@@ -53,13 +58,17 @@ class FakeTelegram:
     ) -> None:
         self.outcome = outcome
         self.sent: list[int] = []
+        #: Recorded rather than discarded: the deadline is the only channel
+        #: through which §10's attempt budget and its nightfall bound reach
+        #: Telegram, and a fake that threw it away left that wiring unasserted.
+        self.deadlines: list[datetime] = []
         self.deleted: list[tuple[int, int]] = []
         self.deletion_succeeds = True
         self._before_send = before_send
         self._next_message_id = 1000
 
     def send_reminder(self, *, chat_id: int, deadline: datetime) -> SendReceipt:
-        del deadline
+        self.deadlines.append(deadline)
         if self._before_send is not None:
             self._before_send()
         self.sent.append(chat_id)
@@ -439,7 +448,9 @@ def test_an_unresolvable_zone_costs_only_its_own_account(
 
     The second account is planted directly because the grant path validates the
     zone — which is the point: the bad row can only arrive from outside the API,
-    and that is exactly when the worker must survive it.
+    and that is exactly when the worker must survive it. Surviving is not
+    enough on its own; `test_an_unresolvable_zone_leaves_the_due_index_instead_of_starving_it`
+    covers the other half, that the row also stops coming back.
     """
     fire_at = datetime(2026, 7, 24, 17, 0, tzinfo=UTC)
     _arrange(caller, identity_database, fire_at=fire_at)
@@ -459,7 +470,7 @@ def test_an_unresolvable_zone_costs_only_its_own_account(
 
     result = worker.run_once()
 
-    assert result.accounts_in_error == 1
+    assert result.quarantined == 1
     assert result.sent == 1
     assert telegram.sent == [CHAT_ID]
     assert (date(2026, 7, 24), "sent", 1001) in _deliveries(engine)
@@ -573,14 +584,12 @@ def test_acknowledging_a_block_starts_the_streak_again(
     assert _schedule(engine)["disabled_at"] == second_block
 
 
-@pytest.mark.parametrize("outcome", [SendOutcome.FAILED])
 def test_a_refusal_that_is_not_a_block_changes_neither_schedule_nor_consent(
     caller: Caller,
     engine: Engine,
     identity_database: Database,
     clock: FrozenClock,
     worker_engine: Engine,
-    outcome: SendOutcome,
 ) -> None:
     """§10 DoD: 400 and 5xx move nothing but the delivery row."""
     fire_at = datetime(2026, 7, 24, 17, 0, tzinfo=UTC)
@@ -589,7 +598,7 @@ def test_a_refusal_that_is_not_a_block_changes_neither_schedule_nor_consent(
 
     result = ReminderWorker(
         SqlReminderUnitOfWorkFactory(worker_engine),
-        FakeTelegram(outcome=outcome),
+        FakeTelegram(outcome=SendOutcome.FAILED),
         clock,
     ).run_once()
 
@@ -677,6 +686,8 @@ def test_the_whole_cycle_is_reachable_under_the_worker_role(
         skipped_stale=0,
         failed=0,
         blocked=0,
+        quarantined=0,
+        retracted=0,
         swept=0,
         messages_removed=0,
         accounts_in_error=0,
@@ -684,3 +695,393 @@ def test_the_whole_cycle_is_reachable_under_the_worker_role(
     assert telegram.sent == [CHAT_ID]
     assert _deliveries(engine) == [(date(2026, 7, 24), "sent", 1001)]
     assert _schedule(engine)["next_fire_at"] == datetime(2026, 7, 25, 17, 0, tzinfo=UTC)
+
+
+# ------------------------------------------- what the review found missing
+
+
+def _plant_second_account(
+    identity_database: Database,
+    *,
+    fire_at: datetime,
+    chat_id: int = 555,
+    timezone_name: str = KYIV,
+    local_time: str = "20:00",
+    account_id: str = "22222222-2222-2222-2222-222222222222",
+) -> None:
+    """A second real account, so a batch is a batch rather than a special case.
+
+    Planted directly because the grant path binds one Telegram identity per
+    signed initData, and what these tests need is two rows in one scan.
+    """
+    with psycopg.connect(identity_database.admin_url, autocommit=True) as connection:
+        connection.execute(
+            "INSERT INTO diary.account (id, status) VALUES (%s, 'active')",
+            (account_id,),
+        )
+        connection.execute(
+            "INSERT INTO reminders.reminder_schedule"
+            " (account_id, telegram_chat_id, tz, local_time, enabled, next_fire_at)"
+            " VALUES (%s, %s, %s, %s, true, %s)",
+            (account_id, chat_id, timezone_name, local_time, fire_at),
+        )
+
+
+def test_the_attempt_deadline_is_what_reaches_telegram(
+    caller: Caller,
+    identity_database: Database,
+    clock: FrozenClock,
+    worker: ReminderWorker,
+    telegram: FakeTelegram,
+) -> None:
+    """§10's budget and its nightfall bound travel in one value, or in none.
+
+    The worker computes `attempt_deadline`; the adapter is the only thing that
+    reads it. Nothing else in the suite observes that hand-off, so replacing it
+    with a bare `now` used to leave every test green while killing the single
+    retry §10 permits.
+    """
+    fire_at = datetime(2026, 7, 24, 15, 0, tzinfo=UTC)  # 18:00 Kyiv
+    _arrange(caller, identity_database, fire_at=fire_at, local_time="18:00")
+    clock.set(fire_at)
+
+    worker.run_once()
+
+    assert telegram.deadlines == [
+        attempt_deadline(started_at=fire_at, timezone_name=KYIV)
+    ]
+    assert telegram.deadlines[0] == fire_at + ATTEMPT_BUDGET
+
+
+def test_the_deadline_is_cut_short_by_nightfall(
+    caller: Caller,
+    identity_database: Database,
+    clock: FrozenClock,
+    worker: ReminderWorker,
+    telegram: FakeTelegram,
+) -> None:
+    """A `retry_after` may not carry a message into the quiet hours (§10)."""
+    fire_at = datetime(2026, 7, 24, 18, 55, tzinfo=UTC)  # 21:55 Kyiv
+    _arrange(caller, identity_database, fire_at=fire_at, local_time="21:55")
+    clock.set(fire_at)
+
+    worker.run_once()
+
+    assert telegram.deadlines == [datetime(2026, 7, 24, 19, 0, tzinfo=UTC)]
+    assert telegram.deadlines[0] < fire_at + ATTEMPT_BUDGET
+
+
+def test_a_slow_batch_still_respects_the_quiet_hours_of_the_later_accounts(
+    caller: Caller,
+    engine: Engine,
+    identity_database: Database,
+    clock: FrozenClock,
+    worker_engine: Engine,
+) -> None:
+    """§10: the guard is on the **actual** send time, not on the batch start.
+
+    Two accounts due at 21:30 Kyiv; the first send takes forty minutes. With one
+    `now` for the whole pass the second message goes out at 22:10 and is
+    recorded `sent` — the scenario §10's DoD names verbatim, invisible to any
+    single-account test because there batch start *is* send time.
+    """
+    fire_at = datetime(2026, 7, 24, 18, 30, tzinfo=UTC)  # 21:30 Kyiv
+    _arrange(caller, identity_database, fire_at=fire_at, local_time="21:30")
+    _plant_second_account(identity_database, fire_at=fire_at, local_time="21:30")
+    clock.set(fire_at)
+
+    slow = FakeTelegram(before_send=lambda: clock.advance(minutes=40))
+    result = ReminderWorker(
+        SqlReminderUnitOfWorkFactory(worker_engine), slow, clock
+    ).run_once()
+
+    assert result.sent == 1
+    assert result.skipped_quiet == 1
+    assert len(slow.sent) == 1
+    statuses = {status for _, status, _ in _deliveries(engine)}
+    assert statuses == {"sent", "skipped_quiet"}
+
+
+def test_the_claim_is_named_by_the_scheduled_day_not_by_today(
+    caller: Caller,
+    engine: Engine,
+    identity_database: Database,
+    clock: FrozenClock,
+    worker: ReminderWorker,
+) -> None:
+    """The idempotency key is the occurrence's own day (§10).
+
+    Deriving it from `now` instead looks harmless and eats the *next* day: a
+    23:50 occurrence picked up at 00:20 would claim tomorrow's date, and
+    tomorrow's real reminder would then lose the primary key race in silence.
+    """
+    fire_at = datetime(2026, 7, 24, 20, 50, tzinfo=UTC)  # 23:50 Kyiv
+    _arrange(caller, identity_database, fire_at=fire_at, local_time="23:50")
+    clock.set(fire_at + timedelta(minutes=30))  # 00:20 Kyiv, the next day
+
+    worker.run_once()
+
+    assert _deliveries(engine) == [(date(2026, 7, 24), "skipped_stale", None)]
+
+
+def test_the_schedule_moves_on_even_when_the_day_was_already_claimed(
+    caller: Caller,
+    engine: Engine,
+    identity_database: Database,
+    clock: FrozenClock,
+    worker_engine: Engine,
+) -> None:
+    """Otherwise the row stays due for ever and is re-read on every pass.
+
+    The losing worker of a two-worker race must still advance `next_fire_at`;
+    the comment in the code says so, and until this test nothing checked it.
+    """
+    fire_at = datetime(2026, 7, 24, 17, 0, tzinfo=UTC)
+    clock.set(fire_at)
+    _arrange(caller, identity_database, fire_at=fire_at)
+    factory = SqlReminderUnitOfWorkFactory(worker_engine)
+    ReminderWorker(factory, FakeTelegram(), clock).run_once()
+
+    # Re-arm the row as a stale replica or a restore would, then run again: the
+    # day is already claimed, so nothing is sent — but the clock must still move.
+    with psycopg.connect(identity_database.api_url, autocommit=True) as connection:
+        connection.execute(
+            "UPDATE reminders.reminder_schedule SET next_fire_at = %s", (fire_at,)
+        )
+    loser = FakeTelegram()
+    ReminderWorker(factory, loser, clock).run_once()
+
+    assert loser.sent == []
+    assert _schedule(engine)["next_fire_at"] == datetime(2026, 7, 25, 17, 0, tzinfo=UTC)
+
+
+def test_a_consent_withdrawn_after_the_scan_stops_the_message(
+    caller: Caller,
+    engine: Engine,
+    identity_database: Database,
+    clock: FrozenClock,
+    worker_engine: Engine,
+) -> None:
+    """The window the batch scan opens, and the reason the schedule is re-read.
+
+    Two accounts in one batch. While the first is talking to Telegram the user
+    of the second withdraws her consent — which is minutes, not microseconds,
+    once a batch is a hundred accounts deep. Without the second read the worker
+    claims a day for an erased account and sends her the message she just asked
+    to stop.
+    """
+    fire_at = datetime(2026, 7, 24, 17, 0, tzinfo=UTC)
+    clock.set(fire_at)
+    _plant_second_account(identity_database, fire_at=fire_at)
+    _arrange(caller, identity_database, fire_at=fire_at)
+
+    def withdraw() -> None:
+        response = caller.post("/v1/consents/revoke", {"kind": "telegram_reminders"})
+        assert response.status_code == 200, response.text
+
+    telegram = FakeTelegram(before_send=withdraw)
+    result = ReminderWorker(
+        SqlReminderUnitOfWorkFactory(worker_engine), telegram, clock
+    ).run_once()
+
+    # The planted account is scanned first (lower `next_fire_at` tie broken by
+    # insertion); its send withdraws the other one's consent.
+    assert telegram.sent == [555]
+    assert result.sent == 1
+    assert _deliveries(engine) == [(date(2026, 7, 24), "sent", 1001)]
+    # Load-bearing: the withdrawn account has to be *skipped*, not to blow up
+    # inside the isolation handler. Without this the guard could be deleted and
+    # the assertions above would still hold — the `AttributeError` on a missing
+    # row would be swallowed as an account error and nothing would notice.
+    assert result.accounts_in_error == 0
+
+
+def test_a_message_sent_into_an_erased_account_is_taken_straight_back(
+    caller: Caller,
+    engine: Engine,
+    identity_database: Database,
+    clock: FrozenClock,
+    worker_engine: Engine,
+) -> None:
+    """The one window a re-read cannot close, and what closes it instead.
+
+    The erasure commits while the message is in flight: the claim disappears,
+    `finish_occurrence` moves nothing, and the only trace of that message is in
+    the worker's own memory. `message_cleanup` is unreachable from here (§6.3
+    gives it `INSERT` to `api_rw` alone), so the retraction happens on the spot.
+    """
+    fire_at = datetime(2026, 7, 24, 17, 0, tzinfo=UTC)
+    clock.set(fire_at)
+    _arrange(caller, identity_database, fire_at=fire_at)
+
+    def withdraw() -> None:
+        assert (
+            caller.post(
+                "/v1/consents/revoke", {"kind": "telegram_reminders"}
+            ).status_code
+            == 200
+        )
+
+    telegram = FakeTelegram(before_send=withdraw)
+    result = ReminderWorker(
+        SqlReminderUnitOfWorkFactory(worker_engine), telegram, clock
+    ).run_once()
+
+    assert telegram.sent == [CHAT_ID]
+    assert result.retracted == 1
+    assert telegram.deleted == [(CHAT_ID, 1001)]
+    # Nothing survives the erasure: no orphan delivery row for an account that
+    # no longer has a consent (§4.4).
+    assert _deliveries(engine) == []
+
+
+def test_a_late_attempt_never_overwrites_what_the_sweeper_settled(
+    caller: Caller,
+    engine: Engine,
+    identity_database: Database,
+    clock: FrozenClock,
+    worker_engine: Engine,
+) -> None:
+    """The `status = 'pending'` guard, staged rather than described.
+
+    A batch can outlive the sweeper threshold, so the sweeper genuinely meets a
+    live attempt. Without the guard the returning attempt would write `sent`
+    over a row the sweeper had already given up on — and §6.4 would then hold a
+    message id for a delivery the system had declared failed.
+    """
+    fire_at = datetime(2026, 7, 24, 17, 0, tzinfo=UTC)
+    clock.set(fire_at)
+    _arrange(caller, identity_database, fire_at=fire_at)
+    factory = SqlReminderUnitOfWorkFactory(worker_engine)
+
+    crashing = FakeTelegram()
+
+    def explode(*, chat_id: int, deadline: datetime) -> SendReceipt:
+        del chat_id, deadline
+        raise RuntimeError("the attempt is still out there")
+
+    crashing.send_reminder = explode  # type: ignore[method-assign]
+    ReminderWorker(factory, crashing, clock).run_once()
+
+    clock.advance(minutes=16)
+    ReminderWorker(factory, FakeTelegram(), clock).run_once()
+    assert _deliveries(engine) == [(date(2026, 7, 24), "failed", None)]
+
+    # The attempt finally returns and tries to report success.
+    with factory() as unit:
+        moved = unit.reminders.finish_occurrence(
+            _account_id(engine),
+            local_date=date(2026, 7, 24),
+            status="sent",
+            telegram_message_id=4242,
+        )
+        unit.commit()
+
+    assert moved == 0
+    assert _deliveries(engine) == [(date(2026, 7, 24), "failed", None)]
+
+
+def test_an_unresolvable_zone_leaves_the_due_index_instead_of_starving_it(
+    engine: Engine,
+    identity_database: Database,
+    clock: FrozenClock,
+    worker: ReminderWorker,
+) -> None:
+    """Isolation that kept the row in the scan would prevent the crash only.
+
+    A hundred such rows fill `CLAIM_BATCH` on every pass and starve every real
+    account. The row becomes a plain pause — no `disabled_reason`, so the
+    reconciler of §10 can never turn corrupt data into a withdrawn consent.
+    """
+    fire_at = datetime(2026, 7, 24, 17, 0, tzinfo=UTC)
+    clock.set(fire_at)
+    _plant_second_account(
+        identity_database, fire_at=fire_at, timezone_name="Mars/Olympus"
+    )
+
+    result = worker.run_once()
+
+    assert result.quarantined == 1
+    assert result.accounts_in_error == 0
+    with engine.connect() as connection:
+        row = connection.execute(
+            text("SELECT enabled, disabled_reason FROM reminders.reminder_schedule")
+        ).one()
+    assert row.enabled is False
+    assert row.disabled_reason is None
+
+    assert worker.run_once().quarantined == 0
+
+
+def test_a_broken_sweep_does_not_cost_the_batch_its_deliveries(
+    caller: Caller,
+    identity_database: Database,
+    clock: FrozenClock,
+    worker_engine: Engine,
+) -> None:
+    """The sweeper runs first, so an exception there is the widest outage."""
+    fire_at = datetime(2026, 7, 24, 17, 0, tzinfo=UTC)
+    clock.set(fire_at)
+    _arrange(caller, identity_database, fire_at=fire_at)
+
+    telegram = FakeTelegram()
+    worker = ReminderWorker(
+        SqlReminderUnitOfWorkFactory(worker_engine), telegram, clock
+    )
+    broken = SqlReminderUnitOfWorkFactory(worker_engine)
+    original = broken.__call__
+
+    class Exploding:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def __call__(self) -> object:
+            self.calls += 1
+            if self.calls == 1:
+                raise RuntimeError("the sweep transaction will not start")
+            return original()
+
+    worker._unit_of_work = Exploding()  # type: ignore[assignment]
+
+    result = worker.run_once()
+
+    assert result.swept == 0
+    assert result.accounts_in_error == 1
+    assert telegram.sent == [CHAT_ID]
+
+
+def test_a_schedule_paused_after_the_scan_sends_nothing(
+    caller: Caller,
+    engine: Engine,
+    identity_database: Database,
+    clock: FrozenClock,
+    worker_engine: Engine,
+) -> None:
+    """The other half of the second read: `enabled` can change inside the window.
+
+    Withdrawing a consent removes the row; pausing leaves it there with
+    `enabled = false`. A guard that only checked for a missing row would send
+    to somebody who had just switched reminders off — a state the scan cannot
+    see because it happened after it.
+    """
+    fire_at = datetime(2026, 7, 24, 17, 0, tzinfo=UTC)
+    clock.set(fire_at)
+    _plant_second_account(identity_database, fire_at=fire_at)
+    _arrange(caller, identity_database, fire_at=fire_at)
+
+    def pause() -> None:
+        response = caller.put(
+            "/v1/reminders/settings",
+            {"enabled": False, "time": "20:00", "timezone": KYIV},
+        )
+        assert response.status_code == 200, response.text
+
+    telegram = FakeTelegram(before_send=pause)
+    result = ReminderWorker(
+        SqlReminderUnitOfWorkFactory(worker_engine), telegram, clock
+    ).run_once()
+
+    assert telegram.sent == [555]
+    assert result.sent == 1
+    assert result.accounts_in_error == 0
+    assert _deliveries(engine) == [(date(2026, 7, 24), "sent", 1001)]

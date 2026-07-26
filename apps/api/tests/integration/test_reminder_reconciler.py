@@ -15,7 +15,7 @@ import pytest
 from sqlalchemy import Engine, text
 
 from app.domain.events import CONSENT_REVOKED
-from app.domain.reminders import BOT_BLOCKED_STREAK, SendOutcome
+from app.domain.reminders import BOT_BLOCKED_STREAK, MESSAGE_CLEANUP_TTL, SendOutcome
 from app.infra.db.engine import SqlReminderUnitOfWorkFactory, SqlUnitOfWorkFactory
 from app.services.consent import ConsentService
 from app.services.erasure import ErasureService
@@ -382,9 +382,16 @@ def test_a_refused_deletion_keeps_the_row_until_its_ttl_and_no_longer(
 
     assert _cleanup_rows(identity_database) == [(4242424242, 1001)]
 
+    # The **same** refusing fake past the TTL. Handing the second pass a healthy
+    # one would remove the row through `forget_cleanup` after a successful
+    # `deleteMessages` and prove the opposite branch — which is exactly what the
+    # first version of this test did, leaving the unconditional expiry sweep
+    # deletable with the suite green.
     clock.advance(hours=49)
-    ReminderWorker(factory, FakeTelegram(), clock).run_once()
+    result = ReminderWorker(factory, stubborn, clock).run_once()
 
+    assert result.messages_removed == 0
+    assert stubborn.deleted == [(4242424242, 1001), (4242424242, 1001)]
     assert _cleanup_rows(identity_database) == []
 
 
@@ -397,5 +404,64 @@ def test_a_revocation_without_a_delivery_queues_nothing(
     _grant(caller)
 
     caller.post("/v1/consents/revoke", {"kind": "telegram_reminders"})
+
+    assert _cleanup_rows(identity_database) == []
+
+
+def test_the_queue_records_the_forty_eight_hour_deadline_it_promises(
+    caller: Caller,
+    identity_database: Database,
+    worker_engine: Engine,
+    clock: FrozenClock,
+) -> None:
+    """§6.4 fixes the window at forty-eight hours; nothing else read it back."""
+    _sent_one(caller, identity_database, worker_engine, clock)
+    revoked_at = clock.now()
+
+    caller.post("/v1/consents/revoke", {"kind": "telegram_reminders"})
+
+    with psycopg.connect(identity_database.admin_url, autocommit=True) as connection:
+        expires_at = connection.execute(
+            "SELECT expires_at FROM reminders.message_cleanup"
+        ).fetchone()
+    assert expires_at is not None
+    assert expires_at[0] == revoked_at + MESSAGE_CLEANUP_TTL
+
+
+def test_one_chat_that_will_not_answer_does_not_hold_the_whole_queue(
+    caller: Caller,
+    identity_database: Database,
+    worker_engine: Engine,
+    clock: FrozenClock,
+) -> None:
+    """§10 isolation reaches the cleanup drain too, not only the delivery loop.
+
+    Before this the drain had no `try` of its own, so one raising deletion ended
+    the pass — and `drive()` then waited a whole sweeper period before the next
+    one.
+    """
+    _sent_one(caller, identity_database, worker_engine, clock)
+    caller.post("/v1/consents/revoke", {"kind": "telegram_reminders"})
+
+    exploding = FakeTelegram()
+
+    def refuse(*, chat_id: int, message_id: int) -> bool:
+        del chat_id, message_id
+        raise RuntimeError("the chat is gone and the client says so loudly")
+
+    exploding.delete_message = refuse  # type: ignore[method-assign]
+    result = ReminderWorker(
+        SqlReminderUnitOfWorkFactory(worker_engine), exploding, clock
+    ).run_once()
+
+    assert result.accounts_in_error == 1
+    # The row survives its failure and still leaves at the TTL: the promise does
+    # not depend on Telegram, or on this client, answering at all.
+    assert _cleanup_rows(identity_database) == [(4242424242, 1001)]
+
+    clock.advance(hours=49)
+    ReminderWorker(
+        SqlReminderUnitOfWorkFactory(worker_engine), exploding, clock
+    ).run_once()
 
     assert _cleanup_rows(identity_database) == []

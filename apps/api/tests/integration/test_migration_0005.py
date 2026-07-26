@@ -249,3 +249,23 @@ def test_downgrade_restores_0004_and_upgrade_replays() -> None:
             )
             assert PAIRING in _constraints(connection, "reminders.reminder_schedule")
             assert BLOCKED_INDEX in _indexes(connection)
+
+
+def test_the_blocked_index_is_partial_and_on_the_clock(database: str) -> None:
+    """A named index proves nothing about what it indexes.
+
+    The migration and `ReminderScheduleRepositoryPort` both lean on this index
+    being partial: a paused schedule is not merely filtered out of the
+    reconciler's scan, it is not in the index at all. That claim is in the
+    definition, so the definition is what is asserted.
+    """
+    with psycopg.connect(database) as connection:
+        definition = connection.execute(
+            "SELECT indexdef FROM pg_indexes"
+            " WHERE schemaname = 'reminders' AND indexname = %s",
+            (BLOCKED_INDEX,),
+        ).fetchone()
+
+    assert definition is not None
+    assert "(disabled_at)" in definition[0]
+    assert "WHERE (disabled_reason IS NOT NULL)" in definition[0]

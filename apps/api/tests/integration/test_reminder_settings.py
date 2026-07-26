@@ -339,29 +339,7 @@ def test_without_the_consent_a_write_is_forbidden(without_reminders: Caller) -> 
 # --------------------------------------------------------------- bot blocked
 
 
-def test_turning_reminders_on_while_blocked_is_refused(
-    session: Caller,
-    identity_database: Database,
-    engine: Engine,
-) -> None:
-    """§10: the server will not claim «on» while it holds evidence of a 403."""
-    blocked_at = datetime(2026, 7, 20, 17, 0, tzinfo=UTC)
-    _block(identity_database, at=blocked_at)
-
-    response = session.put(
-        SETTINGS,
-        {"enabled": True, "time": "20:00", "timezone": "Europe/Kyiv"},
-    )
-
-    assert response.status_code == 409
-    assert response.json() == {"error": "bot_blocked"}
-    stored = _schedule(engine)
-    assert stored["disabled_reason"] == "bot_blocked"
-    # The streak must not have been reset by a refused request.
-    assert stored["disabled_at"] == blocked_at
-
-
-def test_the_block_is_visible_before_it_is_acknowledged(
+def test_the_block_is_visible_while_it_stands(
     session: Caller,
     identity_database: Database,
 ) -> None:
@@ -373,45 +351,93 @@ def test_the_block_is_visible_before_it_is_acknowledged(
     assert body["enabled"] is False
 
 
-def test_acknowledging_the_block_turns_it_into_a_pause(
+def test_changing_the_hour_while_blocked_does_not_discharge_the_deadline(
     session: Caller,
     identity_database: Database,
     engine: Engine,
 ) -> None:
-    """The way out, and the reason it is two steps rather than one.
+    """The defect this whole design exists to avoid, as a test.
 
-    A `PUT` that leaves `enabled` false is the acknowledgement: the block
-    becomes a plain pause, the streak of §10 stops, and reminders can then be
-    switched on by a second request. No consent is withdrawn on the way — for
-    an account whose only consent this is, a withdrawal would erase it.
+    §10 revokes a consent after fourteen **consecutive** days of a block, and
+    migration 0005 added `disabled_at` precisely so an ordinary edit could not
+    move that deadline. If a write also *cleared* the block, the edit would do
+    something worse than move it: the schedule stays off, so no further send is
+    attempted, no fresh 403 is ever seen, and the revocation never fires at all
+    — for anybody who happened to touch the form.
+    """
+    blocked_at = datetime(2026, 7, 20, 17, 0, tzinfo=UTC)
+    _block(identity_database, at=blocked_at)
+
+    response = session.put(
+        SETTINGS,
+        {"enabled": False, "time": "21:00", "timezone": "Europe/Kyiv"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["time"] == "21:00"
+    assert response.json()["bot_blocked"] is True
+    stored = _schedule(engine)
+    assert stored["local_time"] == "21:00"
+    assert stored["disabled_reason"] == "bot_blocked"
+    assert stored["disabled_at"] == blocked_at
+
+
+def test_turning_reminders_on_is_what_discharges_a_block(
+    session: Caller,
+    identity_database: Database,
+    engine: Engine,
+) -> None:
+    """The single act that means «I have unblocked the bot» (§10).
+
+    Accepted rather than refused: the server cannot verify the claim, and every
+    alternative is worse — refusing leaves a state she cannot get out of, and
+    withdrawing the consent would erase the account of anyone whose only
+    consent this is. If she is wrong, the next attempt takes a 403 and a new
+    streak starts from that moment, which is what «поспіль» means.
     """
     _block(identity_database, at=datetime(2026, 7, 20, 17, 0, tzinfo=UTC))
 
-    acknowledged = session.put(
-        SETTINGS,
-        {"enabled": False, "time": "20:00", "timezone": "Europe/Kyiv"},
-    )
-
-    assert acknowledged.status_code == 200
-    assert acknowledged.json()["bot_blocked"] is False
-    assert _schedule(engine)["disabled_at"] is None
-
-    resumed = session.put(
+    response = session.put(
         SETTINGS,
         {"enabled": True, "time": "20:00", "timezone": "Europe/Kyiv"},
     )
 
-    assert resumed.status_code == 200
-    assert resumed.json()["enabled"] is True
-    assert _schedule(engine)["enabled"] is True
+    assert response.status_code == 200
+    assert response.json()["enabled"] is True
+    assert response.json()["bot_blocked"] is False
+    stored = _schedule(engine)
+    assert stored["enabled"] is True
+    assert stored["disabled_reason"] is None
+    assert stored["disabled_at"] is None
 
 
-def test_a_quiet_hour_is_refused_before_a_block_is_reported(
+def test_a_pause_is_not_a_block_and_carries_no_deadline(
+    session: Caller,
+    engine: Engine,
+) -> None:
+    """Switching reminders off and on again never touches the block columns."""
+    assert (
+        session.put(
+            SETTINGS,
+            {"enabled": False, "time": "20:00", "timezone": "Europe/Kyiv"},
+        ).status_code
+        == 200
+    )
+    paused = _schedule(engine)
+
+    assert paused["enabled"] is False
+    assert paused["disabled_reason"] is None
+    assert paused["disabled_at"] is None
+
+
+def test_a_quiet_hour_is_refused_even_while_blocked(
     session: Caller,
     identity_database: Database,
+    engine: Engine,
 ) -> None:
-    """Order of refusals: the mistake she can fix in the form answers first."""
-    _block(identity_database, at=datetime(2026, 7, 20, 17, 0, tzinfo=UTC))
+    """The validations answer first and write nothing, block or no block."""
+    blocked_at = datetime(2026, 7, 20, 17, 0, tzinfo=UTC)
+    _block(identity_database, at=blocked_at)
 
     response = session.put(
         SETTINGS,
@@ -420,6 +446,7 @@ def test_a_quiet_hour_is_refused_before_a_block_is_reported(
 
     assert response.status_code == 422
     assert response.json() == {"error": "quiet_hours_violation"}
+    assert _schedule(engine)["disabled_at"] == blocked_at
 
 
 # --------------------------------------------------------------- rate limits

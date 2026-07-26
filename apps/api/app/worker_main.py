@@ -52,11 +52,12 @@ from app.infra.db.engine import (
 )
 from app.infra.logging import ensure_configured, get_logger
 from app.infra.telegram.bot_api import TelegramBotApi
-from app.main import CONSENT_COPY_ROOT, build_dependencies
+from app.main import CONSENT_COPY_ROOT, AppDependencies, build_dependencies
 from app.infra.consent_copy import FileConsentCopyRegistry
 from app.services.consent import ConsentService
 from app.services.erasure import ErasureService
 from app.services.erasure_journal import DatabaseErasureJournal
+from app.services.ports import Clock
 from app.workers.config import ReminderWorkerSettings
 from app.workers.erasure_worker import Housekeeper
 from app.workers.outbox_dispatcher import OutboxDispatcher
@@ -113,10 +114,14 @@ def _stopper() -> threading.Event:
     return stop
 
 
-def maintenance(env: Mapping[str, str] | None = None) -> None:
-    """The three `api_rw` workers, in one loop."""
-    ensure_configured()
-    dependencies = build_dependencies(env if env is not None else os.environ)
+def build_maintenance(dependencies: AppDependencies) -> Callable[[], None]:
+    """Compose the three `api_rw` workers into one tick.
+
+    Separate from `maintenance()` so a test can build the real objects with real
+    constructor arguments. Wiring is where entry points go wrong — a swapped
+    positional, a renamed keyword — and an entry point tested only for being
+    callable is an entry point tested for nothing.
+    """
     erasure = ErasureService(dependencies.erasure_journal)
     consents = ConsentService(
         dependencies.consent_copy,
@@ -134,8 +139,47 @@ def maintenance(env: Mapping[str, str] | None = None) -> None:
         housekeeper.run_once()
         compactor.run_once()
 
+    return tick
+
+
+def build_reminders(
+    settings: ReminderWorkerSettings,
+    client: httpx.Client,
+    clock: Clock | None = None,
+) -> ReminderWorker:
+    """Compose the delivery worker around the real Bot API adapter.
+
+    The client is a parameter so the caller owns its lifetime — and so a test
+    can hand in `httpx.MockTransport` and exercise the one seam that otherwise
+    exists nowhere: `TelegramBotApi` and `ReminderWorker` meeting. The clock is
+    a parameter for the same reason `build_maintenance` gets one on its
+    dependencies: a composition that could only be exercised at the current wall
+    time would be a composition tested at whatever o'clock CI happened to run.
+    """
+    resolved = clock if clock is not None else SystemClock()
+    return ReminderWorker(
+        SqlReminderUnitOfWorkFactory(build_engine(settings.database_url)),
+        TelegramBotApi(
+            token=settings.bot_token,
+            webapp_url=settings.webapp_url,
+            client=client,
+            clock=resolved.now,
+        ),
+        resolved,
+    )
+
+
+def maintenance(env: Mapping[str, str] | None = None) -> None:
+    """The three `api_rw` workers, in one loop."""
+    ensure_configured()
+    dependencies = build_dependencies(env if env is not None else os.environ)
     get_logger().info("maintenance_started")
-    drive("maintenance", tick, period=MAINTENANCE_PERIOD, stop=_stopper())
+    drive(
+        "maintenance",
+        build_maintenance(dependencies),
+        period=MAINTENANCE_PERIOD,
+        stop=_stopper(),
+    )
 
 
 def reminders(env: Mapping[str, str] | None = None) -> None:
@@ -147,19 +191,12 @@ def reminders(env: Mapping[str, str] | None = None) -> None:
     """
     ensure_configured()
     settings = ReminderWorkerSettings.from_env(env if env is not None else os.environ)
-    worker = ReminderWorker(
-        SqlReminderUnitOfWorkFactory(build_engine(settings.database_url)),
-        TelegramBotApi(
-            token=settings.bot_token,
-            webapp_url=settings.webapp_url,
-            client=httpx.Client(),
-            clock=SystemClock().now,
-        ),
-        SystemClock(),
-    )
-
-    get_logger().info("reminders_started")
-    drive("reminders", worker.run_once, period=SWEEPER_PERIOD, stop=_stopper())
+    # The client is closed on the way out, so SIGTERM releases its sockets
+    # rather than leaving the kernel to notice the process is gone.
+    with httpx.Client() as client:
+        worker = build_reminders(settings, client)
+        get_logger().info("reminders_started")
+        drive("reminders", worker.run_once, period=SWEEPER_PERIOD, stop=_stopper())
 
 
 def restore_reconcile(argv: list[str] | None = None) -> int:

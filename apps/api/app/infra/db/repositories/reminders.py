@@ -23,6 +23,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.domain.records import DueReminder, PendingCleanup, StalePending
+from app.domain.records import ReminderSchedule as ReminderScheduleRecord
 from app.domain.reminders import BOT_BLOCKED, DeliveryStatus
 from app.infra.db.models import ReminderDelivery, ReminderSchedule
 
@@ -70,6 +71,42 @@ class ReminderWorkerRepository:
             for row in rows
         ]
 
+    def lock_schedule(self, account_id: UUID) -> ReminderScheduleRecord | None:
+        """Re-read the row under `FOR UPDATE`, inside the caller's transaction.
+
+        The lock matters less than the re-read: what this closes is the window
+        between the batch scan and this account's turn, in which the user may
+        have withdrawn her consent and had every reminder row erased. Claiming a
+        day for a row that is gone would insert an orphan into a table §4.4 says
+        must not outlive its consent.
+        """
+        row = self._session.execute(
+            select(
+                ReminderSchedule.account_id,
+                ReminderSchedule.telegram_chat_id,
+                ReminderSchedule.tz,
+                ReminderSchedule.local_time,
+                ReminderSchedule.enabled,
+                ReminderSchedule.disabled_reason,
+                ReminderSchedule.disabled_at,
+                ReminderSchedule.next_fire_at,
+            )
+            .where(ReminderSchedule.account_id == account_id)
+            .with_for_update()
+        ).one_or_none()
+        if row is None:
+            return None
+        return ReminderScheduleRecord(
+            account_id=row.account_id,
+            telegram_chat_id=row.telegram_chat_id,
+            timezone_name=row.tz,
+            local_time=row.local_time,
+            enabled=row.enabled,
+            disabled_reason=row.disabled_reason,
+            disabled_at=row.disabled_at,
+            next_fire_at=row.next_fire_at,
+        )
+
     def claim_occurrence(
         self, account_id: UUID, *, local_date: date, now: datetime
     ) -> bool:
@@ -106,15 +143,21 @@ class ReminderWorkerRepository:
         local_date: date,
         status: str,
         telegram_message_id: int | None = None,
-    ) -> None:
-        """Close a claimed occurrence.
+    ) -> int:
+        """Close a claimed occurrence; return how many rows moved.
 
         Guarded on `status = 'pending'` so a sweeper that already wrote `failed`
         is never overwritten by a late-returning attempt. Without the guard the
         two writers race and the row can end up claiming a send that the sweeper
         had already given up on.
+
+        Zero rows has two causes and the caller has to tell them apart by
+        context: the sweeper got there first, or an erasure removed the claim
+        while the message was in flight. On the send path the second is the one
+        that matters — the message exists in a chat and nothing in the database
+        points at it any more.
         """
-        self._session.execute(
+        rows = self._session.execute(
             update(ReminderDelivery)
             .where(
                 ReminderDelivery.account_id == account_id,
@@ -122,7 +165,9 @@ class ReminderWorkerRepository:
                 ReminderDelivery.status == DeliveryStatus.PENDING.value,
             )
             .values(status=status, telegram_message_id=telegram_message_id)
-        )
+            .returning(ReminderDelivery.local_date)
+        ).all()
+        return len(rows)
 
     def reschedule(
         self, account_id: UUID, *, next_fire_at: datetime, now: datetime
@@ -131,6 +176,25 @@ class ReminderWorkerRepository:
             update(ReminderSchedule)
             .where(ReminderSchedule.account_id == account_id)
             .values(next_fire_at=next_fire_at, updated_at=now)
+        )
+
+    def quarantine(self, account_id: UUID, *, now: datetime) -> None:
+        """Take a schedule the worker cannot act on out of the due index.
+
+        Only reachable for a row the API could not have written: `zone_for`
+        validates on provision and on every `PUT`. Left alone, such a row keeps
+        its `next_fire_at` in the past and is re-read on every pass for ever —
+        a hundred of them fill `CLAIM_BATCH` and starve every real account, so
+        per-account isolation would prevent the crash and not the outage.
+
+        It becomes a plain pause rather than a block: no `disabled_reason`, so
+        the reconciler of §10 can never turn a corrupt row into a withdrawn
+        consent.
+        """
+        self._session.execute(
+            update(ReminderSchedule)
+            .where(ReminderSchedule.account_id == account_id)
+            .values(enabled=False, updated_at=now)
         )
 
     def record_block(self, account_id: UUID, *, now: datetime) -> None:
@@ -167,7 +231,15 @@ class ReminderWorkerRepository:
             for row in rows
         ]
 
-    def due_cleanups(self, *, moment: datetime, limit: int) -> list[PendingCleanup]:
+    def due_cleanups(self, *, limit: int) -> list[PendingCleanup]:
+        """The whole queue, oldest expiry first — there is no due-ness filter.
+
+        Adding `WHERE expires_at <= :moment` would read naturally and invert
+        the feature: a bot may delete its own message only for a limited time,
+        so waiting for the row to expire would guarantee every attempt happens
+        after Telegram stopped allowing it. The expiry is a deadline for
+        *forgetting* the identifiers, never a delay before using them.
+        """
         rows = self._session.execute(
             text(
                 """
@@ -177,7 +249,7 @@ class ReminderWorkerRepository:
                 LIMIT :limit
                 """
             ),
-            {"limit": limit, "moment": moment},
+            {"limit": limit},
         ).all()
         return [
             PendingCleanup(

@@ -35,7 +35,6 @@ from app.domain.reminders import (
     SETTINGS_BUCKET,
     SETTINGS_REQUESTS_PER_MINUTE,
     SETTINGS_WINDOW,
-    BotBlocked,
     NoSchedule,
     in_quiet_hours,
     next_fire_at,
@@ -80,43 +79,40 @@ class ReminderService:
     ) -> ReminderSettingsView:
         """Replace the resource, recomputing everything derived from it.
 
-        The order of the three refusals is the order of their cost to the user:
-        an unknown zone and a night-time slot are mistakes she can correct in
-        the form she is looking at, so they answer first; the block is a fact
-        about the world outside the form.
+        **Only `enabled: true` discharges a Telegram block.** This is the whole
+        of «14 діб поспіль» (§10) on the write side, and getting it wrong is
+        subtle: if any successful `PUT` cleared `disabled_reason`, then a user
+        who merely moved her reminder from eight to nine in the evening while
+        the bot was blocked would silently delete her own deadline — the
+        schedule would stay off, no further send would ever be attempted, no
+        fresh 403 would ever be observed, and the fourteen-day revocation would
+        never fire for anybody who touched the form.
 
-        **Why turning reminders on after a block is refused.** The server holds
-        direct evidence that Telegram will not deliver, and 200 here would be a
-        claim it cannot keep — the schedule would say «on» while every send
-        returns 403. The way out is not a withdrawal of consent (the user
-        withdrew nothing, and for an account whose only consent this is, a
-        withdrawal would erase the account): it is a `PUT` that leaves `enabled`
-        false, which acknowledges the block, turns it into a plain pause and —
-        by design — **breaks the streak** of §10, and a second `PUT` that turns
-        reminders on. Two steps, both meaningful, and no state the user cannot
-        get back out of.
+        So a write that leaves `enabled` false carries the block through
+        untouched: the streak keeps running while she edits whatever she likes.
+        A write that turns reminders **on** is the one act that means «I have
+        unblocked the bot» — it clears the reason, re-arms the schedule, and if
+        she is wrong the next attempt takes a 403 and starts a *new* streak from
+        that moment. Which is what consecutive means.
+
+        The server does not refuse that write. It cannot verify the claim either
+        way, refusing would leave no way back that is not a withdrawal of
+        consent — and for an account whose only consent this is, a withdrawal
+        erases the account.
         """
         schedule = _require_schedule(unit, account_id)
 
-        # Validated before the block is consulted: a 409 that hides a 422 would
-        # send the user off to Telegram to fix a typo in her own form.
         zone_for(timezone_name)
         if in_quiet_hours(local_time):
             raise QuietHoursViolation()
-
-        if schedule.disabled_reason == BOT_BLOCKED and enabled:
-            raise BotBlocked()
 
         unit.schedules.update(
             account_id,
             timezone_name=timezone_name,
             local_time=local_time,
             enabled=enabled,
-            # Acknowledged: from here on this is a pause. If the bot is still
-            # blocked when the next send is attempted, the 403 starts a fresh
-            # streak — which is what «14 діб поспіль» means.
-            disabled_reason=None,
-            disabled_at=None,
+            disabled_reason=None if enabled else schedule.disabled_reason,
+            disabled_at=None if enabled else schedule.disabled_at,
             next_fire_at=next_fire_at(timezone_name, local_time, now),
             now=now,
         )

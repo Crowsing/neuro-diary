@@ -161,18 +161,33 @@ class ReminderWorkerPort(Protocol):
     """Everything the delivery worker may touch, and nothing else.
 
     The role behind it (`reminder_worker`) has zero privileges on `diary`, no
-    `DELETE` on `reminder_delivery` and no `INSERT` on `message_cleanup`. This
-    protocol names only operations those grants permit, so a method that would
-    need a wider role cannot be added here without the GRANT test noticing.
+    `DELETE` on `reminder_delivery` and no `INSERT` on `message_cleanup`. Every
+    method here stays inside those grants, and the integration suite proves it
+    by running the concrete repository under that role rather than under
+    `api_rw`. What the GRANT tests pin is the matrix itself — a *new* method
+    needing a wider privilege is caught by the test that exercises it, so a
+    method added without one is caught by nobody. Stated plainly because the
+    weaker reading is the tempting one.
     """
 
     def claim_due(self, *, moment: datetime, limit: int) -> list[DueReminder]: ...
+    #: Re-read one schedule under `FOR UPDATE`, inside the claim transaction.
+    #:
+    #: `claim_due` releases its locks at its own commit, so by the time an
+    #: account's turn comes the row may have been revoked, erased or paused —
+    #: minutes may have passed while earlier accounts talked to Telegram.
+    #: Without this second read the worker would claim a day for an account
+    #: that no longer has a consent. `None` means «gone», and gone is final.
+    def lock_schedule(self, account_id: UUID) -> ReminderSchedule | None: ...
     #: Insert-before-send (§10). `False` means the day was already claimed —
     #: by a previous run, by another worker, or by an attempt that failed. It is
     #: never a reason to send anyway.
     def claim_occurrence(
         self, account_id: UUID, *, local_date: date, now: datetime
     ) -> bool: ...
+    #: Returns how many rows moved: **zero** means the claim is gone, which on
+    #: this path means an erasure removed it while the message was in flight.
+    #: The caller owes that message a retraction — it is the only trace left.
     def finish_occurrence(
         self,
         account_id: UUID,
@@ -180,15 +195,23 @@ class ReminderWorkerPort(Protocol):
         local_date: date,
         status: str,
         telegram_message_id: int | None = None,
-    ) -> None: ...
+    ) -> int: ...
     def reschedule(
         self, account_id: UUID, *, next_fire_at: datetime, now: datetime
     ) -> None: ...
+    #: A schedule the worker cannot act on — an unresolvable zone — leaves the
+    #: due index instead of being re-read on every pass for ever. It becomes a
+    #: plain pause: no `disabled_reason`, so the reconciler never sees it.
+    def quarantine(self, account_id: UUID, *, now: datetime) -> None: ...
     #: §10: 403 from Telegram switches the schedule off and starts the streak.
     #: Idempotent — a second 403 must not restart a running streak.
     def record_block(self, account_id: UUID, *, now: datetime) -> None: ...
     def stale_pending(self, *, older_than: datetime) -> list[StalePending]: ...
-    def due_cleanups(self, *, moment: datetime, limit: int) -> list[PendingCleanup]: ...
+    #: The whole queue, oldest expiry first. There is no due-ness filter and
+    #: there must not be one: a bot may delete its own message only for a short
+    #: while, so waiting until `expires_at` would guarantee the deletion is
+    #: attempted only after Telegram stopped allowing it.
+    def due_cleanups(self, *, limit: int) -> list[PendingCleanup]: ...
     def forget_cleanup(self, account_id: UUID, *, message_id: int) -> int: ...
     #: The unconditional half of §6.4: whatever the queue still holds past its
     #: TTL goes, whether or not Telegram ever accepted the deletion.

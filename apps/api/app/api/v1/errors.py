@@ -27,7 +27,7 @@ from app.domain.identity import (
     StepUpRequired,
     UnknownTimezone,
 )
-from app.domain.reminders import BotBlocked, NoSchedule
+from app.domain.reminders import NoSchedule
 from app.domain.vault import (
     PayloadTooLarge,
     VaultGone,
@@ -49,7 +49,6 @@ STATUS_BY_ERROR: dict[type[DomainError], int] = {
     ConsentAlreadyActive: 409,
     ConsentTextMismatch: 409,
     VaultReset: 409,
-    BotBlocked: 409,
     VaultGone: 410,
     PayloadTooLarge: 413,
     QuietHoursViolation: 422,

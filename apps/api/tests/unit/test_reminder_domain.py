@@ -7,7 +7,10 @@ this module; bot and web never restate it.
 
 from __future__ import annotations
 
+import sys
+import types
 from datetime import UTC, date, datetime, time, timedelta
+from pathlib import Path
 
 import pytest
 
@@ -29,6 +32,7 @@ from app.domain.reminders import (
     next_fire_at,
 )
 
+API_ROOT = Path(__file__).resolve().parents[2]
 KYIV = "Europe/Kyiv"
 
 
@@ -144,21 +148,69 @@ def test_the_attempt_budget_stays_below_the_sweeper_threshold() -> None:
     assert ATTEMPT_BUDGET + SWEEPER_PERIOD <= SWEEPER_THRESHOLD
 
 
-def test_the_invariant_is_enforced_at_import_rather_than_by_this_test() -> None:
-    """Re-run the module's own check against a value that breaks it.
+@pytest.mark.parametrize(
+    ("original", "broken"),
+    [
+        (
+            "ATTEMPT_BUDGET = timedelta(minutes=10)",
+            "ATTEMPT_BUDGET = timedelta(minutes=20)",
+        ),
+        (
+            "SWEEPER_PERIOD = timedelta(minutes=5)",
+            "SWEEPER_PERIOD = timedelta(minutes=9)",
+        ),
+        (
+            "CATCH_UP_WINDOW = timedelta(minutes=60)",
+            "CATCH_UP_WINDOW = timedelta(days=2)",
+        ),
+    ],
+)
+def test_the_module_itself_refuses_to_load_with_a_broken_constant(
+    original: str,
+    broken: str,
+) -> None:
+    """Run **this module's own source** with a value that violates §10.
 
-    Without this, «checked at import» is a claim about code nobody executes
-    with a failing input — the same class of defect the check exists to catch.
+    The earlier version of this test executed a five-line reimplementation of
+    the check written in the test body, which meant deleting every `raise` from
+    the module left it green — the exact class of defect the guards exist to
+    catch, reproduced in the test that guards them.
+
+    Reading the real file and substituting one constant fixes both directions:
+    delete the checks and this goes red, rename a constant and the substitution
+    assertion below goes red.
     """
-    source = (
-        "from datetime import timedelta\n"
-        "ATTEMPT_BUDGET = timedelta(minutes=20)\n"
-        "SWEEPER_THRESHOLD = timedelta(minutes=15)\n"
-        "if ATTEMPT_BUDGET >= SWEEPER_THRESHOLD:\n"
-        "    raise ValueError('§10')\n"
-    )
+    source = _domain_source()
+
+    assert source.count(original) == 1, f"{original} is no longer spelled this way"
+
     with pytest.raises(ValueError, match="§10"):
-        exec(compile(source, "<invariant>", "exec"), {})
+        _load(source.replace(original, broken), name="mutated_reminders")
+
+
+def test_the_unmodified_module_loads() -> None:
+    """The counterpart: without it the three above could pass on a module that
+    refuses every possible set of values."""
+    _load(_domain_source(), name="replayed_reminders")
+
+
+def _domain_source() -> str:
+    return (API_ROOT / "app" / "domain" / "reminders.py").read_text("utf-8")
+
+
+def _load(source: str, *, name: str) -> None:
+    """Execute a module body under a real module name and clean up after.
+
+    The name has to exist in `sys.modules` while the body runs: the dataclasses
+    in this module use `slots=True`, and `dataclasses` resolves annotations
+    through `sys.modules[cls.__module__]`.
+    """
+    module = types.ModuleType(name)
+    sys.modules[name] = module
+    try:
+        exec(compile(source, f"<{name}>", "exec"), module.__dict__)
+    finally:
+        del sys.modules[name]
 
 
 def test_the_other_two_horizons_match_the_plan() -> None:

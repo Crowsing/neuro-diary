@@ -52,7 +52,6 @@ def test_the_limits_match_the_plan() -> None:
         (vault.VaultForbidden, 403),
         (identity.ConsentRequired, 403),
         (reminders.NoSchedule, 404),
-        (reminders.BotBlocked, 409),
         (vault.VaultReset, 409),
         (vault.VaultGone, 410),
         (vault.PayloadTooLarge, 413),

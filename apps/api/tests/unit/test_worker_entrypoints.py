@@ -17,22 +17,36 @@ import tomllib
 from datetime import timedelta
 from pathlib import Path
 
-import pytest
 
 from app import worker_main
 
 API_ROOT = Path(__file__).resolve().parents[2]
 
-#: Every long-running or hand-started worker in the codebase. The list is
-#: spelled out rather than discovered so that adding a worker is a deliberate
-#: edit here too.
-WORKERS = (
-    "OutboxDispatcher",
-    "Housekeeper",
-    "VaultCompactor",
-    "ReminderWorker",
-    "RestoreReconciler",
-)
+
+#: Every long-running or hand-started worker in the codebase.
+#:
+#: Discovered rather than listed: a hand-written tuple would let a worker added
+#: later slip past the very check this module exists to make, and the module
+#: docstring would then be describing a guard that had stopped guarding.
+def _worker_class_names() -> set[str]:
+    """Class names in `app/workers/*.py` that look like a worker.
+
+    "Looks like a worker" is: a module-level class defining `run_once` or
+    `reconcile`. That is the shape every one of them has, and it is what an
+    entry point has to be able to call.
+    """
+    found: set[str] = set()
+    for path in sorted((API_ROOT / "app" / "workers").glob("*.py")):
+        tree = ast.parse(path.read_text("utf-8"))
+        for node in tree.body:
+            if not isinstance(node, ast.ClassDef):
+                continue
+            methods = {
+                item.name for item in node.body if isinstance(item, ast.FunctionDef)
+            }
+            if methods & {"run_once", "reconcile"}:
+                found.add(node.name)
+    return found
 
 
 def _instantiated_names() -> set[str]:
@@ -50,7 +64,12 @@ def _instantiated_names() -> set[str]:
 
 
 def test_every_worker_is_constructed_by_an_entry_point() -> None:
-    assert set(WORKERS) <= _instantiated_names()
+    workers = _worker_class_names()
+
+    # The discovery itself has to find something, or the assertion below is
+    # vacuously true on an empty set.
+    assert {"OutboxDispatcher", "ReminderWorker", "RestoreReconciler"} <= workers
+    assert workers <= _instantiated_names()
 
 
 def test_the_entry_points_are_declared_as_console_scripts() -> None:
@@ -169,6 +188,20 @@ def test_the_maintenance_period_fits_inside_the_erasure_ceiling() -> None:
     assert worker_main.MAINTENANCE_PERIOD < timedelta(minutes=15)
 
 
-@pytest.mark.parametrize("name", WORKERS)
-def test_each_worker_is_importable_without_configuration(name: str) -> None:
-    assert getattr(worker_main, name)
+def test_the_composition_helpers_are_the_thing_the_entry_points_call() -> None:
+    """`maintenance` and `reminders` must not compose anything of their own.
+
+    The wiring is exercised by `tests/integration/test_reminder_composition.py`
+    through `build_maintenance` / `build_reminders`; that only covers the entry
+    points if the entry points go through them.
+    """
+    tree = ast.parse((API_ROOT / "app" / "worker_main.py").read_text("utf-8"))
+    bodies = {
+        node.name: ast.dump(node)
+        for node in tree.body
+        if isinstance(node, ast.FunctionDef)
+    }
+
+    assert "build_maintenance(" in ast.unparse(tree)
+    assert "build_maintenance" in bodies["maintenance"]
+    assert "build_reminders" in bodies["reminders"]

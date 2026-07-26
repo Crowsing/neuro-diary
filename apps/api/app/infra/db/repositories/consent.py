@@ -288,10 +288,15 @@ class ReminderScheduleRepository:
     def blocked_since(self, moment: datetime) -> list[UUID]:
         """§10: blocks that have stood, unbroken, since at or before `moment`.
 
-        The predicate is `disabled_reason IS NOT NULL`, never `NOT enabled`. A
-        pause the user asked for has no reason and no `disabled_at`, so it
-        cannot appear here however long it lasts — which is the whole of the
-        «пауза не веде до відкликання згоди» rule, in one WHERE clause.
+        The predicate is `disabled_reason IS NOT NULL`, never `NOT enabled` —
+        the two read very differently even though, under
+        `ck_reminder_schedule_disabled_at_matches_reason`, they select the same
+        rows here: a pause has no `disabled_at`, so the second condition is NULL
+        for it either way. The schema is what keeps a pause out, and the
+        predicate is written to say the same thing the schema enforces rather
+        than to rely on it. That distinction is worth stating because a test
+        cannot draw it: the state that would tell the two apart — disabled, with
+        a timestamp and no reason — is one the CHECK forbids.
         """
         rows = self._session.execute(
             select(ReminderSchedule.account_id).where(

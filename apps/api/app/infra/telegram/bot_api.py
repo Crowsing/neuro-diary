@@ -50,6 +50,12 @@ _TIMEOUT_SECONDS = 10.0
 _TOO_MANY_REQUESTS = 429
 _FORBIDDEN = 403
 
+#: A ceiling on the 429 loop, beside the deadline rather than instead of it.
+#: `retry_after: 0` is a legal answer, and with only a deadline to stop it the
+#: worker would spend ten minutes hammering Telegram at bucket rate — thousands
+#: of requests aimed at a service that just asked to be left alone.
+_MAX_ATTEMPTS = 5
+
 
 class TelegramConfigurationError(RuntimeError):
     """The deployment cannot deliver a message that satisfies §10."""
@@ -125,7 +131,8 @@ class TelegramBotApi:
             },
         }
 
-        while True:
+        for attempt in range(_MAX_ATTEMPTS):
+            del attempt
             self._bucket.take()
             response = self._call("sendMessage", body)
             if response is None:
@@ -146,6 +153,7 @@ class TelegramBotApi:
                 # at it. `failed` is the honest half of that pair.
                 return SendReceipt(outcome=SendOutcome.FAILED)
             return SendReceipt(outcome=SendOutcome.SENT, message_id=message_id)
+        return SendReceipt(outcome=SendOutcome.FAILED)
 
     def delete_message(self, *, chat_id: int, message_id: int) -> bool:
         """§6.4: take one message back. A refusal is not an error to retry.
@@ -163,7 +171,7 @@ class TelegramBotApi:
         return response is not None and response.status_code == httpx.codes.OK
 
     def _call(self, method: str, body: dict[str, object]) -> httpx.Response | None:
-        if method not in ALLOWED_METHODS:  # pragma: no cover - defended by tests
+        if method not in ALLOWED_METHODS:
             raise TelegramConfigurationError("method outside the §5.3 allowlist")
         try:
             return self._client.post(

@@ -9,8 +9,9 @@ between them is checked **at import with `raise`**, exactly as
 `app.domain.retention` checks its own. The reasoning is the same and so is the
 requirement behind it: `python -O` strips `assert`, so a static check written
 that way disappears in production and nowhere else. That argument only holds if
-a running process actually imports this module — the reminder worker does,
-through `app.services.reminder`, and a test pins that import path.
+a running process actually imports this module — `app.workers.reminder_worker`
+imports it directly, `app.worker_main` imports that, and a test starts a fresh
+interpreter to confirm the chain rather than asserting it in prose.
 
 A comment beside the three numbers would not be a check. The failure it guards
 is silent and expensive: if one attempt could outlive the sweeper threshold,
@@ -89,19 +90,21 @@ class NoSchedule(DomainError):
     code = "no_schedule"
 
 
-class BotBlocked(DomainError):
-    """§10: the schedule is switched off because Telegram refused delivery.
-
-    Returned when a caller asks to switch reminders back **on** while the block
-    still stands. The server holds direct evidence that it cannot deliver, and
-    answering 200 would be a claim it cannot keep. The way out is a `PUT` that
-    acknowledges the block by leaving `enabled` false — that turns it into a
-    plain pause and breaks the streak of §10 — followed by a second `PUT` that
-    turns reminders on. Two deliberate steps, and neither of them needs the user
-    to withdraw a consent she never withdrew.
-    """
-
-    code = "bot_blocked"
+# §10 lists a sixth code, `bot_blocked` (409), and this implementation never
+# emits it — recorded as a deviation rather than left as a silent gap.
+#
+# It would answer a `PUT` that turns reminders on while the schedule carries a
+# Telegram block. Refusing there looks protective and is not: the server cannot
+# verify the claim either way, and every escape route from the refusal is worse
+# than accepting it. Clearing the block on *any* successful write would let an
+# ordinary change of hour delete the fourteen-day deadline in silence; requiring
+# a withdrawal of consent would erase the account of anyone whose only consent
+# this is; and refusing without an escape route is a state the user cannot leave.
+#
+# So `enabled: true` is accepted and re-arms the schedule; if the bot is still
+# blocked the next attempt takes a 403 and a **new** streak begins — which is
+# precisely what «поспіль» asks for. The state remains visible: `GET` still
+# reports `bot_blocked`.
 
 
 # ------------------------------------------------------------ outbound content
