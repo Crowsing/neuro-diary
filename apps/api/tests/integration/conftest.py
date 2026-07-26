@@ -273,15 +273,28 @@ class Caller:
         *,
         json_body: dict[str, object] | None = None,
         token: str | None = None,
+        raw_body: bytes | None = None,
     ) -> httpx.Response:
+        """`raw_body` bypasses JSON encoding.
+
+        Phase 5 needs it: the fuzzer found that a body which is not JSON at all
+        answers 400 from FastAPI itself, before any validator runs, and that
+        status was declared nowhere. A test for it cannot go through `json=`.
+        """
         bearer = token if token is not None else self.token
         headers = {"Authorization": f"Bearer {bearer}"} if bearer else {}
+        if raw_body is not None:
+            headers["Content-Type"] = "application/json"
 
         async def _send() -> httpx.Response:
             transport = httpx.ASGITransport(app=self._app, client=("203.0.113.7", 1))
             async with httpx.AsyncClient(
                 transport=transport, base_url="http://test"
             ) as session:
+                if raw_body is not None:
+                    return await session.request(
+                        method, path, content=raw_body, headers=headers
+                    )
                 return await session.request(
                     method, path, json=json_body, headers=headers
                 )

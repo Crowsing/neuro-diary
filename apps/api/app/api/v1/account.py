@@ -6,6 +6,7 @@ from fastapi import APIRouter, Request
 
 from app.api.v1.deps import BearerDep, ServicesDep, SyncConsentDep
 from app.api.v1.mapping import require_session
+from app.api.v1.responses import refusals
 from app.domain.identity import ProtectedOperation
 from app.schemas.identity import AccountDeletedResponse
 from app.schemas.sync import VaultResetResponse
@@ -13,7 +14,11 @@ from app.schemas.sync import VaultResetResponse
 router = APIRouter(prefix="/v1", tags=["account"])
 
 
-@router.post("/account/delete", response_model=AccountDeletedResponse)
+@router.post(
+    "/account/delete",
+    response_model=AccountDeletedResponse,
+    responses=refusals(401, 403),
+)
 def delete_account(
     request: Request,
     services: ServicesDep,
@@ -36,7 +41,11 @@ def delete_account(
     return AccountDeletedResponse(status="erased")
 
 
-@router.post("/account/vault-reset", response_model=VaultResetResponse)
+@router.post(
+    "/account/vault-reset",
+    response_model=VaultResetResponse,
+    responses=refusals(401, 403, 429),
+)
 def reset_vault(
     request: Request,
     services: ServicesDep,

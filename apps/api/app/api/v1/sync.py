@@ -26,9 +26,10 @@ from app.api.v1.mapping import (
     pull_payload,
     record_writes,
 )
+from app.api.v1.responses import refusals
 from app.domain.identity import ProtectedOperation
 from app.domain.rate_limits import RateBucket
-from app.domain.vault import KeyWriteMode
+from app.domain.vault import MAX_COUNTER, KeyWriteMode
 from app.schemas.sync import (
     KeyOutput,
     KeyWriteAccepted,
@@ -42,7 +43,11 @@ from app.services.sync import KeyWriteApplied, PushApplied
 router = APIRouter(prefix="/v1", tags=["sync"])
 
 
-@router.post("/sync/push", response_model=PushAccepted)
+@router.post(
+    "/sync/push",
+    response_model=PushAccepted,
+    responses=refusals(400, 401, 403, 410, 413, 429, valued="push_conflict"),
+)
 def push(
     request: Request,
     payload: PushRequest,
@@ -97,14 +102,21 @@ def push(
         )
 
 
-@router.get("/sync/pull", response_model=PullResponse)
+@router.get(
+    "/sync/pull",
+    response_model=PullResponse,
+    responses=refusals(401, 403, 410, 429),
+)
 def pull(
     request: Request,
     services: ServicesDep,
     session: SyncConsentDep,
-    since: int = Query(default=0, ge=0),
+    # The upper bounds are the `bigint` the columns are: without them a cursor
+    # of 10**22 reached PostgreSQL as an out-of-range parameter and the request
+    # answered 500 (found by the schemathesis run of §12).
+    since: int = Query(default=0, ge=0, le=MAX_COUNTER),
     limit: int = Query(default=500, ge=1, le=500),
-    consent_epoch: int = Query(default=0, ge=0),
+    consent_epoch: int = Query(default=0, ge=0, le=MAX_COUNTER),
 ) -> Response:
     with services.unit_of_work() as unit:
         page = services.sync.pull(
@@ -120,7 +132,11 @@ def pull(
     return JSONResponse(status_code=200, content=pull_payload(page))
 
 
-@router.get("/sync/key", response_model=KeyOutput)
+@router.get(
+    "/sync/key",
+    response_model=KeyOutput,
+    responses=refusals(401, 403, 404, 429),
+)
 def read_key(
     request: Request,
     services: ServicesDep,
@@ -141,7 +157,11 @@ def read_key(
     return JSONResponse(status_code=200, content=key_output(view))
 
 
-@router.post("/sync/key", response_model=KeyWriteAccepted)
+@router.post(
+    "/sync/key",
+    response_model=KeyWriteAccepted,
+    responses=refusals(400, 401, 403, 413, 429, valued="wrap_conflict"),
+)
 def write_key(
     request: Request,
     payload: KeyWriteRequest,

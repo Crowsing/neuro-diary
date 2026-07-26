@@ -22,6 +22,14 @@ from app.infra.logging import account_ref, client_ref, get_logger
 UNMATCHED_ROUTE = "unmatched"
 _MILLISECONDS = 1_000
 
+#: §9.2: the pull cursor is the only thing allowed into a request line, and only
+#: as integers. The path is compared literally because no path template in this
+#: API carries a parameter — `test_nothing_but_an_integer_cursor_travels_in_the_url`
+#: holds that from the other side.
+QUERY_ALLOWLIST: Mapping[str, frozenset[str]] = {
+    "/v1/sync/pull": frozenset({"since", "limit", "consent_epoch"}),
+}
+
 Handler = Callable[[Request], Awaitable[Response]]
 
 
@@ -94,6 +102,39 @@ def _route_template(request: Request) -> str:
     return declared if isinstance(declared, str) else UNMATCHED_ROUTE
 
 
+class QueryParameterAllowlistMiddleware(BaseHTTPMiddleware):
+    """Refuse any query parameter this API does not read.
+
+    Starlette ignores unknown query parameters, which is the convention and is
+    also how a medical value would reach a reverse proxy's request line: §2 keeps
+    symptoms, ratings, cycle dates and notes out of the URL, and until Phase 5
+    that rule was enforced only by the client. Ignoring a parameter is not the
+    same as refusing it — the request line is already written by then.
+
+    Found by the schemathesis run of §12, which reported that a schema-violating
+    request (`?x-schemathesis-unknown-property=42`) was accepted with 200.
+    """
+
+    async def dispatch(self, request: Request, call_next: Handler) -> Response:
+        allowed = QUERY_ALLOWLIST.get(request.url.path, frozenset())
+        unknown = set(request.query_params) - allowed
+        if unknown:
+            # The names are not echoed: §11 forbids putting a submitted value in
+            # an error, and a parameter name is a submitted value.
+            #
+            # `route_template` is deliberately left unset, which makes the log
+            # line say `unmatched`. This middleware runs before routing and knows
+            # only the requested path — and a requested path is exactly what §11
+            # forbids in the log. Losing the template on a malformed request is
+            # the cheaper of the two mistakes.
+            request.state.error_code = "unknown_query_parameter"
+            return JSONResponse(
+                status_code=422,
+                content={"detail": "Request validation failed"},
+            )
+        return await call_next(request)
+
+
 class RateLimitMiddleware(BaseHTTPMiddleware):
     """Fixed-window per-address limiter held entirely in process memory."""
 
@@ -101,7 +142,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         self,
         app: Callable[..., Awaitable[None]],
         *,
-        limits: Mapping[str, int],
+        limits: Mapping[tuple[str, str], int],
         window_seconds: int,
         secret: bytes,
         monotonic: Callable[[], float] = time.monotonic,
@@ -115,7 +156,12 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
 
     async def dispatch(self, request: Request, call_next: Handler) -> Response:
         path = request.url.path
-        limit = self._limits.get(path)
+        # Keyed by method as well as path. §11 limits *authentication attempts*,
+        # and a `PATCH` to that path is not one: it is a 405 the router answers
+        # without touching the database. Before Phase 5 the counter ignored the
+        # method, so a 429 preempted the 405 — found by the `unsupported_method`
+        # check of the schemathesis run.
+        limit = self._limits.get((request.method, path))
         if limit is None:
             return await call_next(request)
 
@@ -124,7 +170,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         request.state.route_template = path
 
         now = self._monotonic()
-        key = (path, self._caller(request))
+        key = (f"{request.method} {path}", self._caller(request))
         hits = self._hits[key]
         while hits and now - hits[0] >= self._window:
             hits.popleft()

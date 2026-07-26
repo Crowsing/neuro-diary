@@ -3,8 +3,10 @@
 Джерело критеріїв: [backend-bot-plan.md](backend-bot-plan.md), §12.
 
 - Базовий стан: `779c112` (`initial: capture current local-only prototype`).
-- **Поточний етап: Фази 1–3 реалізовані (Фаза 3 — усі чотири блоки);
-  Gate D лишається блокером продакшену.**
+- **Поточний етап: Фази 1–5 реалізовані. Продакшен лишається заблокованим:**
+  Gate D не підписаний, review-gates Фази 5 відкриті, тексти згод `0.9`,
+  контролер не названий, транспорту до бакета erasure-журналу немає, а ім'я бота
+  порушує §10 просто зараз.
 - Фаза 0: **завершена** — реалізація, remote CI і блокуючі checks закриті.
 - Фаза 1: **реалізована** — усі пункти DoD закриті тестами. Продакшен
   заблокований: тексти згод у версії `0.9`, і fail-closed guard відмовляє у
@@ -15,26 +17,35 @@
 
 ## Наскрізні gate-и кожної фази
 
-Числа — з останнього прогону (Фаза 3, блок 4).
+Числа — з останнього прогону (Фаза 5). Числа Фази 3 збережені в історії git.
 
 - [x] Web unit-тести зелені. Evidence: `pnpm test` — 34 test files,
-  516 tests passed.
+  521 tests passed (Фаза 5 додала п'ять тестів backoff за `Retry-After`).
 - [x] Web production build зелений. Evidence: `pnpm build` — TypeScript і
   Vite production build passed.
 - [x] Web Playwright зелений. Evidence: `pnpm e2e` — 56 tests passed
   (mobile + desktop), включно з `ac8-no-network-no-deadends.spec.ts`:
-  local-only режим лишився робочим без жодної згоди й без правок.
-  `apps/web` блок 4 не чіпав узагалі.
-- [x] API pytest і Ruff зелені. Evidence: `uv run --locked pytest` — 514
-  passed (плюс `pytest tests/contract` — 6 passed окремим кроком CI);
-  `ruff check .` — passed; `ruff format --check .` — 113 files formatted;
-  `mypy --strict app` — 68 source files без помилок; `lint-imports` — 7 kept,
-  0 broken.
+  local-only режим лишився робочим без жодної згоди й без правок. Фаза 5
+  торкнулася `apps/web` рівно в одному місці — пауза за `Retry-After` у
+  `src/sync/engine.ts`, — і жодного e2e не переписувала.
+- [x] API pytest і Ruff зелені. Evidence: `uv run --locked pytest` — **859
+  passed, 3 skipped, 3 failed**; усі три червоні — це
+  `test_telegram_surface.py::test_no_visible_bot_field_carries_a_medical_token`,
+  відкритий блокер продакшену §10 (бот називається `Neuronium`), а не регресія: у
+  CI модуль пропускається, бо токена там немає. Плюс `pytest tests/contract` — 7
+  passed окремим кроком CI; `ruff check .` — passed; `ruff format --check .` —
+  142 files formatted; `mypy --strict app` — 78 source files без помилок;
+  `lint-imports` — 7 kept, 0 broken; покриття валідатора initData — 100% гілок.
 - [x] Sync-e2e проти живого api з реальною PostgreSQL. Evidence:
   `SYNC_E2E=1 playwright test --project=sync` — 7 passed проти локального
-  стенду. Прогін навмисний, хоча клієнта блок 4 не чіпав: конфіг api змінився,
-  і треба було довести, що новий guard не ламає `APP_ENV=development`.
-  Стартовий лог стенду підтвердив `erasure_journal_database_only`.
+  стенду. Прогін обов'язковий для Фази 5: змінилися і клієнт (пауза за
+  `Retry-After`), і конфіг api (закриття схеми, новий middleware, нові
+  залежності на sync-ендпоінтах). Зокрема це доводить, що
+  `QueryParameterAllowlistMiddleware` не ламає реальний курсор pull, який клієнт
+  надсилає трьома параметрами.
+- [x] Schemathesis по OpenAPI проти живого api. Evidence:
+  `scripts/fuzz-openapi.sh` — **15 із 15 операцій, 632 тест-кейси, нуль
+  провалів**, seed `20260726`. Блокуючий job `schemathesis` у CI.
 - [x] Bot pytest і Ruff зелені. Evidence: 5 tests passed; Ruff passed;
   `mypy --strict bot` — 2 source files без помилок.
 - [x] Нова інфраструктура має інтеграційні, privacy та failure-mode тести.
@@ -1564,13 +1575,331 @@ dependency (де домені помилки не можуть нести `Retry
 - **Тексти згод лишаються `0.9`, контролер не названий** — блокер продакшену з
   Фази 1, не зрушений.
 
-## Фаза 5 — Hardening і gates (не розпочата)
+## Фаза 5 — Hardening і gates (виконана; review-gates лишаються відкритими)
 
-Scope: rate limits, threat model і перевірка реалізації на відповідність
-погодженому дизайну.
+Scope: ліміти на кожному ендпоінті, обидві половини §11 на медичних шляхах,
+закриття схеми поза `development`, threat model, schemathesis по OpenAPI,
+навантажувальний smoke і матриця відповідності реалізації дизайну Gate D.
+
+**Ця фаза не додає функціональності.** Її продукт — межі, докази й документи, і
+один її DoD-пункт фізично не закривається агентом: підписи review-gates ставлять
+люди. Гейт лишається **відкритим**, і розділ «Досьє під підпис» нижче — це те, з
+чим людина зможе його закрити, а не заміна підпису.
 
 ### DoD
 
-- [ ] Review-gates пройдені й підписані. Evidence: _pending_.
-- [ ] Schemathesis пройшов по OpenAPI. Evidence: _pending_.
-- [ ] Initial upload пройшов навантажувальний smoke. Evidence: _pending_.
+- [x] Кожен ендпоінт має названий статус щодо ліміту. Evidence:
+  `tests/unit/test_rate_limit_surface.py` — перелік як дані, звірений із
+  фактичною проводкою в трьох напрямках (реальна поверхня застосунку;
+  `deps.DECLARED_BUDGETS`, який пишуть самі фабрики залежностей; і зворотний бік
+  — операція, записана як «без вікна», мусить не оголошувати жодного bucket-а).
+  Три ендпоінти лишаються без вікна з причиною: `POST /v1/consents/revoke`
+  (Art. 7(3)), `GET /v1/consents` (пост-410 правило §9.4),
+  `POST /v1/account/delete` (Art. 17 з Art. 12(3)).
+- [x] Тест кожного ліміту червоніє від зняття **самого ліміту**, перевірено
+  зняттям коду. Evidence: примус `budget = None` у `_admit` → **15 червоних** у
+  чотирьох модулях (`test_endpoint_limits.py`, `test_medical_consent_gate.py`,
+  `test_sync_rate_limits.py`, `test_reminder_settings.py`); зняття витрати
+  `push_bytes` у роутері → 1 червоний
+  (`test_push_volume_over_five_mebibytes_a_minute_is_rate_limited`).
+- [x] 403 від `require_consent` витрачає бюджет. Evidence:
+  `test_endpoint_limits.py::test_a_consent_refusal_on_the_settings_spends_the_settings_window`
+  (акаунт лише з `health_sync` збирає 403, доки вікно не вичерпається, і далі
+  дістає 429 із `Retry-After`) і
+  `::test_a_consent_refusal_on_the_sync_path_spends_the_sync_window`.
+  Механізм: вікно витрачається **в дверях**, до читання згоди, і відмова
+  `RateLimitRefusal` живе в HTTP-шарі — саме тому їй є куди покласти заголовок,
+  чого review Фази 4 вважав неможливим для доменної помилки.
+- [x] §11 «двічі перевірена згода» виконана на всіх п'яти медичних ендпоінтах.
+  Evidence: `tests/integration/test_medical_consent_gate.py` — 16 тестів, кожна
+  половина з тестом, що червоніє **лише** від її зняття. Знайдено на коді:
+  `GET/POST /v1/sync/key` і `POST /v1/account/vault-reset` не перевіряли згоду
+  **взагалі**.
+- [x] `/docs`, `/redoc` і `/openapi.json` мають різну поведінку в `development` і
+  поза ним, обидві гілки під тестом. Evidence:
+  `tests/unit/test_schema_exposure.py` — 9 тестів, включно з
+  `/docs/oauth2-redirect` і з твердженням, що закриття маршруту **не** приховує
+  документ від восьми перевірок поверхні.
+- [x] `docs/threat-model.md` існує; кожен пункт має тест або помітку «прийнятий
+  ризик» із причиною; операційних значень немає. Evidence: сам документ —
+  позначки `[T]`/`[R]`/`[H]` на кожному рядку.
+- [x] Threat model покриває **весь** розділ «Security і privacy review» з
+  `review-gates.md` (пункти 1.1–1.14) і **всі 18** пунктів §13 (таблиця розділу
+  2 плюс три розгорнуті підрозділи для 13.4, 13.5 і 13.16).
+- [x] Доля Bearer-токена ухвалена: **лишається в пам'яті, персистування
+  відхилено**, три самостійні причини й названа ціна — розділ 3.1 threat model.
+- [x] Schemathesis запінений (`schemathesis==4.24.3`), має блокуючий job у CI,
+  детермінований seed (`SCHEMATHESIS_SEED=20260726`) і названу стратегію
+  руйнівних операцій: **свіжий акаунт на кожну операцію**, тож жодна операція не
+  виключена з фаззингу. Evidence: `.github/workflows/ci.yml` job `schemathesis`,
+  `scripts/fuzz-openapi.sh`, `schemathesis.toml`.
+- [x] Кожна знахідка виправлена з власним цільовим тестом або пояснена як хибне
+  спрацювання з причиною. Evidence: `tests/unit/test_schema_declarations.py`
+  (39 тестів) і `tests/integration/test_fuzz_regressions.py` (15 тестів); хибні
+  спрацювання названі поіменно в `schemathesis.toml` разом із тестами, що пінують
+  відповідну поведінку.
+- [x] Навантажувальний smoke дає числа. Evidence: `scripts/load_smoke.py`, три
+  профілі; числа — у розділі «Навантажувальний smoke» нижче.
+- [x] Рішення пункту 1 «Семи речей» реалізоване: клієнт чекає названу сервером
+  кількість секунд. Evidence: `apps/web/src/sync/engine.test.ts` — блок
+  «SyncEngine — 429 і Retry-After (§11)», п'ять тестів; чотири червоніють від
+  зняття самої паузи.
+- [x] Матриця «рішення Gate D → код → тест» повна по п'ятьох розділах і називає
+  знайдені розбіжності — нижче.
+- [x] Досьє під підписи review-gates зібране (security/privacy — розділ 5
+  threat model; решта три гейти — нижче), і **гейт лишається відкритим**.
+- [x] Жоден із восьми тестів `test_openapi_surface.py`, лог-allowlist,
+  GRANT-ізоляція і сім контрактів import-linter не послаблені. Evidence:
+  `git diff` не торкається `test_openapi_surface.py`, `app/infra/logging.py`,
+  `tests/unit/test_logging.py`, `tests/integration/test_log_capture.py` і
+  `[tool.importlinter]`.
+- [ ] **Review-gates пройдені й підписані — НЕ закрито.** Чотири людські
+  перевірки лишаються відкритими; що саме бракує — у досьє.
+
+### Матриця відповідності: рішення Gate D → код → тест
+
+Це друга половина двоетапної моделі §12: перевірка реалізації на відповідність
+відрев'юваному дизайну. **Матриця знайшла три розбіжності** — вони в останній
+колонці й усі закриті цією фазою.
+
+#### 1. Криптомодель і втрата парольної фрази (§7)
+
+| Рішення Gate D | Де в коді | Тест | Розбіжність |
+|---|---|---|---|
+| AES-256-GCM per record, nonce із `getRandomValues`, без параметра `nonce` в API | `apps/web/src/crypto/envelope.ts` | `envelope.test.ts` (property: повторне шифрування → інші nonce/ciphertext) | — |
+| AAD з 0x1F-кодуванням, прапорець надгробка | `apps/web/src/crypto/aad.ts` | `aad.test.ts` | — |
+| manifest над **живими** записами з дайджестом вмісту | `apps/web/src/crypto/manifest.ts` | `manifest.test.ts` (обидві гілки: вилучено живий запис → падає; вилучено compacted tombstone → проходить) | — |
+| Argon2id `m=64 МіБ, t=3, p=1`; PBKDF2 як fallback | `apps/web/src/crypto/kdf/` | `keys.test.ts`, KAT-вектор проти OpenSSL | **Бенчмарк не проведено** — активний дефолт PBKDF2, Argon2id не обирає жоден шлях коду. Прийнятий ризик §13.1 |
+| CAS за `wrap_version` | `app/services/sync.py::write_key` | `test_sync_key.py::test_a_stale_expected_wrap_version_reports_the_current_one` | — |
+| Step-up на **будь-який** запис у `/v1/sync/key` | `app/api/v1/sync.py::write_key` | `test_sync_key.py::test_a_write_without_step_up_is_refused` | — |
+| `wrapped_dek_prev` із TTL 7 днів, лише при step-up | `app/services/sync.py::read_key` | `test_sync_key.py::test_the_previous_envelope_is_only_returned_with_step_up`, `::test_the_previous_envelope_expires_after_seven_days` | — |
+| recovery-файл відхилено | — (відсутність коду) | `wordlist.test.ts`, `vault.test.ts` (штатний шлях — нова серверна копія) | — |
+| Згенерована фраза 6 слів / 72 біти як основний шлях | `apps/web/src/crypto/wordlist/uk-4096.ts` | `wordlist.test.ts::REVIEWED_BY_LOCALIZATION_EDITOR === false` | **Словник кандидатний**, UI не оголошує ентропію. Відкритий блокер |
+| Сервер не перевіряє числові пороги `kdf_params` | `app/services/sync.py` | — | Свідоме обмеження: §7 покладає перевірку підлоги на клієнта |
+| Конверт — це `R` (32 байти) під KEK | `app/schemas/sync.py` | `test_schema_declarations.py::test_the_envelope_bound_is_declared_at_all` | **РОЗБІЖНІСТЬ (закрита):** розмір конверта не був обмежений ніде — ні схемою, ні CHECK. Сесія зі step-up могла записати довільно великий блоб. Сімнадцяте відхилення |
+
+#### 2. Retention, tombstones, бекапи, erasure (§6.4)
+
+| Рішення Gate D | Де в коді | Тест | Розбіжність |
+|---|---|---|---|
+| Один горизонт `H = 180`, похідні `T_tomb = T_journal = 187` | `app/domain/vault.py` | `test_vault_domain.py::test_the_horizon_is_the_only_number` | — |
+| `BACKUP_PROMISE_DAYS = 30` — єдине джерело числа | `app/domain/retention.py` | `test_backup_promise_guard.py` — вісім тестів, включно з grep-правилом по обох процесах | — |
+| Erasure-журнал 90 днів, пишеться **до** стирання | `app/services/erasure.py`, `app/infra/erasure_journal/` | `RefusingJournal` у conftest + тест на кожному шляху, що стирає | — |
+| Реконсиляція за `at >= t_b` | `app/workers/restore_reconciler.py` | `test_restore_drills.py` — 13 тестів, включно з межею на круглій точці | **Жоден drill не на реальному відновленні** — усі три на фікстурах. Прийнятий ризик |
+| Матриця erasure по 14 таблицях | `docs/restore-runbook.md` | `test_erasure_matrix.py` — звірка з `information_schema` обох схем | — |
+| Telegram — окремий носій, прибирання за 48 год | `reminders.message_cleanup` | `test_reminder_reconciler.py::test_revoking_reminders_hands_the_sent_messages_to_the_worker` | — |
+| `SERVICE_START_AT` — константа деплою | `app/infra/config.py` | `test_config.py` | — |
+| Журнал — псевдонімізовані дані **на весь строк** | — | — | Твердження документа, не коду (`restore-runbook.md`, крок 6) |
+
+#### 3. Незалежні згоди (§4.3, §9.7)
+
+| Рішення Gate D | Де в коді | Тест | Розбіжність |
+|---|---|---|---|
+| Рівно три згоди; `cycle_sync` вимагає активної `health_sync` | `app/services/consent.py::grant` | `test_consents.py` — 21 тест | — |
+| Каскадне відкликання `cycle_sync` разом із `health_sync` | `app/services/consent.py::revoke` | `test_revocation_erasure.py` | — |
+| `text_sha256` показаного тексту проти реєстру | `app/infra/consent_copy.py` | `test_consent_registry.py`, снапшот проти реєстру | — |
+| Строк сирітського акаунта за `revoke_reason` | `app/workers/erasure_worker.py` | `test_erasure_sweeper.py::test_an_account_blocked_for_29_days_is_still_recoverable`, `::test_an_account_blocked_past_thirty_days_is_erased` | — |
+| Серверний hard-DELETE за `record_key_cycle` | `app/services/consent.py::_delete_named_cycle_records` | `test_revocation_erasure.py` | — |
+| Назва згоди не в URL, не в `error_code`, не в `outbox.payload` | `test_openapi_surface.py`, `errors.py`, `OutboxRepository` | вісім тестів поверхні + `test_outbox_dispatcher.py` | — |
+| §11: `require_consent(kind)` **+** повторна перевірка в транзакції на кожному медичному ендпоінті | `app/api/v1/deps.py`, `app/services/sync.py::_require_health_sync` | `test_medical_consent_gate.py` — 16 тестів | **РОЗБІЖНІСТЬ (закрита):** sync-шлях мав лише другу половину, а `GET/POST /v1/sync/key` і `POST /v1/account/vault-reset` — жодної. Акаунт лише з `telegram_reminders` міг записати `wrapped_dek` і дописати `security_reset` у журнал витирань |
+| Відкликання так само легке, як надання (Art. 7(3)) | `app/api/v1/consents.py` | `test_endpoint_limits.py::test_revocation_stays_reachable_with_the_window_spent` | **РОЗБІЖНІСТЬ (закрита в іншу сторону):** перелік лімітів §11 не називав ці ендпоінти взагалі, тож «легкість» відкликання трималася на відсутності ліміту, а не на рішенні. Тепер це рішення з тестом. Шістнадцяте відхилення |
+
+#### 4. Data residency (§6.5)
+
+| Рішення Gate D | Де в коді | Тест | Розбіжність |
+|---|---|---|---|
+| Усі носії з персональними даними — в ЄЕЗ | поза репозиторієм | — | Операційне (§6.5); у git не живе |
+| Erasure-журнал обов'язковий поза `development` | `app/infra/config.py` | `test_config.py` | — |
+| Репліка й SLA доступності не розгортаються | — | — | Відсутність коду |
+| Error tracking не розгортається, браузерний Sentry заборонений назавжди | — | `assert-bundle.mjs` (нуль мережевого коду в local-only артефакті) | — |
+| Telegram — незалежний контролер; текст згоди дослівно називає відсутність рішення про адекватність | `consent-copy/uk/telegram_reminders/0.9.md` | `test_consent_registry.py` | — |
+| Будь-який новий носій відкриває повторний Gate D | — | — | Процесне. Фаза 5 нових носіїв не додала: навантаження ганяється локально, фаззер — проти локального api |
+| Операційна частина не в git | `docs/threat-model.md`, `docs/restore-runbook.md` | — | Твердження документів; у threat model перевірено вручну — жодного імені бакета, хоста чи облікового запису |
+
+#### 5. Нагадування і quiet hours (§10)
+
+| Рішення Gate D | Де в коді | Тест | Розбіжність |
+|---|---|---|---|
+| Quiet hours `[22:00, 08:00)` жорстко, 422 без підтвердження | `app/domain/reminders.py` (єдина константа) | `test_reminder_settings.py::test_quiet_hours_are_refused_at_every_boundary` + зворотний бік | — |
+| Guard за фактичним часом відправки | `app/workers/reminder_worker.py` | `test_reminder_worker.py::test_a_schedule_delayed_past_ten_is_skipped_quiet` | — |
+| Catch-up 60 хв | `app/domain/reminders.py` | `::test_catch_up_on_the_sixty_first_minute_is_stale` + зворотний бік | — |
+| at-most-once insert-before-send, бюджет спроби ≤10 хв < поріг sweeper 15 хв | `app/workers/reminder_worker.py`, import-time `raise` в домені | `::test_a_crash_between_send_and_confirm_never_produces_a_second_message` | — |
+| 403 відкликає згоду лише після 14 діб поспіль | `app/workers/outbox_dispatcher.py` (reconciler) | `test_reminder_reconciler.py::test_a_block_of_fourteen_days_reaches_the_consent`, `::test_a_block_of_thirteen_days_does_not_touch_the_consent` | — |
+| Exact allowlist: два рядки, нуль інтерполяції | `app/infra/telegram/bot_api.py` | `test_telegram_bot_api.py` — чотири allowlist-тести | — |
+| Час за замовчуванням 20:00 — префіл у web, не серверний дефолт | — | `test_reminder_settings.py` (провізія без явного значення відхиляється) | **UI нагадувань у web не існує** — свідомо поза Фазами 4–5 |
+| Поверхня Telegram поза текстом: нуль медичних токенів | — (операційне) | `test_telegram_surface.py` | **ЧЕРВОНИЙ ПРЯМО ЗАРАЗ:** бот `Neuronium` / `@neuronium_bot`. Відкритий блокер продакшену, не регресія |
+| Жоден ендпоінт не віддає список доставок | `app/api/v1/reminders.py` | `test_openapi_surface.py::test_the_reminder_surface_is_only_the_settings_resource`, `::test_the_settings_resource_returns_no_history` | — |
+
+**Матриця знайшла три розбіжності** (конверт без межі, §11 на envelope-ендпоінтах
+і статус лімітів для ендпоінтів поза переліком §11) — тобто вона не «неглибока»
+в сенсі, якого промпт Фази 5 боявся. Дві з них — це справжні дірки, а не
+розходження формулювань.
+
+### Досьє під підпис: три гейти поза security/privacy
+
+Security/privacy — розділ 5 у [threat-model.md](../threat-model.md). Решта три
+гейти `review-gates.md` не мають кодових доказів узагалі, і саме це тут
+зафіксовано.
+
+| Гейт | Що перевіряти | Де це в коді | Тест | Чого бракує для підпису |
+|---|---|---|---|---|
+| **Clinical і localization** | Тексти екранів термінової допомоги, поріг 5/5, українські терміни present/absent/unknown; текст нагадування і діапазон quiet hours у контексті мігрені та епілепсії; тональність текстів про втрату фрази й видалення | `apps/web/src/components/screens/`, `consent-copy/uk/**`, `app/domain/reminders.py` | exact-allowlist Telegram; `test_consent_registry.py`; `quiet-hours.json` як спільна фікстура | **Клінічний фахівець** не залучався. Окремо: `fixtures/contract/quiet-hours.json` наразі читає лише api-сторона — web UI нагадувань не існує |
+| **Локалізаційний редактор** | Усі consent copy; словник на 4096 слів (омоформи, слова, що плутаються на слух, медична семантика); **текст попередження перед експортом JSON/CSV/PDF, якого немає** | `consent-copy/uk/**`, `apps/web/src/crypto/wordlist/uk-4096.ts` | `wordlist.test.ts` — `REVIEWED_BY_LOCALIZATION_EDITOR === false` під тестом, і UI не оголошує ентропію, поки він false | Редакторський прохід. Це **найбільший важіль на реальну стійкість** у всій криптомоделі: без нього фраза захищає на ~30 бітів замість 72 |
+| **Юридичні передумови** | Ім'я й контакт контролера; DPIA за Art. 35; запис за Art. 30; представник за Art. 27; повідомлення Уповноваженого ВР за ст. 9 ЗУ 2297-VI; **прийнятність відсутності вікового порогу** (§13.14) | `consent-copy/uk/**` (тексти `0.9` з `[ім'я контролера]`) | fail-closed guard: поза `development` сервер відмовляє у створенні згоди | Усе. Це блокер Фази 1, не зрушений: тексти лишаються `0.9` |
+| **Accessibility** | Клавіатура, VoiceOver/NVDA, 200% zoom, landscape, довгі Unicode-назви груп, друк у відтінках сірого, багатосторінковий PDF | `apps/web/**` | web e2e (mobile + desktop) | Людський прохід. Автоматичні тести не є доказом — це дослівна вимога `review-gates.md` |
+
+### Навантажувальний smoke initial upload
+
+`scripts/load_smoke.py`, три профілі, проти локального стенду
+(`./scripts/dev-stand.sh`). Жодного зовнішнього сервісу: §6.5 робить будь-який
+новий носій повторним Gate D, і це стосується генераторів навантаження так само,
+як моніторингу. Випадкові байти — чесний стенд для шифротексту: сервер
+zero-knowledge і бачить лише довжину, тож єдина властивість вмісту, що впливає на
+вимір, — це саме довжина.
+
+| | typical | verbose | heavy |
+|---|---|---|---|
+| Опис | 3 роки щоденних записів | ті самі 3 роки, довгі нотатки | 10 років щоденних записів |
+| Записів `entry:` + синглтонів | 1095 + 5 | 1095 + 5 | 3650 + 5 |
+| Розмір запису | 1 КіБ | 4 КіБ | 1.5 КіБ |
+| Сумарний шифротекст | 1 126 400 Б (1.07 МіБ) | 4 505 600 Б (4.30 МіБ) | 5 614 080 Б (5.35 МіБ) |
+| Чанків за §9.5 | 6 | 6 | 19 |
+| Запитів | 6 | 6 | 20 |
+| Відмов 429 | 0 | 0 | **1** |
+| Де вмикається `5 MiB/хв` | не вмикається | не вмикається | **чанк 18 з 19, після 4.96 МіБ прийнятих** |
+| `Retry-After` | — | — | 13 с |
+| Час від першого до останнього запиту | 1.3 с | 2.0 с | 18.7 с (з них сервер 5.6 с) |
+| Що робить клієнт | нічого не чекає | нічого не чекає | **чекає названі 13 с і завершує вивантаж** |
+
+**Точка, де вмикається §11, названа числом:** межа `push_bytes 5 242 880 Б/хв`
+спрацьовує на 18-му чанку профілю heavy, тобто після ~4.96 МіБ прийнятого
+шифротексту в межах одного хвилинного вікна. Ліміт `sync 60 запитів/хв` не
+спрацьовує ні в одному профілі: найдовший вивантаж — 20 запитів. Чанки обмежені
+199 записами (одне місце зарезервоване під manifest, який §9.5 вимагає оновлювати
+в **кожному** чанку), а не мегабайтом: при 1.5 КіБ на запис 199 записів дають
+298 КіБ.
+
+**Smoke знайшов дефект, і він виправлений.** Перший прогін зупинявся на 18-му
+чанку: клієнт чекав рівно названу сервером кількість секунд і отримував **другий**
+429. Причина — `Retry-After` рахувався через `int()`, тобто обрізався вниз: вікно,
+що закривається за 59.6 с, називало 59. Тепер округлення вгору
+(`app/infra/db/repositories/vault.py`), і це під тестом
+`tests/integration/test_endpoint_limits.py::test_waiting_exactly_the_named_seconds_is_enough`
+— з дробовим зсувом годинника, бо на цілих значеннях старий код проходив.
+Перевірено зняттям коду: повернення `int()` → 1 червоний.
+
+**Скрипт не є частиною наскрізного gate** — як і `sync-e2e`, він потребує стенду.
+
+### Прогін schemathesis
+
+`scripts/fuzz-openapi.sh` проти живого api, seed `20260726`, 20 прикладів на
+операцію.
+
+- **15 із 15 операцій пройшли**, 632 тест-кейси, нуль провалів.
+- Виключених операцій **немає**: кожна отримує свіжий акаунт, тож три руйнівні
+  операції §9.2 і re-key фаззяться й руйнують лише власний акаунт.
+- Виключених перевірок **немає**: працюють усі тринадцять, включно з
+  `not_a_server_error`.
+- **Єдине звуження, назване числом:** `POST /v1/sync/push` ганяється без
+  coverage-фази. Межа `maxItems: 200` разом із межею `payload_b64` (base64 від
+  64 КіБ — 87 384 символи) дає тіло на ~17 МБ і **понад дев'ять хвилин**
+  генерації на одну операцію, з них 95% — CPU фаззера, тоді як сервер відповідає
+  за мілісекунди. Ті самі межі стережуть чотири цільові тести, названі в
+  `schemathesis.toml`. Fuzzing-фаза для push працює.
+- **Хибні спрацювання названі поіменно** в `schemathesis.toml`, кожне з
+  причиною і з тестом, що пінує відповідну поведінку: 429 як правильна відмова
+  (це не виняток, а факт §11); 422 на добре сформованій, але невідомій зоні (§10
+  кладе базу зон у домен); `1.0` як `integer` за JSON Schema проти `strict=True`;
+  413 на рядку, який схемно валідний і не є base64.
+- **Знахідки, які виправлені** — шість, кожна з цільовим тестом: 500 на курсорі
+  понад стелю; форма 422, оголошена як масив Pydantic замість санітизованого
+  рядка §11; дев'ять недекларованих статусів; невідомий query-параметр, що
+  приймався з 200; `PATCH /v1/auth/telegram` → 429 замість 405; схема, слабша за
+  код (патерни й межі жили у `field_validator`, якого OpenAPI не бачить).
+
+### Зафіксовані рішення
+
+- **Перелік лімітів §11 — підлога, а не стеля** (шістнадцяте відхилення).
+  Аргументи не однакові для семи ендпоінтів, тож і рішення не однакове:
+  `POST /v1/consents` пише рядки й читає реєстр текстів із диска — найдешевший
+  спосіб змусити сервер працювати за Bearer-токеном, і він отримує вікно;
+  `revoke` не отримує, бо Art. 7(3) вимагає, щоб відкликати було так само легко,
+  як надати; `GET /v1/consents` не отримує, бо пост-410 правило §9.4 забороняє
+  pruning без свіжої відповіді про згоди; `POST /v1/account/delete` не отримує,
+  бо це Art. 17 і перша успішна відповідь не лишає акаунта, якому нараховувати.
+- **Відмова за лімітом живе в HTTP-шарі, а не в домені.** Review Фази 4 назвав
+  два шляхи закриття дірки з 403 і обидва з ціною. Третій шлях: `DomainError`
+  свідомо не вміє нести значення (це під тестом), а `Retry-After` — це
+  **заголовок**, тож відмова належить шару, де заголовки й живуть.
+  `RateLimitRefusal` у `app/api/v1/errors.py` — рівно це, і `require_consent(kind)`
+  лишається тією формою, яку §11 називає.
+- **Ліміти §11 зведені в один реєстр** (`app/domain/rate_limits.py`). Три копії
+  арифметики фіксованого вікна (sync, reminders, і тепер двері) — це те, як ліміт
+  мовчки стає подвійним на межі хвилини. Заразом це зробило можливим тест
+  «кожен ендпоінт має названий статус».
+- **`account_ops` — один bucket на чотири операції, і ціна названа:** клієнт, що
+  двадцять разів перечитав список сесій, на хвилину не зможе зробити
+  vault-reset. Прийнято: 20/хв щедро, а vault-reset і так під step-up.
+- **Порядок middleware — під тестом, а не в коментарі.** Starlette виконує
+  middleware у зворотному порядку реєстрації, тож твердження «перевірка query
+  стоїть вище за лічильник» — рівно один рядок від хибності. Юніт-тест механізму
+  цього не бачить (він будує власний стек), тому порядок перевіряється проти
+  **реального** застосунку:
+  `test_fuzz_regressions.py::test_an_unreadable_query_never_spends_the_authentication_window`.
+  Знайдено власною перевіркою зняттям коду: перша редакція коментаря описувала
+  порядок навпаки.
+- **Bearer-токен лишається в пам'яті** — розділ 3.1 threat model, три самостійні
+  причини. Названо й те, що симптом (перезавантаження вкладки) закривається без
+  нового носія автентифікатора — свіжим initData із Telegram SDK, — і що це поза
+  обсягом Фази 5.
+
+### Відхилення від плану
+
+- **Шістнадцяте: перелік застосункових лімітів §11 — підлога, а не стеля.**
+  Внесено в §11 і §6.2 плану (число фіксованих слотів `rate_window` перестало
+  бути трьома ще у Фазі 4, тепер їх п'ять; аргумент «TTL-job не потрібен»
+  тримається на обмеженості переліку, а не на числі).
+- **Сімнадцяте: дріт має вужчі межі, ніж колонки.** Внесено в §9.5. Кожен
+  лічильник обмежений `2^53 − 1`, а не стелею `bigint`, і конверт §7 — одним
+  кілобайтом. Три причини, кожна знайдена на коді: без межі курсор `10**22`
+  давав **500**; межа рівно в `2^63 − 1` виходить із документа OpenAPI як `2^63`,
+  бо FastAPI типізує `maximum` як float; конверт без межі дозволяв записати
+  довільно великий блоб.
+
+### Що лишилося за людиною
+
+Оновлено під фактичний стан. **Блокери продакшену** помічені окремо від
+операційного.
+
+- **Підписи чотирьох review-gates** — *блокер продакшену*. Це той DoD-пункт, який
+  ця сесія фізично не могла закрити. Досьє зібране (вище і в розділі 5
+  [threat-model.md](../threat-model.md)); гейт лишається відкритим.
+- **Ім'я та `@username` бота порушують §10 просто зараз** — *операційне, блокер
+  продакшену*. `Neuronium` / `@neuronium_bot`. Три червоні в
+  `test_telegram_surface.py` — це їхня єдина робота, і вони лишаються червоними з
+  тієї самої причини, що й були.
+- **Тексти згод лишаються `0.9`, контролер не названий** — *блокер продакшену* з
+  Фази 1, не зрушений. Fail-closed guard на місці.
+- **Транспорт до бакета erasure-журналу відсутній** — *операційне, блокер
+  продакшену*. Поза `APP_ENV=development` процес не стартує без
+  `ERASURE_JOURNAL_ENABLED`, а з ним — не стартує без транспорту. Це навмисний
+  fail-closed стан Фази 3.
+- **Домен `WEBAPP_URL` не існує; кнопка Mini App у реальному чаті не
+  відкриється** — *операційне*. Telegram відкриває Mini App лише через HTTPS.
+- **Бенчмарк KDF і вимір §13.18** — потребують еталонного low-end Android і
+  реального бота з HTTPS. Активним дефолтом лишається PBKDF2.
+- **Локалізаційний review словника фрази** — найбільший важіль на реальну
+  стійкість криптомоделі. `REVIEWED_BY_LOCALIZATION_EDITOR === false` під тестом.
+- **Текст попередження перед експортом JSON/CSV/PDF не існує** — новий пункт,
+  названий threat model (розділ 1.14). Експортований файл виходить з-під контролю
+  застосунку й містить назви станів, ім'я і дату народження. Це локалізаційний
+  редактор плюс клінічний фахівець, не код.
+- **Реальний restore drill і перевірка повного видалення в підтримуваних
+  браузерах** — обидва людські, обидва не проведені.
+- **UI нагадувань і UI відкликання згод у web** — свідомо поза Фазами 4–5.
+- **Симптом «перезавантаження вкладки робить синхронізацію недосяжною»** лишається
+  відкритим, і рішення про Bearer-токен його не закриває (розділ 3.1 threat
+  model). Названий шлях без нового носія автентифікатора — свіжий initData із
+  Telegram SDK — поза обсягом Фази 5.
+- **SBOM, підпис артефактів і автоматичний аудит уразливостей** — названі threat
+  model (розділ 1.7) як те, чого немає. Рішення власника.

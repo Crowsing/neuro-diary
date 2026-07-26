@@ -23,6 +23,7 @@ from fastapi import APIRouter, Response
 from fastapi.responses import JSONResponse
 
 from app.api.v1.deps import RemindersConsentDep, ServicesDep
+from app.api.v1.responses import refusals
 from app.domain.identity import ConsentKind
 from app.schemas.reminders import ReminderSettingsOutput, ReminderSettingsUpdate
 from app.services.reminder import ReminderSettingsView
@@ -42,7 +43,11 @@ def _resource(view: ReminderSettingsView) -> ReminderSettingsOutput:
     )
 
 
-@router.get("/reminders/settings", response_model=ReminderSettingsOutput)
+@router.get(
+    "/reminders/settings",
+    response_model=ReminderSettingsOutput,
+    responses=refusals(401, 403, 404, 429),
+)
 def read_settings(
     services: ServicesDep,
     session: RemindersConsentDep,
@@ -60,7 +65,11 @@ def read_settings(
     )
 
 
-@router.put("/reminders/settings", response_model=ReminderSettingsOutput)
+@router.put(
+    "/reminders/settings",
+    response_model=ReminderSettingsOutput,
+    responses=refusals(400, 401, 403, 404, 429, domain_422=True),
+)
 def write_settings(
     payload: ReminderSettingsUpdate,
     services: ServicesDep,

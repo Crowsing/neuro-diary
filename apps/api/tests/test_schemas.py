@@ -185,3 +185,66 @@ def test_contract_rejects_wrong_schema_or_web_type_mismatches() -> None:
     wrong_activity["entries"]["2026-01-15"]["ctx"]["activity"] = 1
     with pytest.raises(ValidationError):
         AppData.model_validate(wrong_activity)
+
+
+# ------------------------------------------------- Phase 5: restated constants
+#
+# The import-linter contract «Schemas are standalone» keeps `app.schemas` free of
+# `app.domain`, so three numbers and two patterns exist twice by design. Two
+# copies that agree today is exactly the failure this file exists to prevent:
+# the way they stop agreeing is silent, and the fuzzer of §12 would report it as
+# a server defect rather than as a drifted constant.
+
+
+def test_the_counter_ceiling_is_spelled_the_same_in_both_places() -> None:
+    from app.domain import vault
+    from app.schemas import identity as identity_schemas
+    from app.schemas import sync as sync_schemas
+
+    assert sync_schemas.MAX_COUNTER == vault.MAX_COUNTER
+    assert identity_schemas.MAX_COUNTER == vault.MAX_COUNTER
+    # And it is the JSON-safe one, not the `bigint` one: FastAPI types `maximum`
+    # as a float, so 2**63 - 1 leaves the document one larger than the code
+    # accepts.
+    assert vault.MAX_COUNTER == 2**53 - 1
+
+
+def test_the_base64_ceilings_follow_the_byte_limits_they_encode() -> None:
+    from app.domain import vault
+    from app.schemas import sync as sync_schemas
+
+    assert sync_schemas.MAX_PAYLOAD_B64_CHARS == 4 * ((vault.MAX_RECORD_BYTES + 2) // 3)
+    assert sync_schemas.MAX_ENVELOPE_B64_CHARS == 4 * (
+        (vault.MAX_ENVELOPE_BYTES + 2) // 3
+    )
+
+
+def test_the_payload_ceiling_leaves_the_413_branch_reachable() -> None:
+    """§9.5 answers 413 for an oversized record, and it must keep answering it.
+
+    base64 pads to four, so 64 KiB and 64 KiB + 1 encode to the same number of
+    characters: a payload the service refuses passes the schema, and the refusal
+    stays a 413 rather than becoming a 422.
+    """
+    import base64
+
+    from app.domain import vault
+    from app.schemas import sync as sync_schemas
+
+    oversized = base64.b64encode(b"x" * (vault.MAX_RECORD_BYTES + 1)).decode()
+
+    assert len(oversized) <= sync_schemas.MAX_PAYLOAD_B64_CHARS
+
+
+def test_the_time_pattern_is_spelled_the_same_in_both_schema_modules() -> None:
+    from app.schemas import identity as identity_schemas
+    from app.schemas import reminders as reminder_schemas
+
+    assert reminder_schemas.TIME_PATTERN == identity_schemas.TIME_PATTERN
+
+
+def test_the_hex_pattern_is_spelled_the_same_in_both_schema_modules() -> None:
+    from app.schemas import identity as identity_schemas
+    from app.schemas import sync as sync_schemas
+
+    assert sync_schemas.RECORD_KEY_PATTERN == identity_schemas.HEX32_PATTERN

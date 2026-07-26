@@ -307,13 +307,14 @@ def test_the_per_ip_window_covers_the_auth_endpoint_and_nothing_else(
     application: FastAPI,
 ) -> None:
     """§11 keeps the address-keyed counter for auth alone, in process memory."""
-    limits: dict[str, int] = {}
+    limits: dict[tuple[str, str], int] = {}
     for middleware in application.user_middleware:
         configured = middleware.kwargs.get("limits")
         if configured is not None:
             limits = dict(configured)
 
-    assert limits == {"/v1/auth/telegram": AUTH_ATTEMPTS_PER_MINUTE}
+    # Keyed by method too: a `PATCH` to this path is a 405, not an attempt.
+    assert limits == {("POST", "/v1/auth/telegram"): AUTH_ATTEMPTS_PER_MINUTE}
 
 
 def test_every_declared_bucket_is_a_migrated_bucket() -> None:

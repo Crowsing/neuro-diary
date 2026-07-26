@@ -257,3 +257,46 @@ def test_an_account_holds_at_most_one_row_per_declared_bucket(
     assert set(buckets) <= {bucket.value for bucket in RateBucket}
     assert len(buckets) == len(set(buckets))
     assert len(buckets) <= len(RateBucket)
+
+
+# ------------------------------------------------ Retry-After: округлення вгору
+
+
+def test_waiting_exactly_the_named_seconds_is_enough(
+    synced: Caller,
+    clock: FrozenClock,
+) -> None:
+    """Знайдено навантажувальним smoke §12, а не міркуванням.
+
+    `Retry-After` рахувався через `int()`, тобто обрізався вниз: вікно, що
+    закривається за 59.6 с, називало 59. Клієнт, який чекає **рівно** названу
+    кількість секунд — а саме так і має робити клієнт, і саме так робить
+    `apps/web/src/sync/engine.ts`, — просинався за 0.4 с до відкриття й отримував
+    другий 429. Вивантаж на 5.3 МіБ зупинявся на 18-му чанку після паузи, яку
+    сервер сам і назвав.
+
+    Годинник тут зсувається на дробову частку секунди саме тому, що дефект жив у
+    дробовій частині: на цілих значеннях старий код проходив.
+    """
+    clock.set(clock.now().replace(second=0, microsecond=400_000))
+    for _ in range(ACCOUNT_OPS_LIMIT):
+        assert synced.get("/v1/sessions").status_code == 200
+
+    refused = synced.get("/v1/sessions")
+    assert refused.status_code == 429
+    named = int(refused.headers["Retry-After"])
+
+    # Чекаємо рівно стільки, скільки сказав сервер — і ні мілісекунди більше.
+    clock.advance(seconds=named)
+    assert synced.get("/v1/sessions").status_code == 200
+
+
+def test_the_named_wait_is_never_zero(synced: Caller, clock: FrozenClock) -> None:
+    """Інша межа тієї самої арифметики: «почекай нуль» — це негайний ретрай."""
+    clock.set(clock.now().replace(second=59, microsecond=999_000))
+    for _ in range(ACCOUNT_OPS_LIMIT):
+        synced.get("/v1/sessions")
+
+    refused = synced.get("/v1/sessions")
+    assert refused.status_code == 429
+    assert int(refused.headers["Retry-After"]) >= 1

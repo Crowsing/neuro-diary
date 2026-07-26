@@ -153,6 +153,88 @@ jobs:
         if: failure()
         run: tail -100 /tmp/api.log
 
+  # DoD Фази 5 (§12): schemathesis по OpenAPI, блокуючим job-ом.
+  #
+  # Job окремий за тією самою причиною, що й `sync-e2e`: потрібні PostgreSQL,
+  # міграції й живий api, а наскрізний gate `pytest` мусить лишатися запускним
+  # без стенду. Схема віддається по HTTP лише в `development` — поза ним
+  # `/openapi.json`, `/docs` і `/redoc` відсутні як маршрути, і обидві гілки під
+  # тестом (`tests/unit/test_schema_exposure.py`).
+  #
+  # СТРАТЕГІЯ — уся в `scripts/fuzz-openapi.sh` і `schemathesis.toml`, а не лише
+  # у звіті. Коротко, щоб не читати два файли:
+  #
+  #  * АВТЕНТИФІКАЦІЯ: фікстурна Ed25519-пара §8 (насіння — байти 0..31), той
+  #    самий публічний ключ, що в job `sync-e2e` нижче. Без токена фаззер
+  #    перевіряв би виключно шлях 401;
+  #  * РУЙНІВНІ ОПЕРАЦІЇ: свіжий акаунт **на кожну операцію**, тож
+  #    `POST /v1/account/delete`, `POST /v1/consents/revoke`,
+  #    `POST /v1/account/vault-reset` і re-key фаззяться, а не виключаються, і
+  #    руйнують лише власний акаунт. Виключень із фаззингу немає жодного;
+  #  * SEED: детермінований (`SCHEMATHESIS_SEED`), інакше червоний CI
+  #    невідтворюваний;
+  #  * ЛІМІТИ §11 НЕ ПОСЛАБЛЮЮТЬСЯ. 429 доданий до переліку статусів, які дві
+  #    перевірки вважають правильною відповіддю — бо він нею і є. Причина в
+  #    `schemathesis.toml`.
+  schemathesis:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16.14-alpine
+        env:
+          POSTGRES_DB: neuro
+          POSTGRES_USER: neuro_admin
+          POSTGRES_PASSWORD: ci_admin_password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U neuro_admin -d neuro"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      APP_ENV: development
+      WEBAPP_URL: http://localhost:4174
+      # Фікстурний id: initData підписується `<bot_id>:WebAppData\n…`, тож
+      # значення мусить збігатися з тим, чим підписує скрипт мінтування.
+      TELEGRAM_BOT_ID: "1234567890"
+      TELEGRAM_ED25519_PUBLIC_KEY: 03a107bff3ce10be1d70dd18e74bc09967e4d6309ba50d5f1ddc8664125531b8
+      MIGRATION_DATABASE_URL: postgresql://neuro_admin:ci_admin_password@127.0.0.1:5432/neuro
+      API_DATABASE_URL: postgresql://api_rw:ci_api_password@127.0.0.1:5432/neuro
+      SCHEMATHESIS_SEED: "20260726"
+      SCHEMATHESIS_MAX_EXAMPLES: "20"
+    steps:
+      - uses: actions/checkout@v6
+      - name: Mint a per-run log pseudonymisation key
+        run: echo "LOG_ACCOUNT_REF_KEY=$(openssl rand -hex 32)" >> "$GITHUB_ENV"
+      - uses: astral-sh/setup-uv@v9.0.0
+        with:
+          python-version: "3.11"
+          enable-cache: true
+      - run: uv sync --locked
+        working-directory: apps/api
+      - run: uv run --locked alembic upgrade head
+        working-directory: apps/api
+      - name: Give the application role its CI password
+        run: >-
+          PGPASSWORD=ci_admin_password psql -h 127.0.0.1 -U neuro_admin -d neuro
+          -c "ALTER ROLE api_rw PASSWORD 'ci_api_password';"
+      - name: Start the api
+        working-directory: apps/api
+        run: |
+          uv run --locked uvicorn app.main:app_factory --factory \
+            --no-access-log --port 8000 > /tmp/api.log 2>&1 &
+          for attempt in $(seq 1 60); do
+            curl -sf http://localhost:8000/health && break
+            sleep 1
+          done
+          curl -sf http://localhost:8000/health
+      - name: Fuzz every operation against its own account
+        run: bash scripts/fuzz-openapi.sh
+      - name: Api log on failure
+        if: failure()
+        run: tail -200 /tmp/api.log
+
   gitleaks:
     runs-on: ubuntu-latest
     steps:

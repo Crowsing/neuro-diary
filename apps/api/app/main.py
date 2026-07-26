@@ -31,7 +31,11 @@ from app.api.v1.errors import (
 from app.api.v1.health import router as health_router
 from app.api.v1.reminders import router as reminders_router
 from app.api.v1.sync import router as sync_router
-from app.api.v1.middleware import RateLimitMiddleware, RequestContextMiddleware
+from app.api.v1.middleware import (
+    QueryParameterAllowlistMiddleware,
+    RateLimitMiddleware,
+    RequestContextMiddleware,
+)
 from app.domain.identity import DomainError
 from app.infra.clock import SystemClock
 from app.infra.config import ConfigurationError, Settings
@@ -158,12 +162,23 @@ def create_app(dependencies: AppDependencies) -> FastAPI:
         allow_methods=["GET", "POST"],
         allow_headers=["Authorization", "Content-Type"],
     )
+    # Starlette runs middleware in reverse order of registration, so what is
+    # written last runs first. The order that matters, outermost inward:
+    #
+    #   RequestContextMiddleware → QueryParameterAllowlistMiddleware
+    #     → RateLimitMiddleware → CORSMiddleware → router
+    #
+    # The logger is outermost so every refusal below it is still one allowlisted
+    # line. The query allowlist sits above the limiter on purpose: a request
+    # carrying a parameter this API does not read is not an authentication
+    # attempt, and refusing it must not spend somebody's §11 window.
     application.add_middleware(
         RateLimitMiddleware,
-        limits={"/v1/auth/telegram": AUTH_ATTEMPTS_PER_MINUTE},
+        limits={("POST", "/v1/auth/telegram"): AUTH_ATTEMPTS_PER_MINUTE},
         window_seconds=RATE_LIMIT_WINDOW_SECONDS,
         secret=settings.log_account_ref_key,
     )
+    application.add_middleware(QueryParameterAllowlistMiddleware)
     application.add_middleware(
         RequestContextMiddleware,
         secret=settings.log_account_ref_key,

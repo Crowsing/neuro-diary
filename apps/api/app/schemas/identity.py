@@ -6,16 +6,20 @@ field on one model rather than two competing grant shapes.
 
 from __future__ import annotations
 
-import re
 from datetime import datetime
 from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-_TIME = re.compile(r"^([01]\d|2[0-3]):[0-5]\d$")
-_SHA256_HEX = re.compile(r"^[0-9a-f]{64}$")
-_RECORD_KEY_HEX = re.compile(r"^[0-9a-f]{64}$")
+#: Патерни живуть у схемі, а не у валідаторах: `field_validator` не потрапляє в
+#: OpenAPI, тож документ обіцяв будь-який рядок там, де сервер приймає лише
+#: `HH:mm` або 32 байти hex. Фаззер Фази 5 знайшов саме цю розбіжність.
+TIME_PATTERN = r"^([01]\d|2[0-3]):[0-5]\d$"
+HEX32_PATTERN = r"^[0-9a-f]{64}$"
+
+#: Та сама стеля, що в `app.schemas.sync`: найбільше ціле, яке JSON несе точно.
+MAX_COUNTER = 2**53 - 1
 
 ConsentKindLiteral = Literal["health_sync", "telegram_reminders", "cycle_sync"]
 
@@ -25,48 +29,23 @@ class ContractModel(BaseModel):
 
 
 class ReminderSettingsInput(ContractModel):
-    time: str
-    timezone: str
-
-    @field_validator("time")
-    @classmethod
-    def _validate_time(cls, value: str) -> str:
-        if not _TIME.match(value):
-            raise ValueError("time must be HH:mm")
-        return value
-
-    @field_validator("timezone")
-    @classmethod
-    def _validate_timezone(cls, value: str) -> str:
-        if not value.strip():
-            raise ValueError("timezone is required")
-        return value
+    time: str = Field(pattern=TIME_PATTERN)
+    #: Форма, і тільки. База зон — авторитет, вона живе в домені, тож невідома
+    #: але добре сформована зона це 422 `unknown_timezone` звідти, а не помилка
+    #: валідації тут.
+    timezone: str = Field(min_length=1)
 
 
 class GrantInput(ContractModel):
     """One contract for all three consents (§9.2)."""
 
     kind: ConsentKindLiteral
-    text_version: str
-    text_sha256: str
+    text_version: str = Field(min_length=1)
+    text_sha256: str = Field(pattern=HEX32_PATTERN)
     settings: ReminderSettingsInput | None = None
     #: §9.7: HMAC(k_index,'cycle'), яке клієнт називає лише при grant
     #: `cycle_sync`. Сервер його не обчислює і перевірити не може.
-    record_key_cycle: str | None = None
-
-    @field_validator("text_sha256")
-    @classmethod
-    def _validate_digest(cls, value: str) -> str:
-        if not _SHA256_HEX.match(value):
-            raise ValueError("text_sha256 must be lowercase hex")
-        return value
-
-    @field_validator("record_key_cycle")
-    @classmethod
-    def _validate_record_key(cls, value: str | None) -> str | None:
-        if value is not None and not _RECORD_KEY_HEX.match(value):
-            raise ValueError("record_key_cycle must be 32 lowercase hex bytes")
-        return value
+    record_key_cycle: str | None = Field(default=None, pattern=HEX32_PATTERN)
 
     @model_validator(mode="after")
     def _settings_belong_to_reminders_only(self) -> GrantInput:
@@ -100,7 +79,7 @@ class RevokeRequest(ContractModel):
     """
 
     kind: ConsentKindLiteral
-    last_acked_revision: int = Field(default=0, ge=0)
+    last_acked_revision: int = Field(default=0, ge=0, le=MAX_COUNTER)
     acknowledge_incomplete: bool = False
 
 

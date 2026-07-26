@@ -11,6 +11,7 @@ from fastapi import APIRouter, Request
 
 from app.api.v1.deps import AccountOpsDep, BearerDep, ServicesDep
 from app.api.v1.mapping import consent_outputs, require_session, to_grant_request
+from app.api.v1.responses import refusals
 from app.domain.identity import AuthInvalid, ConsentKind
 from app.schemas.identity import (
     ConsentListOutput,
@@ -22,7 +23,11 @@ from app.schemas.identity import (
 router = APIRouter(prefix="/v1", tags=["consents"])
 
 
-@router.get("/consents", response_model=ConsentListOutput)
+@router.get(
+    "/consents",
+    response_model=ConsentListOutput,
+    responses=refusals(401),
+)
 def list_consents(
     request: Request,
     services: ServicesDep,
@@ -36,7 +41,12 @@ def list_consents(
     return ConsentListOutput(consents=consent_outputs(records))
 
 
-@router.post("/consents", response_model=ConsentListOutput, status_code=201)
+@router.post(
+    "/consents",
+    response_model=ConsentListOutput,
+    status_code=201,
+    responses=refusals(400, 401, 409, 429, 503, domain_422=True),
+)
 def grant_consent(
     request: Request,
     payload: GrantInput,
@@ -72,7 +82,11 @@ def grant_consent(
     return ConsentListOutput(consents=consent_outputs(records))
 
 
-@router.post("/consents/revoke", response_model=RevokeResponse)
+@router.post(
+    "/consents/revoke",
+    response_model=RevokeResponse,
+    responses=refusals(400, 401, 409),
+)
 def revoke_consent(
     request: Request,
     payload: RevokeRequest,

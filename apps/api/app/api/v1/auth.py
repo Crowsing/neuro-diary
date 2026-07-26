@@ -6,6 +6,7 @@ from fastapi import APIRouter, Request
 
 from app.api.v1.deps import AccountOpsDep, ServicesDep
 from app.api.v1.mapping import consent_outputs, to_grant_request
+from app.api.v1.responses import refusals
 from app.schemas.identity import (
     AuthRequest,
     AuthResponse,
@@ -17,7 +18,14 @@ from app.schemas.identity import (
 router = APIRouter(prefix="/v1", tags=["auth"])
 
 
-@router.post("/auth/telegram", response_model=AuthResponse)
+@router.post(
+    "/auth/telegram",
+    response_model=AuthResponse,
+    # 429 comes from the per-IP limiter of §11, which lives in middleware rather
+    # than in a window: this is the endpoint that mints the session, so there is
+    # no account to key one on.
+    responses=refusals(400, 401, 403, 409, 429, 503, domain_422=True),
+)
 def authenticate(payload: AuthRequest, services: ServicesDep) -> AuthResponse:
     result = services.auth.authenticate(
         payload.init_data,
@@ -30,7 +38,11 @@ def authenticate(payload: AuthRequest, services: ServicesDep) -> AuthResponse:
     )
 
 
-@router.get("/sessions", response_model=SessionListOutput)
+@router.get(
+    "/sessions",
+    response_model=SessionListOutput,
+    responses=refusals(401, 429),
+)
 def list_sessions(
     request: Request,
     services: ServicesDep,
@@ -53,7 +65,11 @@ def list_sessions(
     )
 
 
-@router.post("/sessions/revoke-others", response_model=RevokedSessionsOutput)
+@router.post(
+    "/sessions/revoke-others",
+    response_model=RevokedSessionsOutput,
+    responses=refusals(401, 429),
+)
 def revoke_other_sessions(
     request: Request,
     services: ServicesDep,

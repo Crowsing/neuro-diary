@@ -28,6 +28,10 @@ dev = [
     "pytest==9.1.1",
     "pytest-cov==7.1.0",
     "ruff==0.15.22",
+    # Phase 5 §12: the fuzzer runs in its own blocking CI job, never in the
+    # cross-cutting `pytest` gate — it needs PostgreSQL, migrations and a live
+    # api, exactly like `sync-e2e`.
+    "schemathesis==4.24.3",
     "testcontainers[postgres]==4.14.2",
 ]
 
