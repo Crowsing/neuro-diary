@@ -45,6 +45,20 @@ class AccountRepository:
         """Hard delete; foreign keys cascade to consents, sessions, and vault."""
         self._session.execute(delete(Account).where(Account.id == account_id))
 
+    def identifiers(self) -> list[UUID]:
+        """Every live account, for the restore reconciliation of §6.4.
+
+        The journal holds `HMAC(k_erasure, account_id)` and nothing else, and an
+        HMAC does not run backwards — so reconciliation recomputes the reference
+        for each account that is present and matches. That is only possible
+        *after* a restore has put those accounts back, which is exactly when it
+        is needed.
+
+        Nothing on a request path may call this: enumerating the whole table is
+        a reconciliation operation, not an account-scoped one.
+        """
+        return list(self._session.execute(select(Account.id)).scalars().all())
+
 
 class TelegramIdentityRepository:
     def __init__(self, session: Session) -> None:

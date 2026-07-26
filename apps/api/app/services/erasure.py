@@ -78,6 +78,7 @@ class ErasureService:
         *,
         account_id: UUID,
         now: datetime,
+        code: str = ERASURE_SYNC_OFF,
     ) -> UUID:
         """Erase the vault of a still-living account (§6.4 code `sync_off`).
 
@@ -88,10 +89,15 @@ class ErasureService:
         The caller has already taken the account row lock — that lock is the
         barrier of §9.8 against an in-flight push, and taking it here instead
         would be a second, later lock with no barrier property at all.
+
+        `code` exists for exactly one caller: the restore reconciliation of
+        §6.4 replays a `security_reset` with the same three effects and has to
+        journal it under its own name. Sharing this implementation is the point
+        — a second copy of "delete the vault" is a second thing to drift.
         """
         reference = self._journal.record_intent(
             account_id=account_id,
-            code=ERASURE_SYNC_OFF,
+            code=code,
             at=now,
         )
         unit.vault.delete_all(account_id)
