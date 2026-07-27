@@ -42,7 +42,7 @@
      50  .nd-overlay        діалоги застосунку
      55  .nd-overlay--sync  згода / фраза / re-key: не ховається за діалог
      60  .nd-toast
-     70  .nd-top-alerts     помилка сховища + банер стенду
+     70  .nd-storage-error  помилка збереження (банер стенду — у потоці)
    Інших z-index у застосунку немає. */
 
 html, body, #root {
@@ -263,6 +263,10 @@ button { touch-action: manipulation; }
   min-width: 0;
   flex: 1;
   display: flex;
+  /* Колонка, а не рядок: банер стенду стає смугою НАД сценою, а не
+     накладкою поверх неї. */
+  flex-direction: column;
+  gap: 12px;
   overflow: hidden;
   padding: clamp(18px, 2.5vw, 36px);
 }
@@ -271,7 +275,10 @@ button { touch-action: manipulation; }
   width: 100%;
   max-width: 880px;
   min-width: 0;
-  height: 100%;
+  /* flex:1, а не height:100%: над сценою може стояти банер стенду, і сто
+     відсотків висоти вже не її. */
+  flex: 1;
+  min-height: 0;
   margin: 0 auto;
   display: flex;
   overflow: hidden;
@@ -314,21 +321,20 @@ button { touch-action: manipulation; }
    навігацію, тож тост більше не висить над порожнечею. */
 .nd-page[data-nav="mobile"] { --nd-toast-offset: calc(var(--nd-nav-h) + 12px); }
 
-/* Верхні алерти — один стек, а не два незалежні елементи, які в фулскріні
-   неминуче наклалися б один на одного. */
-.nd-top-alerts {
+/* Помилка сховища плаває навмисно: це role="alert" про втрату даних, із
+   власними кнопками. Перекрити ним шапку — саме те, що треба, поки він є.
+   Банер стенду, навпаки, живе в потоці оболонки (див. .nd-inline-error):
+   він постійний і неінтерактивний, тож плавучим він просто відбирав би
+   кліки в кнопки «Назад» — і рівно це й сталося, коли його вперше зробили
+   видимим. */
+.nd-storage-error {
   position: absolute;
   z-index: 70;
   top: calc(var(--nd-inset-top) + 8px);
   left: 50%;
   transform: translateX(-50%);
   width: min(620px, calc(100% - 24px));
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  pointer-events: none;
 }
-.nd-top-alerts > * { pointer-events: auto; }
 
 .nd-filter-row,
 .nd-group-badges {
@@ -354,7 +360,7 @@ button { touch-action: manipulation; }
 .nd-review-group h3 { margin: 0; font-family: var(--font-body); font-size: 12px; letter-spacing: .06em; text-transform: uppercase; }
 .nd-review-symptom { display: flex; flex-direction: column; gap: 4px; padding-block: 7px; border-bottom: 1px solid var(--color-divider); }
 .nd-review-symptom > div { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; min-width: 0; }
-.nd-inline-error { padding: 10px 12px; border-radius: 14px; background: #f8dfda; color: #7c241c; font-size: 13px; font-weight: 600; }
+.nd-inline-error { flex: none; padding: 10px 12px; border-radius: 14px; background: #f8dfda; color: #7c241c; font-size: 13px; font-weight: 600; }
 .nd-check-row { width: 100%; min-height: 54px; display: flex; align-items: flex-start; gap: 12px; padding: 13px 15px; border: 1.5px solid var(--color-divider); border-radius: 18px; background: var(--color-surface); color: var(--color-text); text-align: left; font: inherit; cursor: pointer; }
 .nd-check-row > span:last-child { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
 .nd-check-row small { color: color-mix(in srgb, var(--color-text) 72%, transparent); }
@@ -369,7 +375,6 @@ button { touch-action: manipulation; }
 .nd-detail-row { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
 .nd-detail-row > * { min-width: 0; overflow-wrap: anywhere; }
 .nd-detail-row > :last-child { text-align: right; }
-/* Позиціювання переїхало у .nd-top-alerts; тут лишився самий вигляд. */
 .nd-storage-error { padding: 12px 14px; border: 2px solid #7c241c; border-radius: 16px; background: #fff4f1; color: #581b16; box-shadow: var(--shadow-lg); }
 .nd-storage-error-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
 
@@ -421,7 +426,7 @@ button { touch-action: manipulation; }
   .nd-dialog-overlay,
   .nd-overlay,
   .nd-toast,
-  .nd-top-alerts,
+  .nd-storage-error,
   [data-screen-label="Звіт"] > * { display: none !important; }
   [data-screen-label="Звіт"] > .nd-print-report { display: block !important; }
   .nd-print-report { box-shadow: none !important; border-radius: 0 !important; }

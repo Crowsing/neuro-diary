@@ -85,34 +85,33 @@ export default function AppShell({ theme = 'light', reduceMotion = false }: AppS
          чи немає під ним навігації — раніше він припускав, що є завжди. */
       data-nav={!isDesktop && isApp && state.sub === null ? 'mobile' : undefined}
     >
+      {/* Банер стенду живе в ПОТОЦІ оболонки, а не поверх неї, і не всередині
+          вкладок. Не всередині вкладок — бо мусить бути досяжним з будь-якого
+          екрана, і саме через його відсутність у дереві половина гарантій §7
+          не діяла. Не поверх — бо він постійний і неінтерактивний: плавучим
+          він відбирав би кліки в кнопки «Назад» під ним. Інсети він отримує
+          від оболонки разом з усім іншим. */}
       {isDesktop ? (
-        <DesktopDashboard>{screen}</DesktopDashboard>
+        <DesktopDashboard banner={<DevelopmentBanner />}>{screen}</DesktopDashboard>
       ) : (
         <PhoneFrame>
+          <DevelopmentBanner />
           {screen}
           {isApp && state.sub === null && <BottomNav />}
         </PhoneFrame>
       )}
-      {/* Один стек верхніх алертів. Обидва раніше були статичними сусідами
-          оболонки висотою 100%, тобто лягали нижче viewport і обрізалися;
-          а щойно їх повернути на екран — вони накладаються один на одного,
-          бо обидва верхні. Стек вирішує обидві задачі й один раз тримає
-          відступ під шапкою Telegram. */}
-      <div className="nd-top-alerts">
-        {persistenceError && (
-          <div className="nd-storage-error" role="alert" aria-live="assertive">
-            <div style={{ fontSize: 14, fontWeight: 700 }}>Не вдалося зберегти зміни в браузері. Дані ще доступні в цій вкладці.</div>
-            <div className="nd-storage-error-actions">
-              <button className="btn btn-secondary" style={{ minHeight: 44 }} onClick={retrySave}>Повторити збереження</button>
-              <button className="btn btn-secondary" style={{ minHeight: 44, whiteSpace: 'normal' }} onClick={() => downloadJson(state)}>Експортувати JSON для відновлення</button>
-            </div>
+      {/* Помилка сховища, навпаки, плаває навмисно: це role="alert" про втрату
+          даних, із власними кнопками. Поки він є, перекрити шапку — саме те,
+          що треба. */}
+      {persistenceError && (
+        <div className="nd-storage-error" role="alert" aria-live="assertive">
+          <div style={{ fontSize: 14, fontWeight: 700 }}>Не вдалося зберегти зміни в браузері. Дані ще доступні в цій вкладці.</div>
+          <div className="nd-storage-error-actions">
+            <button className="btn btn-secondary" style={{ minHeight: 44 }} onClick={retrySave}>Повторити збереження</button>
+            <button className="btn btn-secondary" style={{ minHeight: 44, whiteSpace: 'normal' }} onClick={() => downloadJson(state)}>Експортувати JSON для відновлення</button>
           </div>
-        )}
-        {/* Банер стенду живе тут, а не всередині вкладок: він мусить бути
-            досяжним з будь-якого екрана, і саме через його відсутність у
-            дереві половина гарантій §7 не діяла в застосунку. */}
-        <DevelopmentBanner />
-      </div>
+        </div>
+      )}
       {isApp && <DialogHost />}
       {isApp && <Toast />}
       <SyncMount />

@@ -3,7 +3,15 @@ import { navs } from '../../../constants/icons';
 import { navTab } from '../../../state/actions';
 import { useApp } from '../../../state/store';
 
-export default function DesktopShell({ children }: { children: ReactNode }) {
+export default function DesktopShell({
+  children,
+  /** Смуга над сценою: банер стенду. Рендериться тут, а не поверх сцени, щоб
+      не перекривати кнопки в шапці екрана. */
+  banner
+}: {
+  children: ReactNode;
+  banner?: ReactNode;
+}) {
   const { state, dispatch } = useApp();
 
   return (
@@ -35,6 +43,7 @@ export default function DesktopShell({ children }: { children: ReactNode }) {
         </p>
       </aside>
       <main className="nd-desktop-workspace" aria-label="Вміст застосунку">
+        {banner}
         <div className="nd-desktop-stage">{children}</div>
       </main>
     </div>
