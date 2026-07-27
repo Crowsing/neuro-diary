@@ -34,6 +34,7 @@ from typing import Any
 
 import pytest
 from fastapi import FastAPI
+from fastapi.testclient import TestClient
 
 from app.domain.identity import ConsentKind
 from app.infra.clock import SystemClock
@@ -199,3 +200,86 @@ def test_revocation_takes_the_kind_in_the_body(schema: dict[str, Any]) -> None:
     assert _url_parameters(operation) == []
     body = operation["requestBody"]["content"]["application/json"]["schema"]
     assert body["$ref"].endswith("RevokeRequest")
+
+
+#: The origin `_app()` is built with; the only one CORS may answer for.
+WEBAPP_ORIGIN = "https://example.invalid"
+
+
+def _routed_methods(schema: dict[str, Any]) -> set[tuple[str, str]]:
+    return {
+        (path, method.upper())
+        for path, operations in schema["paths"].items()
+        for method in operations
+        if method.upper() in {"GET", "POST", "PUT", "PATCH", "DELETE"}
+    }
+
+
+def test_every_routed_method_survives_a_browser_preflight(
+    schema: dict[str, Any],
+) -> None:
+    """The Mini App and the api are never same-origin, so CORS is load-bearing.
+
+    Derived from the routed surface rather than pinned as a list: a method the
+    application answers but CORS refuses is invisible to every other test here.
+    `PUT /v1/reminders/settings` was exactly that — routed since Phase 4,
+    refused at the preflight, and unreachable from a browser until Phase 6,
+    because the web client had never issued anything but GET and POST.
+
+    A preflight, not the middleware's configuration: what matters is the answer
+    the browser gets, and reading `allow_methods` back would only prove the
+    list equals itself.
+    """
+    client = TestClient(_app())
+
+    for path, method in sorted(_routed_methods(schema)):
+        response = client.options(
+            path,
+            headers={
+                "Origin": WEBAPP_ORIGIN,
+                "Access-Control-Request-Method": method,
+            },
+        )
+        assert response.status_code == 200, f"{method} {path}: {response.text}"
+        allowed = {
+            item.strip()
+            for item in response.headers.get("access-control-allow-methods", "").split(
+                ","
+            )
+        }
+        assert method in allowed, f"{method} {path} not in {allowed}"
+
+
+def test_the_preflight_answers_only_the_configured_origin(
+    schema: dict[str, Any],
+) -> None:
+    """Widening the method list must not widen who may use it."""
+    client = TestClient(_app())
+
+    response = client.options(
+        "/v1/reminders/settings",
+        headers={
+            "Origin": "https://attacker.invalid",
+            "Access-Control-Request-Method": "PUT",
+        },
+    )
+
+    assert "access-control-allow-origin" not in response.headers
+
+
+def test_no_method_is_allowed_beyond_the_routed_surface(
+    schema: dict[str, Any],
+) -> None:
+    """`allow_methods` is a ceiling too, not only a floor."""
+    client = TestClient(_app())
+    routed = {method for _, method in _routed_methods(schema)}
+
+    for method in {"PATCH", "DELETE"} - routed:
+        response = client.options(
+            "/v1/reminders/settings",
+            headers={
+                "Origin": WEBAPP_ORIGIN,
+                "Access-Control-Request-Method": method,
+            },
+        )
+        assert response.status_code == 400, method
