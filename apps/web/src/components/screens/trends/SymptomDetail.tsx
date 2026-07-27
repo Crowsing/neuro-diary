@@ -10,6 +10,7 @@ import { navSub, trendsSet } from '../../../state/actions';
 import { model } from '../../../lib/chart';
 import type { ChartDay, ChartDeps } from '../../../lib/chart';
 import { groupBadges, trendableSymptomIds } from '../../../lib/groups';
+import SubScreenHeader from '../../frame/SubScreenHeader';
 import { makeSymDef } from '../../../lib/utils';
 import { fmtShort } from '../../../lib/dates';
 import { INT } from '../../../constants/symptoms';
@@ -94,17 +95,15 @@ export default function SymptomDetail() {
   }));
   const badges = groupBadges(id, st.data);
   return (
-    <div data-screen-label="Графік симптому" style={{ flex: 1, overflowY: 'auto', padding: '6px 20px 20px', display: 'flex', flexDirection: 'column', gap: 13 }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-        <button className="btn btn-icon btn-secondary" aria-label="Назад до динаміки" onClick={() => dispatch(navSub(null, { tab: 'trends' }))} style={{ width: 44, height: 44 }}>
-          <svg width="16" height="16"><path d="M10 2 L4 8 L10 14" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" /></svg>
-        </button>
-        <span style={{ flex: 1, display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 5 }}>
-          <h2 style={{ fontSize: 19, margin: 0 }}>{def.name}</h2>
-          {!!id && !st.data.active.includes(id) && <span className="tag tag-neutral" style={{ fontSize: 10 }}>Історичний</span>}
-          {badges.map((badge) => <span key={badge} className="tag tag-neutral" style={{ fontSize: 10, overflowWrap: 'anywhere' }}>{badge}</span>)}
-        </span>
-      </div>
+    <div data-screen-label="Графік симптому" className="nd-screen nd-screen--tight">
+      <SubScreenHeader
+        title={def.name}
+        backLabel="Назад до динаміки"
+        onBack={() => dispatch(navSub(null, { tab: 'trends' }))}
+      >
+        {!!id && !st.data.active.includes(id) && <span className="tag tag-neutral" style={{ fontSize: 10 }}>Історичний</span>}
+        {badges.map((badge) => <span key={badge} className="tag tag-neutral" style={{ fontSize: 10, overflowWrap: 'anywhere' }}>{badge}</span>)}
+      </SubScreenHeader>
       <div role="group" aria-label="Період і режим перегляду динаміки" style={{ display: 'flex', gap: 7, flexWrap: 'wrap' }}>
         {PERIODS.map((p) => (
           <button key={p} aria-pressed={per === p} onClick={() => dispatch(trendsSet({ period: p }))} style={chipStyle(per === p)}>{p + ' дн.'}</button>

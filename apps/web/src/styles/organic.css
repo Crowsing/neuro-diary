@@ -180,7 +180,6 @@ textarea.input { min-height: 90px; resize: vertical; }
   display: flex; flex-direction: column; gap: var(--space-2);
   padding: var(--space-3); border-radius: var(--radius-md); background: var(--color-surface);
 }
-.nd-trends-screen > * { flex-shrink: 0; }
 .card-kicker { font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--color-accent); }
 .card-title {
   font-family: var(--font-heading); font-weight: var(--font-heading-weight);
@@ -233,11 +232,6 @@ textarea.input { min-height: 90px; resize: vertical; }
 .table tbody tr:hover { background: color-mix(in srgb, var(--color-text) 4%, transparent); }
 
 /* — dialog — */
-.dialog-backdrop {
-  position: fixed; inset: 0; display: grid; place-items: center;
-  padding: var(--space-4);
-  background: color-mix(in srgb, var(--color-neutral-900) 50%, transparent);
-}
 .dialog {
   width: min(440px, 100%); display: flex; flex-direction: column; gap: var(--space-3);
   padding: var(--space-4); border-radius: var(--radius-lg);

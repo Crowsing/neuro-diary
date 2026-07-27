@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { APP_URL, gotoApp, readState } from './helpers';
+import { APP_URL, gotoApp, readState, stubTelegramSdk } from './helpers';
 
 test('responsive shell: 390/430/899 are mobile; 900/1440 are desktop without page overflow', async ({ page }) => {
   await gotoApp(page);
@@ -130,6 +130,7 @@ for (const desk of [true, false]) {
 
 test('onboarding stays inside the active responsive shell', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
+  await stubTelegramSdk(page);
   await page.goto(APP_URL);
   await expect(page.locator('.nd-page')).toHaveAttribute('data-layout', 'mobile');
   await expect(page.locator('[data-screen-label="Onboarding"]')).toBeVisible();

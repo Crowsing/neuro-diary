@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type CSSProperties } from 'react';
 import { useApp } from '../../../state/store';
 import { useNow } from '../../../state/clock';
 import { checkinExit, checkinFinish, checkinPatch, dialogOpen, navSub } from '../../../state/actions';
@@ -91,15 +91,17 @@ export default function CheckinScreen() {
   const nextLabel = satellite ? 'Готово — до огляду' : (step === 6 ? 'Завершити запис' : 'Далі');
 
   return (
-    <div data-screen-label="Щоденний запис" style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+    <div data-screen-label="Щоденний запис" className="nd-checkin">
       <div style={{ flex: 'none', display: 'flex', alignItems: 'center', gap: 10, padding: '6px 14px 10px' }}>
         <button className="btn btn-icon btn-secondary" aria-label={editingDone ? 'Скасувати редагування' : 'Закрити і зберегти чернетку'} onClick={requestExit} style={{ width: 44, height: 44 }}>
           <svg width="16" height="16" aria-hidden="true"><path d="M2 2 L14 14 M14 2 L2 14" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" /></svg>
         </button>
-        <div style={{ flex: 1, minWidth: 0 }}><div style={{ fontSize: '11.5px' }} className="text-muted">{stepText}</div><div style={{ fontFamily: 'var(--font-heading)', fontSize: 18 }}>{title}</div></div>
+        {/* `title` на кроці 3 — назва симптому, яку пише користувачка: без
+            перенесення довге слово розпирає смугу за межі екрана. */}
+        <div style={{ flex: 1, minWidth: 0 }}><div style={{ fontSize: '11.5px' }} className="text-muted">{stepText}</div><div className="nd-title nd-title--step">{title}</div></div>
       </div>
       <div style={{ flex: 'none', height: 5, margin: '0 20px', borderRadius: 99, background: 'var(--color-neutral-200)', overflow: 'hidden' }}><div style={{ height: '100%', borderRadius: 99, background: 'var(--color-accent)', width: progress, transition: 'width .2s' }} /></div>
-      <div style={{ flex: 1, overflowY: 'auto', padding: '16px 20px 20px', display: 'flex', flexDirection: 'column', gap: 14 }}>
+      <div className="nd-screen" style={{ '--nd-screen-pad-top': '16px', '--nd-screen-gap': '14px' } as CSSProperties}>
         {step === 1 && <StepWellbeing />}
         {step === 2 && <StepSymptoms />}
         {step === 3 && (

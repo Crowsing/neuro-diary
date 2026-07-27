@@ -20,6 +20,7 @@ import { makeSymDef, toggle } from '../../../lib/utils';
 import Chip from '../../ui/Chip';
 import Toggle from '../../ui/Toggle';
 import PdfPreview from './PdfPreview';
+import ScreenHeader from '../../frame/ScreenHeader';
 
 /** Періоди чипів кроку 1 (repPeriodChips, рядок 1690). */
 const PERIODS: Period[] = [7, 30, 90];
@@ -65,8 +66,8 @@ export default function ReportTab() {
   };
 
   return (
-    <div data-screen-label="Звіт" style={{ flex: 1, overflowY: 'auto', padding: '8px 20px 20px', display: 'flex', flexDirection: 'column', gap: 13 }}>
-      <h2 style={{ fontSize: 24, margin: 0 }}>Звіт для лікаря</h2>
+    <div data-screen-label="Звіт" className="nd-screen">
+      <ScreenHeader title="Звіт для лікаря" />
       <div style={{ fontSize: '12.5px' }} className="text-muted">{'Крок ' + r.step + ' із 3 · період → дані → попередній перегляд PDF'}</div>
       <div className="card" style={{ gap: 6, fontSize: 13 }}>
         <span style={{ fontWeight: 700 }}>Групи спостереження — лише спосіб упорядкування</span>

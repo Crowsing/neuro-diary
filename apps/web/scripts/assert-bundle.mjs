@@ -138,6 +138,25 @@ if (html !== undefined) {
   }
 }
 
+// 3c. Єдиний зовнішній ресурс у HTML — канонічний SDK Telegram.
+//
+// Перевіряється саме артефакт: index.html може набрати сторонніх посилань
+// тихо — через плагін, шрифт, аналітику, — і жоден інший gate цього не
+// побачить. AC8 стежить за запитами в рантаймі, ця перевірка — за розміткою.
+// Рівно один збіг: зникнення SDK так само має червоніти, як і поява другого.
+if (html !== undefined) {
+  const TELEGRAM_SDK = 'https://telegram.org/js/telegram-web-app.js';
+  const sdkCount = html.text.split(TELEGRAM_SDK).length - 1;
+  refuse(sdkCount !== 1, `index.html must reference the Telegram SDK exactly once (found ${sdkCount})`);
+  const external = [...html.text.matchAll(/(?:src|href)="(https?:\/\/[^"]*)"/g)]
+    .map((match) => match[1])
+    .filter((url) => url !== TELEGRAM_SDK);
+  refuse(
+    external.length > 0,
+    `index.html references external resources beyond the Telegram SDK: ${external.join(' ')}`
+  );
+}
+
 // 4. Argon2 живе в окремому чанку, а не у вхідному графі.
 const entryChunk = bundle
   .filter((entry) => entry.path.endsWith('.js'))

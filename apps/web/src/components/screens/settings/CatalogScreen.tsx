@@ -11,6 +11,7 @@ import {
   toastShow
 } from '../../../state/actions';
 import { CAT } from '../../../constants/catalog';
+import SubScreenHeader from '../../frame/SubScreenHeader';
 import { NEW_TYPE_CHIPS } from '../../../constants/copy';
 import { SYM } from '../../../constants/symptoms';
 import { filterByGroup, groupBadges, UNGROUPED_ID, visibleGroups } from '../../../lib/groups';
@@ -139,16 +140,8 @@ export default function CatalogScreen() {
   };
 
   return (
-    <div
-      data-screen-label="Мої симптоми"
-      style={{ flex: 1, overflowY: 'auto', padding: '6px 20px 24px', display: 'flex', flexDirection: 'column', gap: 13 }}
-    >
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-        <button className="btn btn-icon btn-secondary" aria-label="Назад" onClick={() => dispatch(catBack())} style={{ width: 44, height: 44, flex: 'none' }}>
-          <svg width="16" height="16" aria-hidden="true"><path d="M10 2 L4 8 L10 14" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" /></svg>
-        </button>
-        <h2 style={{ fontSize: 20, margin: 0, flex: 1, minWidth: 0, overflowWrap: 'anywhere' }}>Мої симптоми</h2>
-      </div>
+    <div data-screen-label="Мої симптоми" className="nd-screen nd-screen--tight nd-screen--roomy">
+      <SubScreenHeader title="Мої симптоми" backLabel="Назад" onBack={() => dispatch(catBack())} />
 
       <input
         className="input"

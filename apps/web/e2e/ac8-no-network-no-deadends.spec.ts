@@ -1,16 +1,32 @@
-// AC8: жодного network-запиту на невласний origin; обхід усіх 5 табів,
-// усіх user-facing sub-екранів (checkin, day, sym, catalog, privacy, safety, crisis)
-// і всіх 5 діалогів (menses, delEntry, flare, pdf, delData) — на кожному екрані
-// є робочий шлях назад (немає dead-end).
+// AC8: жодного network-запиту на невласний origin, окрім одного пінованого
+// рядка; обхід усіх 5 табів, усіх user-facing sub-екранів (checkin, day, sym,
+// catalog, privacy, safety, crisis) і всіх 5 діалогів (menses, delEntry, flare,
+// pdf, delData) — на кожному екрані є робочий шлях назад (немає dead-end).
 
 import { test, expect } from '@playwright/test';
-import { gotoApp } from './helpers';
+import { gotoApp, TELEGRAM_SDK_URL } from './helpers';
 
 test('AC8: офлайн-чистота і відсутність глухих кутів на всіх екранах', async ({ page }) => {
+  // Єдиний дозволений зовнішній запит — канонічний SDK Telegram, без якого
+  // Mini App не має ані фулскріна, ані безпечних зон.
+  //
+  // Гарантія тут ЗВУЖУЄТЬСЯ, а не слабшає:
+  //  * адреса звіряється на повний збіг, а не за хостом чи префіксом — будь-який
+  //    дрейф (query-параметр, інший шлях, інший піддомен) червоніє;
+  //  * це GET за <script src>: ані тіла, ані параметрів в адресі немає, тож
+  //    жоден байт щоденника цим каналом вийти не може;
+  //  * telegram.org уже названий у script-src (src/security/csp.ts), тобто
+  //    виняток не розширює межу, за яку браузер випускає запити;
+  //  * кількість фіксується рівно одиницею — інакше «дозволили клас» тихо
+  //    підмінило б «перевірили конкретний файл», і зникнення SDK не помітив би
+  //    жоден тест.
   const external: string[] = [];
+  const sdk: string[] = [];
   page.on('request', (req) => {
     const url = req.url();
-    if (!url.startsWith('http://localhost:4173/')) external.push(url);
+    if (url.startsWith('http://localhost:4173/')) return;
+    if (url === TELEGRAM_SDK_URL) sdk.push(url);
+    else external.push(url);
   });
 
   await gotoApp(page);
@@ -117,6 +133,7 @@ test('AC8: офлайн-чистота і відсутність глухих к
   await expect(page.locator('.dialog-title')).toBeHidden();
   await expect(page.getByRole('heading', { name: 'Налаштування' })).toBeVisible();
 
-  // --- Жодного запиту на невласний origin за весь обхід
+  // --- Жодного запиту на невласний origin за весь обхід, крім SDK рівно раз
   expect(external).toEqual([]);
+  expect(sdk).toEqual([TELEGRAM_SDK_URL]);
 });

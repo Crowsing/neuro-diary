@@ -1,3 +1,50 @@
+/* ══════════════════════════════════════════════════════════════════════════
+   Безпечні зони — контракт із трьох шарів. Розгорнуто в docs/twa-shell.md.
+
+   Шар 1 (--nd-env-*)   те, що знає браузер. Працює ЛИШЕ з viewport-fit=cover
+                        в index.html; без нього env() на iOS дорівнює нулю.
+   Шар 2 (--nd-tg-*)    те, що знає Telegram. Пише інлайном на <html> модуль
+                        src/telegram/bootstrap.ts; поза Telegram лишається 0,
+                        і механізм вироджується в шар 1.
+   Шар 3 (--nd-inset-*) те, чим користуються всі інші правила.
+
+   Шари поєднує max(), а НЕ сума. Усередині Telegram правильна сума — саме
+   safeAreaInset + contentSafeAreaInset (≈47 + 46 = 93px на iOS у фулскріні),
+   і її рахує JS. Але env(safe-area-inset-top) міряє той самий апаратний
+   виріз удруге, тож calc(env() + var()) дав би ≈140px замість 93 — і
+   виглядало б «майже правильно», що найгірший різновид помилки.
+   ══════════════════════════════════════════════════════════════════════ */
+
+:root {
+  --nd-env-top: env(safe-area-inset-top, 0px);
+  --nd-env-right: env(safe-area-inset-right, 0px);
+  --nd-env-bottom: env(safe-area-inset-bottom, 0px);
+  --nd-env-left: env(safe-area-inset-left, 0px);
+
+  --nd-tg-top: 0px;
+  --nd-tg-right: 0px;
+  --nd-tg-bottom: 0px;
+  --nd-tg-left: 0px;
+
+  --nd-inset-top: max(var(--nd-env-top), var(--nd-tg-top));
+  --nd-inset-right: max(var(--nd-env-right), var(--nd-tg-right));
+  --nd-inset-bottom: max(var(--nd-env-bottom), var(--nd-tg-bottom));
+  --nd-inset-left: max(var(--nd-env-left), var(--nd-tg-left));
+
+  /* Геометрія макета. Раніше жила магічними числами по компонентах — 96px у
+     тості, 14px у навігації, 20px у кожному з тринадцяти екранів. */
+  --nd-viewport-h: 100dvh;   /* у Telegram → viewportStableHeight у px */
+  --nd-gutter: 20px;
+  --nd-nav-h: 73px;          /* 52 кнопка + 6 + 14 padding + 1 border */
+}
+
+/* Шари накладання, усі — абсолютні до .nd-page:
+     50  .nd-overlay        діалоги застосунку
+     55  .nd-overlay--sync  згода / фраза / re-key: не ховається за діалог
+     60  .nd-toast
+     70  .nd-top-alerts     помилка сховища + банер стенду
+   Інших z-index у застосунку немає. */
+
 html, body, #root {
   width: 100%;
   min-height: 100%;
@@ -9,14 +56,21 @@ button { touch-action: manipulation; }
 
 .nd-page {
   width: 100%;
-  height: 100dvh;
-  min-height: 100dvh;
+  height: var(--nd-viewport-h);
+  min-height: var(--nd-viewport-h);
   position: relative;
   overflow: hidden;
   background: var(--color-bg);
   color: var(--color-text);
   font-family: var(--font-body);
 }
+
+/* Шторка проти стрибка на першому кадрі: між першим малюванням і першою
+   подією safeAreaChanged минає кадр-два, за які заголовок встиг би
+   з'явитися під пігулкою «Закрити» і смикнутися вниз. Саме opacity, а не
+   visibility — без перерахунку макета, а тло вже намальоване на body.
+   Атрибут ставить і знімає лише bootstrap, і лише всередині Telegram. */
+:root[data-tg-insets="pending"] .nd-page { opacity: 0; }
 
 .nd-page[data-theme="dark"] {
   --color-bg:#211e19;--color-surface:#2f2a23;--color-text:#f3ecdd;
@@ -34,6 +88,19 @@ button { touch-action: manipulation; }
   --color-accent-2-800:#22300f;
 }
 
+/* Інсети належать оболонці — і лише їй.
+   Ані шапка, ані навігація, ані екран власного відступу не додають: шапки
+   живуть УСЕРЕДИНІ скрол-контейнера, тож інсет на шапці просто відскролився б.
+   Єдиний інший споживач — оверлеї, які абсолютні до .nd-page, тобто поза
+   оболонкою, і читають --nd-inset-* напряму. */
+.nd-mobile-shell,
+.nd-desktop-shell {
+  padding-top: var(--nd-inset-top);
+  padding-right: var(--nd-inset-right);
+  padding-bottom: var(--nd-inset-bottom);
+  padding-left: var(--nd-inset-left);
+}
+
 .nd-mobile-shell {
   width: 100%;
   height: 100%;
@@ -41,8 +108,6 @@ button { touch-action: manipulation; }
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  padding-top: env(safe-area-inset-top, 0px);
-  padding-bottom: env(safe-area-inset-bottom, 0px);
   background: var(--color-bg);
 }
 
@@ -53,10 +118,87 @@ button { touch-action: manipulation; }
 
 .nd-bottom-nav {
   flex: none;
+  min-height: var(--nd-nav-h);
   display: flex;
   border-top: 1px solid var(--color-divider);
   background: var(--color-bg);
   padding: 6px 8px 14px;
+}
+
+/* ── Екран: єдиний скрол-контейнер замість тринадцяти інлайнових padding ──
+   Модифікатори покривають три історичні варіанти відступів; усе решта —
+   спільне. Ширина жолоба і нижній інсет тепер в одному місці, а не
+   переписуються в кожному файлі екрана. */
+.nd-screen {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow-y: auto;
+  /* Без цього iOS rubber-band у фулскріні «протягує» скрол списку далі —
+     у жест закриття Mini App. */
+  overscroll-behavior: contain;
+  display: flex;
+  flex-direction: column;
+  gap: var(--nd-screen-gap, 13px);
+  padding: var(--nd-screen-pad-top, 8px) var(--nd-gutter) var(--nd-screen-pad-bottom, 20px);
+}
+/* Картки не стискаються під власний зміст у низькому viewport. Правило було
+   лише в .nd-trends-screen (з регресійним e2e на 472×676) — тепер спільне. */
+.nd-screen > * { flex-shrink: 0; }
+.nd-screen--tight { --nd-screen-pad-top: 6px; }
+.nd-screen--roomy { --nd-screen-pad-bottom: 24px; }
+
+/* Два екрани мають власну геометрію і свідомо НЕ отримують гарду вище.
+   .nd-checkin — тришаровий: смуга кроку, скрол, смуга дій. Середня смуга є
+   flex:1 (тобто 1 1 0%), і flex-shrink:0 позбавив би її здатності
+   стискатися — вона переповнила б оболонку.
+   .nd-onboarding — без gap, а крок 0 центрує зміст через flex:1 дитину. */
+.nd-checkin {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.nd-onboarding {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  display: flex;
+  flex-direction: column;
+  padding: 20px 22px 24px;
+}
+
+/* ── Заголовки: п'ять іменованих кроків замість семи інлайнових fontSize ── */
+.nd-title {
+  margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  line-height: 1.12;
+  font-family: var(--font-heading);
+  font-weight: var(--font-heading-weight);
+}
+.nd-title--hero { font-size: 32px; }
+.nd-title--lead { font-size: 27px; }
+.nd-title--tab { font-size: 24px; }
+.nd-title--sub { font-size: 20px; }
+/* Заголовок кроку чек-іну. НЕ heading: e2e рахує заголовки за роллю, і крок
+   не є розділом екрана. */
+.nd-title--step { font-size: 18px; }
+
+.nd-screen-header { display: flex; flex-direction: column; gap: 8px; }
+.nd-screen-kicker { font-size: 12px; letter-spacing: .08em; text-transform: uppercase; }
+.nd-subscreen-header { display: flex; align-items: center; gap: 10px; }
+.nd-subscreen-header > .btn-icon { width: 44px; height: 44px; flex: none; }
+.nd-subscreen-title {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 5px;
 }
 
 .nd-desktop-shell {
@@ -136,8 +278,57 @@ button { touch-action: manipulation; }
 }
 .nd-desktop-stage > [data-screen-label] { min-width: 0; }
 
+/* ── Оверлеї ──────────────────────────────────────────────────────────────
+   Абсолютні до .nd-page, тобто ПОЗА оболонкою — отже, єдиний шар, який
+   застосовує інсети самотужки. Раніше геометрія жила інлайном у DialogHost,
+   а sync-оверлей не мав її взагалі й через це був невидимий. */
+.nd-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 50;
+  display: grid;
+  place-items: center;
+  overflow-y: auto;
+  background: color-mix(in srgb, var(--color-neutral-900) 45%, transparent);
+  padding:
+    calc(var(--nd-inset-top) + 16px) calc(var(--nd-inset-right) + 16px)
+    calc(var(--nd-inset-bottom) + 16px) calc(var(--nd-inset-left) + 16px);
+}
+/* max-height рахується від внутрішньої області оверлея, вже зменшеної на
+   інсети. Попереднє `90%` міряло весь екран, тож високий діалог упирався
+   верхнім краєм у ~5% висоти — під пігулки Telegram. */
+.nd-overlay > .dialog { width: 100%; max-height: 100%; overflow-y: auto; gap: 12px; }
+.nd-overlay--sync { z-index: 55; }
 .nd-dialog-overlay { position: absolute; inset: 0; }
-.nd-toast { max-width: min(340px, calc(100vw - 32px)) !important; }
+
+.nd-toast {
+  position: absolute;
+  z-index: 60;
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: calc(var(--nd-inset-bottom) + var(--nd-toast-offset, 16px));
+  max-width: min(340px, calc(100vw - 32px)) !important;
+}
+/* Нижня навігація існує не на всіх екранах: під-екрани її не рендерять, а
+   десктоп має бічну. Атрибут ставить AppShell за тією ж умовою, що й саму
+   навігацію, тож тост більше не висить над порожнечею. */
+.nd-page[data-nav="mobile"] { --nd-toast-offset: calc(var(--nd-nav-h) + 12px); }
+
+/* Верхні алерти — один стек, а не два незалежні елементи, які в фулскріні
+   неминуче наклалися б один на одного. */
+.nd-top-alerts {
+  position: absolute;
+  z-index: 70;
+  top: calc(var(--nd-inset-top) + 8px);
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(620px, calc(100% - 24px));
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  pointer-events: none;
+}
+.nd-top-alerts > * { pointer-events: auto; }
 
 .nd-filter-row,
 .nd-group-badges {
@@ -169,7 +360,17 @@ button { touch-action: manipulation; }
 .nd-check-row small { color: color-mix(in srgb, var(--color-text) 72%, transparent); }
 .nd-check-box { width: 24px; height: 24px; flex: none; display: grid; place-items: center; border: 2px solid var(--color-neutral-700); border-radius: 8px; }
 .nd-check-box.is-checked { background: var(--color-accent-2); border-color: var(--color-accent-2); color: var(--color-bg); }
-.nd-storage-error { position: absolute; z-index: 70; top: max(12px, env(safe-area-inset-top)); left: 50%; transform: translateX(-50%); width: min(620px, calc(100% - 24px)); padding: 12px 14px; border: 2px solid #7c241c; border-radius: 16px; background: #fff4f1; color: #581b16; box-shadow: var(--shadow-lg); }
+/* Текстова колонка рядка-кнопки. Існує, щоб `min-width: 0` не доводилося
+   пам'ятати вручну: без нього довгий текст розпирає рядок за межі екрана, і
+   саме його забули в трьох із чотирьох копій у налаштуваннях. */
+.nd-row-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+/* Рядок «назва — значення», де назву пише користувачка. Дзеркалить
+   .nd-review-row: обидві сторони мусять стискатися й переносити слова. */
+.nd-detail-row { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+.nd-detail-row > * { min-width: 0; overflow-wrap: anywhere; }
+.nd-detail-row > :last-child { text-align: right; }
+/* Позиціювання переїхало у .nd-top-alerts; тут лишився самий вигляд. */
+.nd-storage-error { padding: 12px 14px; border: 2px solid #7c241c; border-radius: 16px; background: #fff4f1; color: #581b16; box-shadow: var(--shadow-lg); }
 .nd-storage-error-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
 
 .nd-reduce *, .nd-reduce *::before, .nd-reduce *::after {
@@ -189,10 +390,6 @@ button { touch-action: manipulation; }
 @keyframes ndToast {
   from { opacity: 0; transform: translateX(-50%) translateY(8px); }
   to { opacity: 1; transform: translateX(-50%) translateY(0); }
-}
-
-@media (max-width: 899px) {
-  .nd-page-header { display: none; }
 }
 
 @media (max-width: 430px) {
@@ -222,8 +419,9 @@ button { touch-action: manipulation; }
   .nd-desktop-sidebar,
   .nd-bottom-nav,
   .nd-dialog-overlay,
+  .nd-overlay,
   .nd-toast,
-  .nd-storage-error,
+  .nd-top-alerts,
   [data-screen-label="Звіт"] > * { display: none !important; }
   [data-screen-label="Звіт"] > .nd-print-report { display: block !important; }
   .nd-print-report { box-shadow: none !important; border-radius: 0 !important; }

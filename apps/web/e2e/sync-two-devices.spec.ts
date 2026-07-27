@@ -151,6 +151,20 @@ test('щоденник переживає обидва пристрої, вкл�
 test('банер стенду видимий, бо APP_ENV=development', async ({ browser }) => {
   const context = await browser.newContext();
   const device = await openDevice(context, { queryId: 'banner-1', seed: emptyAppState() });
-  await expect(device.page.getByTestId('development-banner')).toBeVisible({ timeout: 30_000 });
+  const banner = device.page.getByTestId('development-banner');
+  await expect(banner).toBeVisible({ timeout: 30_000 });
+
+  // `toBeVisible` тут недостатньо. Банер був статичним сусідом оболонки
+  // висотою 100% усередині .nd-page з overflow:hidden, тобто лягав рівно на
+  // y = висота сторінки й обрізався — а Playwright уважає обрізаний елемент
+  // із непорожнім боксом видимим, тож цей тест роками зеленів на банері,
+  // якого користувачка не бачила. Перевіряється саме положення в кадрі.
+  const box = await banner.boundingBox();
+  const viewport = device.page.viewportSize();
+  expect(box).not.toBeNull();
+  expect(viewport).not.toBeNull();
+  expect(box!.y).toBeGreaterThanOrEqual(0);
+  expect(box!.y + box!.height).toBeLessThanOrEqual(viewport!.height);
+
   await context.close();
 });

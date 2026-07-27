@@ -10,6 +10,7 @@ import {
   groupRestore,
   navSub
 } from '../../../state/actions';
+import SubScreenHeader from '../../frame/SubScreenHeader';
 
 const GROUP_DISCLAIMER = 'Групи допомагають упорядкувати записи. Вони не означають, що симптом спричинений певним станом, і не підтверджують діагноз.';
 
@@ -41,16 +42,8 @@ export default function GroupSettingsScreen() {
   };
 
   return (
-    <div
-      data-screen-label="Групи спостереження"
-      style={{ flex: 1, overflowY: 'auto', padding: '6px 20px 24px', display: 'flex', flexDirection: 'column', gap: 13 }}
-    >
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-        <button className="btn btn-icon btn-secondary" aria-label="Назад до налаштувань" onClick={leave} style={{ width: 44, height: 44, flex: 'none' }}>
-          <svg width="16" height="16" aria-hidden="true"><path d="M10 2 L4 8 L10 14" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" /></svg>
-        </button>
-        <h2 style={{ fontSize: 20, margin: 0, minWidth: 0, overflowWrap: 'anywhere' }}>Групи спостереження</h2>
-      </div>
+    <div data-screen-label="Групи спостереження" className="nd-screen nd-screen--tight nd-screen--roomy">
+      <SubScreenHeader title="Групи спостереження" backLabel="Назад до налаштувань" onBack={leave} />
 
       <div className="card" style={{ gap: 7 }}>
         <p style={{ fontSize: 13, margin: 0 }}>{GROUP_DISCLAIMER}</p>

@@ -54,15 +54,34 @@ function consentCopyPlugin(): Plugin {
   };
 }
 
-/** Єдина мета-CSP, зібрана з того самого модуля, що й тести (§13.17). */
+/**
+ * Єдина мета-CSP, зібрана з того самого модуля, що й тести (§13.17).
+ *
+ * Вставляється одразу ПІСЛЯ оголошення кодування — тобто перед усім, що
+ * завантажує ресурси. Причина не косметична: `<meta http-equiv=
+ * "Content-Security-Policy">` керує лише тим, що йде після неї. Попередня
+ * редакція підставляла політику перед `</head>`, тобто останньою — після
+ * скрипта Telegram SDK, вхідного чанку Vite і таблиці стилів. Жоден із них їй
+ * не підпорядковувався, і політика описувала порожнечу.
+ *
+ * Саме після charset, а не на самому початку `<head>`: оголошення кодування
+ * має лишатися в перших 1024 байтах документа.
+ */
+const CHARSET_META = '<meta charset="utf-8" />';
+
 function cspPlugin(apiOrigin: string): Plugin {
   return {
     name: "nd-csp",
     transformIndexHtml(html) {
       const policy = toPolicy(metaSafe(buildDirectives(apiOrigin)));
+      if (!html.includes(CHARSET_META)) {
+        // Мовчазна вставка «кудись» гірша за гучну зупинку: політика, яка
+        // стоїть не там, не захищає нічого, але виглядає наявною.
+        throw new Error(`nd-csp: у index.html немає ${CHARSET_META}, нема куди вставити політику`);
+      }
       return html.replace(
-        "</head>",
-        `  <meta http-equiv="Content-Security-Policy" content="${policy}" />\n  </head>`,
+        CHARSET_META,
+        `${CHARSET_META}\n    <meta http-equiv="Content-Security-Policy" content="${policy}" />`,
       );
     },
   };

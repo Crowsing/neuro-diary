@@ -3,20 +3,17 @@
 
 import { useApp } from '../../../state/store';
 import { navSub, safetyMore } from '../../../state/actions';
+import SubScreenHeader from '../../frame/SubScreenHeader';
 
 export default function SafetyScreen() {
   const { state, dispatch } = useApp();
   return (
-    <div
-      data-screen-label="Термінова допомога"
-      style={{ flex: 1, overflowY: 'auto', padding: '6px 20px 20px', display: 'flex', flexDirection: 'column', gap: 13 }}
-    >
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-        <button className="btn btn-icon btn-secondary" aria-label="Назад" onClick={() => dispatch(navSub(null))} style={{ width: 44, height: 44 }}>
-          <svg width="16" height="16"><path d="M10 2 L4 8 L10 14" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" /></svg>
-        </button>
-        <h2 style={{ fontSize: 20, margin: 0, flex: 1 }}>Коли потрібна термінова допомога?</h2>
-      </div>
+    <div data-screen-label="Термінова допомога" className="nd-screen nd-screen--tight">
+      <SubScreenHeader
+        title="Коли потрібна термінова допомога?"
+        backLabel="Назад"
+        onBack={() => dispatch(navSub(null))}
+      />
       <p style={{ margin: 0, fontSize: 14 }} className="text-muted">Це загальна довідка, а не оцінка ваших записів — застосунок не аналізує симптоми автоматично.</p>
       <div style={{ borderRadius: 24, padding: 16, background: '#a33d2f', color: '#fff', display: 'flex', flexDirection: 'column', gap: 10 }}>
         <span style={{ fontWeight: 700, fontSize: 16 }}>Якщо у вас зараз є щось із переліченого нижче…</span>

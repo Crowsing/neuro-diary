@@ -2,21 +2,21 @@ import { useApp } from '../../../state/store';
 import { dialogOpen, navSub } from '../../../state/actions';
 import { OB_PRIVACY } from '../../../constants/copy';
 import { downloadCsv, downloadJson } from '../../../lib/export';
+import SubScreenHeader from '../../frame/SubScreenHeader';
 
 export default function PrivacyScreen() {
   const { state, dispatch } = useApp();
   return (
-    <div data-screen-label="Приватність і дані" style={{ flex: 1, overflowY: 'auto', padding: '6px 20px 20px', display: 'flex', flexDirection: 'column', gap: 13 }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-        <button className="btn btn-icon btn-secondary" aria-label="Назад" onClick={() => dispatch(navSub(null, { tab: 'set' }))} style={{ width: 44, height: 44 }}>
-          <svg width="16" height="16" aria-hidden="true"><path d="M10 2 L4 8 L10 14" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" /></svg>
-        </button>
-        <h2 style={{ fontSize: 20, margin: 0, flex: 1 }}>Приватність і дані</h2>
-      </div>
+    <div data-screen-label="Приватність і дані" className="nd-screen nd-screen--tight">
+      <SubScreenHeader
+        title="Приватність і дані"
+        backLabel="Назад"
+        onBack={() => dispatch(navSub(null, { tab: 'set' }))}
+      />
       {OB_PRIVACY.map((item) => (
         <div key={item.k} style={{ display: 'flex', gap: 12, padding: '12px 14px', borderRadius: 18, background: 'var(--color-surface)' }}>
           <span style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--color-accent-2)', flex: 'none', marginTop: 7 }} />
-          <div>
+          <div className="nd-row-main">
             <div style={{ fontSize: 14, fontWeight: 600 }}>{item.k}</div>
             <div style={{ fontSize: 13 }} className="text-muted">{item.v}</div>
           </div>

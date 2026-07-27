@@ -97,117 +97,124 @@ export default function SyncOverlayHost() {
 
   if (sync.stage === 'local_only' || sync.stage === 'idle') return null;
 
+  // Обгортка не косметична: без неї цей блок був статичним сусідом оболонки
+  // висотою 100% усередині .nd-page з overflow:hidden — тобто лягав нижче
+  // viewport і обрізався. Увесь потік згоди, парольної фрази й re-key був
+  // невидимий, а e2e лишався зеленим, бо Playwright уважає обрізаний елемент
+  // із непорожнім боксом видимим.
   return (
-    <div className="dialog" role="dialog" aria-modal="true" data-testid="sync-overlay">
-      {sync.stage === 'consent' ? (
-        <ConsentDialog
-          kind={sync.consentKind}
-          onAccept={(grant) => sync.acceptConsent(grant)}
-          onDecline={sync.dismiss}
-        />
-      ) : null}
+    <div className="nd-overlay nd-overlay--sync">
+      <div className="dialog" role="dialog" aria-modal="true" data-testid="sync-overlay">
+        {sync.stage === 'consent' ? (
+          <ConsentDialog
+            kind={sync.consentKind}
+            onAccept={(grant) => sync.acceptConsent(grant)}
+            onDecline={sync.dismiss}
+          />
+        ) : null}
 
-      {sync.stage === 'passphrase' ? (
-        <PassphraseScreen
-          purpose={sync.passphrasePurpose}
-          onReady={(passphrase) => sync.submitPassphrase(passphrase)}
-          onCancel={sync.dismiss}
-        />
-      ) : null}
+        {sync.stage === 'passphrase' ? (
+          <PassphraseScreen
+            purpose={sync.passphrasePurpose}
+            onReady={(passphrase) => sync.submitPassphrase(passphrase)}
+            onCancel={sync.dismiss}
+          />
+        ) : null}
 
-      {sync.stage === 'change' ? (
-        <PassphrasePair
-          title={SYNC_COPY.changeTitle}
-          firstLabel={SYNC_COPY.changeCurrent}
-          secondLabel={SYNC_COPY.changeNext}
-          submitLabel={SYNC_COPY.changeSubmit}
-          onSubmit={(current, next) => sync.submitChange(current, next)}
-          onCancel={sync.dismiss}
-        />
-      ) : null}
+        {sync.stage === 'change' ? (
+          <PassphrasePair
+            title={SYNC_COPY.changeTitle}
+            firstLabel={SYNC_COPY.changeCurrent}
+            secondLabel={SYNC_COPY.changeNext}
+            submitLabel={SYNC_COPY.changeSubmit}
+            onSubmit={(current, next) => sync.submitChange(current, next)}
+            onCancel={sync.dismiss}
+          />
+        ) : null}
 
-      {sync.stage === 'rekey' ? (
-        <section aria-label={SYNC_COPY.rekeyTitle} data-screen-label="rekey">
-          <h2 className="dialog-title">{SYNC_COPY.rekeyTitle}</h2>
-          <div className="dialog-body">
-            <p>{SYNC_COPY.rekeyExplain}</p>
-            <label htmlFor="rekey-passphrase">{SYNC_COPY.changeNext}</label>
-            <input
-              id="rekey-passphrase"
-              className="input"
-              autoComplete="off"
-              spellCheck={false}
-              value={rekeyPhrase}
-              onChange={(event) => setRekeyPhrase(event.target.value)}
-            />
-          </div>
-          <div className="dialog-actions">
-            <button type="button" className="btn" onClick={sync.dismiss}>
-              {SYNC_COPY.consentDecline}
-            </button>
-            <button
-              type="button"
-              className="btn"
-              data-autofocus
-              disabled={rekeyPhrase === ''}
-              onClick={() => sync.submitRekey(rekeyPhrase)}
-            >
-              {SYNC_COPY.rekeySubmit}
-            </button>
-          </div>
-        </section>
-      ) : null}
+        {sync.stage === 'rekey' ? (
+          <section aria-label={SYNC_COPY.rekeyTitle} data-screen-label="rekey">
+            <h2 className="dialog-title">{SYNC_COPY.rekeyTitle}</h2>
+            <div className="dialog-body">
+              <p>{SYNC_COPY.rekeyExplain}</p>
+              <label htmlFor="rekey-passphrase">{SYNC_COPY.changeNext}</label>
+              <input
+                id="rekey-passphrase"
+                className="input"
+                autoComplete="off"
+                spellCheck={false}
+                value={rekeyPhrase}
+                onChange={(event) => setRekeyPhrase(event.target.value)}
+              />
+            </div>
+            <div className="dialog-actions">
+              <button type="button" className="btn" onClick={sync.dismiss}>
+                {SYNC_COPY.consentDecline}
+              </button>
+              <button
+                type="button"
+                className="btn"
+                data-autofocus
+                disabled={rekeyPhrase === ''}
+                onClick={() => sync.submitRekey(rekeyPhrase)}
+              >
+                {SYNC_COPY.rekeySubmit}
+              </button>
+            </div>
+          </section>
+        ) : null}
 
-      {sync.stage === 'confirm' ? (
-        <section aria-label={SYNC_COPY.confirmPruneTitle} data-screen-label="sync-confirm">
-          <h2 className="dialog-title">{SYNC_COPY.confirmPruneTitle}</h2>
-          <div className="dialog-body">
-            <p data-testid="sync-confirm-body">
-              {sync.pendingDeletions > 1
-                ? SYNC_COPY.confirmMassDeleteBody
-                : SYNC_COPY.confirmPruneBody}
-            </p>
-          </div>
-          <div className="dialog-actions">
-            <button
-              type="button"
-              className="btn"
-              data-autofocus
-              data-testid="sync-confirm-keep"
-              onClick={() => sync.confirmPending(false)}
-            >
-              {SYNC_COPY.confirmKeep}
-            </button>
-            <button
-              type="button"
-              className="btn"
-              data-testid="sync-confirm-apply"
-              onClick={() => sync.confirmPending(true)}
-            >
-              {SYNC_COPY.confirmApply}
-            </button>
-          </div>
-        </section>
-      ) : null}
+        {sync.stage === 'confirm' ? (
+          <section aria-label={SYNC_COPY.confirmPruneTitle} data-screen-label="sync-confirm">
+            <h2 className="dialog-title">{SYNC_COPY.confirmPruneTitle}</h2>
+            <div className="dialog-body">
+              <p data-testid="sync-confirm-body">
+                {sync.pendingDeletions > 1
+                  ? SYNC_COPY.confirmMassDeleteBody
+                  : SYNC_COPY.confirmPruneBody}
+              </p>
+            </div>
+            <div className="dialog-actions">
+              <button
+                type="button"
+                className="btn"
+                data-autofocus
+                data-testid="sync-confirm-keep"
+                onClick={() => sync.confirmPending(false)}
+              >
+                {SYNC_COPY.confirmKeep}
+              </button>
+              <button
+                type="button"
+                className="btn"
+                data-testid="sync-confirm-apply"
+                onClick={() => sync.confirmPending(true)}
+              >
+                {SYNC_COPY.confirmApply}
+              </button>
+            </div>
+          </section>
+        ) : null}
 
-      {sync.stage === 'working' ? (
-        <p role="status" data-testid="sync-working">
-          {SYNC_COPY.working}
-        </p>
-      ) : null}
-
-      {sync.stage === 'error' ? (
-        <section aria-label={SYNC_COPY.settingsTitle} data-screen-label="sync-error">
-          <p role="alert" data-testid="sync-error">
-            {sync.lastError === null ? SYNC_COPY.errorServer : ERROR_COPY[sync.lastError]}
+        {sync.stage === 'working' ? (
+          <p role="status" data-testid="sync-working">
+            {SYNC_COPY.working}
           </p>
-          <div className="dialog-actions">
-            <button type="button" className="btn" data-autofocus onClick={sync.dismiss}>
-              {SYNC_COPY.confirmKeep}
-            </button>
-          </div>
-        </section>
-      ) : null}
+        ) : null}
+
+        {sync.stage === 'error' ? (
+          <section aria-label={SYNC_COPY.settingsTitle} data-screen-label="sync-error">
+            <p role="alert" data-testid="sync-error">
+              {sync.lastError === null ? SYNC_COPY.errorServer : ERROR_COPY[sync.lastError]}
+            </p>
+            <div className="dialog-actions">
+              <button type="button" className="btn" data-autofocus onClick={sync.dismiss}>
+                {SYNC_COPY.confirmKeep}
+              </button>
+            </div>
+          </section>
+        ) : null}
+      </div>
     </div>
   );
 }

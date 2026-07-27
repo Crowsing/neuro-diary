@@ -18,6 +18,7 @@ import { makeSymDef } from '../../../lib/utils';
 import { HIST_FILTER_LABELS } from '../../../constants/copy';
 import type { HistFilter } from '../../../lib/types';
 import Chip from '../../ui/Chip';
+import ScreenHeader from '../../frame/ScreenHeader';
 
 /** Клітинка календаря (_vHist, рядки 1436–1452). */
 interface Cell {
@@ -114,8 +115,8 @@ export default function HistoryTab() {
   const histEmpty = !list.length;
 
   return (
-    <div data-screen-label="Історія" style={{ flex: 1, overflowY: 'auto', padding: '8px 20px 20px', display: 'flex', flexDirection: 'column', gap: 13 }}>
-      <h2 style={{ fontSize: 24, margin: 0 }}>Історія</h2>
+    <div data-screen-label="Історія" className="nd-screen">
+      <ScreenHeader title="Історія" />
       <div className="card" style={{ gap: 10 }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <button className="btn btn-icon btn-secondary" aria-label="Попередній місяць" onClick={() => dispatch(histCalPrev())} style={{ width: 44, height: 44 }}><svg width="14" height="14"><path d="M9 2 L4 7 L9 12" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"></path></svg></button>

@@ -81,6 +81,9 @@ export default function AppShell({ theme = 'light', reduceMotion = false }: AppS
       className={reduceMotion ? 'nd-page nd-reduce' : 'nd-page'}
       data-layout={isDesktop ? 'desktop' : 'mobile'}
       data-theme={theme}
+      /* Та сама умова, що рендерить BottomNav. Тост читає її, щоб знати, є
+         чи немає під ним навігації — раніше він припускав, що є завжди. */
+      data-nav={!isDesktop && isApp && state.sub === null ? 'mobile' : undefined}
     >
       {isDesktop ? (
         <DesktopDashboard>{screen}</DesktopDashboard>
@@ -90,21 +93,28 @@ export default function AppShell({ theme = 'light', reduceMotion = false }: AppS
           {isApp && state.sub === null && <BottomNav />}
         </PhoneFrame>
       )}
-      {persistenceError && (
-        <div className="nd-storage-error" role="alert" aria-live="assertive">
-          <div style={{ fontSize: 14, fontWeight: 700 }}>Не вдалося зберегти зміни в браузері. Дані ще доступні в цій вкладці.</div>
-          <div className="nd-storage-error-actions">
-            <button className="btn btn-secondary" style={{ minHeight: 44 }} onClick={retrySave}>Повторити збереження</button>
-            <button className="btn btn-secondary" style={{ minHeight: 44, whiteSpace: 'normal' }} onClick={() => downloadJson(state)}>Експортувати JSON для відновлення</button>
+      {/* Один стек верхніх алертів. Обидва раніше були статичними сусідами
+          оболонки висотою 100%, тобто лягали нижче viewport і обрізалися;
+          а щойно їх повернути на екран — вони накладаються один на одного,
+          бо обидва верхні. Стек вирішує обидві задачі й один раз тримає
+          відступ під шапкою Telegram. */}
+      <div className="nd-top-alerts">
+        {persistenceError && (
+          <div className="nd-storage-error" role="alert" aria-live="assertive">
+            <div style={{ fontSize: 14, fontWeight: 700 }}>Не вдалося зберегти зміни в браузері. Дані ще доступні в цій вкладці.</div>
+            <div className="nd-storage-error-actions">
+              <button className="btn btn-secondary" style={{ minHeight: 44 }} onClick={retrySave}>Повторити збереження</button>
+              <button className="btn btn-secondary" style={{ minHeight: 44, whiteSpace: 'normal' }} onClick={() => downloadJson(state)}>Експортувати JSON для відновлення</button>
+            </div>
           </div>
-        </div>
-      )}
+        )}
+        {/* Банер стенду живе тут, а не всередині вкладок: він мусить бути
+            досяжним з будь-якого екрана, і саме через його відсутність у
+            дереві половина гарантій §7 не діяла в застосунку. */}
+        <DevelopmentBanner />
+      </div>
       {isApp && <DialogHost />}
       {isApp && <Toast />}
-      {/* Банер стенду й екрани sync живуть тут, а не всередині вкладок: вони
-          мусять бути досяжними з будь-якого екрана, і саме через їхню
-          відсутність у дереві половина гарантій §7 не діяла в застосунку. */}
-      <DevelopmentBanner />
       <SyncMount />
     </div>
   );

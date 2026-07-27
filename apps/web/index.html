@@ -2,8 +2,23 @@
 <html lang="uk">
   <head>
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <!-- viewport-fit=cover несе на собі весь фолбек-шар безпечних зон: без
+         нього env(safe-area-inset-*) на iOS дорівнює нулю, і жоден відступ
+         під виріз не працює. -->
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <title>Неврологічний щоденник</title>
+    <!-- SDK Telegram Mini App. Без нього немає ані requestFullscreen(), ані
+         safeAreaInset/contentSafeAreaInset — тобто немає з чого будувати
+         відступи під власний UI Telegram. telegram.org уже названий у
+         script-src (src/security/csp.ts).
+
+         `defer` — відхилення від документованого Telegram сніпета. Голий
+         <script src> блокує парсер на сторонньому хості: якщо telegram.org
+         недоступний, користувачка бачить білий екран увесь мережевий
+         таймаут. Класичний defer і type="module" виконуються в одному
+         списку в порядку документа, тож цей файл усе одно відпрацює раніше
+         за вхідний чанк, який Vite підставляє нижче. -->
+    <script defer src="https://telegram.org/js/telegram-web-app.js"></script>
   </head>
   <body>
     <div id="root"></div>
