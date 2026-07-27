@@ -3,20 +3,13 @@
 
 import { useApp } from '../../../state/store';
 import { crisisAnswer, crisisBack } from '../../../state/actions';
+import SubScreenHeader from '../../frame/SubScreenHeader';
 
 export default function CrisisScreen() {
   const { state, dispatch } = useApp();
   return (
-    <div
-      data-screen-label="Підтримка"
-      style={{ flex: 1, overflowY: 'auto', padding: '6px 20px 20px', display: 'flex', flexDirection: 'column', gap: 13 }}
-    >
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-        <button className="btn btn-icon btn-secondary" aria-label="Назад" onClick={() => dispatch(crisisBack())} style={{ width: 44, height: 44 }}>
-          <svg width="16" height="16"><path d="M10 2 L4 8 L10 14" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" /></svg>
-        </button>
-        <h2 style={{ fontSize: 20, margin: 0, flex: 1 }}>Підтримка</h2>
-      </div>
+    <div data-screen-label="Підтримка" className="nd-screen nd-screen--tight">
+      <SubScreenHeader title="Підтримка" backLabel="Назад" onBack={() => dispatch(crisisBack())} />
       {!state.crisisAns && (
         <div className="card" style={{ gap: 10 }}>
           <span style={{ fontSize: 15, lineHeight: 1.5 }}>Дякуємо, що поділилися. Одне необовʼязкове запитання, щоб підказати правильний шлях:</span>

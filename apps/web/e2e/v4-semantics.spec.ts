@@ -1,11 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import {
-  APP_URL,
-  demoData,
-  gotoWithBrokenStorage,
-  readState,
-  seedState
-} from './helpers';
+import { APP_URL, demoData, gotoWithBrokenStorage, readState, seedState, stubTelegramSdk } from './helpers';
 
 const ctx = {
   stress: null,
@@ -55,6 +49,7 @@ async function gotoData(
 }
 
 test('v4 onboarding: дві групи можуть явно ділити один symptom ID', async ({ page }) => {
+  await stubTelegramSdk(page);
   await page.goto(APP_URL);
   await page.getByRole('button', { name: 'Далі', exact: true }).click();
   await page.getByRole('button', { name: 'Далі', exact: true }).click();

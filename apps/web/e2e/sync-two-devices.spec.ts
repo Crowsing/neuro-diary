@@ -151,6 +151,38 @@ test('щоденник переживає обидва пристрої, вкл�
 test('банер стенду видимий, бо APP_ENV=development', async ({ browser }) => {
   const context = await browser.newContext();
   const device = await openDevice(context, { queryId: 'banner-1', seed: emptyAppState() });
-  await expect(device.page.getByTestId('development-banner')).toBeVisible({ timeout: 30_000 });
+  const banner = device.page.getByTestId('development-banner');
+  await expect(banner).toBeVisible({ timeout: 30_000 });
+
+  // `toBeVisible` тут недостатньо. Банер був статичним сусідом оболонки
+  // висотою 100% усередині .nd-page з overflow:hidden, тобто лягав рівно на
+  // y = висота сторінки й обрізався — а Playwright уважає обрізаний елемент
+  // із непорожнім боксом видимим, тож цей тест роками зеленів на банері,
+  // якого користувачка не бачила. Перевіряється саме положення в кадрі.
+  const box = await banner.boundingBox();
+  const viewport = device.page.viewportSize();
+  expect(box).not.toBeNull();
+  expect(viewport).not.toBeNull();
+  expect(box!.y).toBeGreaterThanOrEqual(0);
+  expect(box!.y + box!.height).toBeLessThanOrEqual(viewport!.height);
+
+  // А тепер — друга половина тієї самої історії. Перша спроба зробити банер
+  // видимим зробила його плавучим, і він мовчки почав перехоплювати кліки по
+  // кнопці «Назад» під собою: клік ретраївся 462 рази до таймауту. Банер
+  // постійний і неінтерактивний, тож він мусить ЗАЙМАТИ місце, а не накривати
+  // його. Перевіряється те й те: він вище за зміст і не ловить вказівник.
+  const screen = await device.page.locator('.nd-screen, .nd-checkin, .nd-onboarding').first().boundingBox();
+  expect(screen).not.toBeNull();
+  expect(box!.y + box!.height, 'банер накриває зміст замість того, щоб його посунути')
+    .toBeLessThanOrEqual(screen!.y);
+
+  await device.page.getByRole('button', { name: 'Налаштування', exact: true }).click();
+  await device.page.getByRole('button', { name: /Мої симптоми/ }).click();
+  await expect(device.page.getByRole('heading', { name: 'Мої симптоми' })).toBeVisible();
+  // Клік із таймаутом, коротшим за типовий: якщо банер знову ловитиме
+  // вказівник, тест впаде швидко й зрозуміло, а не через чотири хвилини.
+  await device.page.getByRole('button', { name: 'Назад', exact: true }).click({ timeout: 10_000 });
+  await expect(device.page.getByRole('heading', { name: 'Налаштування' })).toBeVisible();
+
   await context.close();
 });

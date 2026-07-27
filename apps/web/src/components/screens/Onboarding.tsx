@@ -26,10 +26,7 @@ export default function Onboarding() {
   };
 
   return (
-    <div
-      data-screen-label="Onboarding"
-      style={{ flex: 1, display: 'flex', flexDirection: 'column', overflowY: 'auto', padding: '20px 22px 24px' }}
-    >
+    <div data-screen-label="Onboarding" className="nd-onboarding">
       <div aria-label={`Крок ${step + 1} із 5`} style={{ display: 'flex', gap: 6, marginBottom: 26 }}>
         {[0, 1, 2, 3, 4].map((i) => (
           <span
@@ -63,7 +60,7 @@ export default function Onboarding() {
               <path d="M6 20 L14 20 L17 10 L23 30 L26 20 L34 20" fill="none" stroke="var(--color-accent-2-800)" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
             </svg>
           </div>
-          <h2 style={{ fontSize: 32, margin: 0 }}>Пам’ятати менше.<br />Бачити більше.</h2>
+          <h2 className="nd-title nd-title--hero">Пам’ятати менше.<br />Бачити більше.</h2>
           <p style={{ fontSize: 16, margin: 0 }} className="text-muted">Щоденник допомагає фіксувати симптоми та контекст, бачити власну динаміку й готувати зрозумілі факти для розмови з лікарем.</p>
           <p style={{ fontSize: 13, margin: '8px 0 0', padding: '12px 16px', borderRadius: 18, background: 'var(--color-surface)' }} className="text-muted">Застосунок допомагає фіксувати самопочуття та готувати дані для лікаря. Він не встановлює діагноз, не підтверджує загострення і не призначений для невідкладної допомоги.</p>
         </div>
@@ -71,12 +68,12 @@ export default function Onboarding() {
 
       {step === 1 && (
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 14 }}>
-          <h2 style={{ fontSize: 26, margin: 0 }}>Приватність</h2>
+          <h2 className="nd-title nd-title--lead">Приватність</h2>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
             {OB_PRIVACY.map((p) => (
               <div key={p.k} style={{ display: 'flex', gap: 12, padding: '12px 14px', borderRadius: 18, background: 'var(--color-surface)' }}>
                 <span aria-hidden="true" style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--color-accent-2)', flex: 'none', marginTop: 7 }} />
-                <div style={{ minWidth: 0 }}>
+                <div className="nd-row-main">
                   <div style={{ fontSize: 14, fontWeight: 600 }}>{p.k}</div>
                   <div style={{ fontSize: 13 }} className="text-muted">{p.v}</div>
                 </div>
@@ -90,7 +87,7 @@ export default function Onboarding() {
       {step === 2 && (
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 12 }}>
           <span className="tag tag-neutral" style={{ alignSelf: 'flex-start', fontSize: 12 }}>Опційно</span>
-          <h2 style={{ fontSize: 26, margin: 0 }}>Групи спостереження</h2>
+          <h2 className="nd-title nd-title--lead">Групи спостереження</h2>
           <p style={{ fontSize: 14, margin: 0 }} className="text-muted">{GROUP_DISCLAIMER}</p>
           <form
             className="card"
@@ -132,7 +129,7 @@ export default function Onboarding() {
 
       {step === 3 && (
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 12 }}>
-          <h2 style={{ fontSize: 26, margin: 0 }}>Ваш список симптомів</h2>
+          <h2 className="nd-title nd-title--lead">Ваш список симптомів</h2>
           <p style={{ fontSize: 14, margin: 0 }} className="text-muted">Почніть з потрібних симптомів або залиште список порожнім для записів лише про самопочуття. Змінити вибір можна будь-коли.</p>
           {SYM.map((symptom) => {
             const selected = selectedSymptoms.includes(symptom.id);
@@ -175,7 +172,7 @@ export default function Onboarding() {
       {step === 4 && (
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 14 }}>
           <span className="tag tag-neutral" style={{ alignSelf: 'flex-start', fontSize: 12 }}>Опційно · вимкнено за замовчуванням</span>
-          <h2 style={{ fontSize: 26, margin: 0 }}>Менструальний цикл</h2>
+          <h2 className="nd-title nd-title--lead">Менструальний цикл</h2>
           <p style={{ fontSize: 14, margin: 0 }} className="text-muted">День циклу рахується автоматично від позначеного початку менструації та може допомогти побачити збіги. Дані циклу зберігаються локально разом зі щоденником і вимкнені у звіті за замовчуванням.</p>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
             {OB_CYCLE_CHIPS.map(([key, label]) => (

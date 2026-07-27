@@ -80,8 +80,12 @@ function DialogOverlay({ dlg }: { dlg: DialogState }) {
   };
 
   return (
-    <div className="nd-dialog-overlay" onKeyDown={onKeyDown} style={{ background: 'color-mix(in srgb, var(--color-neutral-900) 45%, transparent)', display: 'grid', placeItems: 'center', padding: 22, zIndex: 50 }}>
-      <div ref={boxRef} role="dialog" aria-modal="true" aria-label={DIALOG_LABELS[dlg.type]} tabIndex={-1} className="dialog elev-lg" style={{ width: '100%', gap: 12, maxHeight: '90%', overflowY: 'auto' }}>
+    // Геометрія переїхала в .nd-overlay: вона враховує безпечні зони, а
+    // попереднє `maxHeight: '90%'` міряло весь екран — тож високий діалог
+    // упирався верхнім краєм у пігулки Telegram. Клас .nd-dialog-overlay
+    // лишається як гачок для @media print.
+    <div className="nd-dialog-overlay nd-overlay" onKeyDown={onKeyDown}>
+      <div ref={boxRef} role="dialog" aria-modal="true" aria-label={DIALOG_LABELS[dlg.type]} tabIndex={-1} className="dialog elev-lg">
         {dlg.type === 'menses' && <MensesDialog dlg={dlg} />}
         {dlg.type === 'delEntry' && <DeleteEntryDialog dlg={dlg} />}
         {dlg.type === 'delGroup' && <GroupDeleteDialog dlg={dlg} />}

@@ -130,16 +130,23 @@ export function SyncProvider({ children }: { children: ReactNode }) {
   // користувачка нарешті вмикає синхронізацію: інакше `#tgWebAppData` і
   // sessionStorage лишаються цілими всю сесію вкладки в тих, хто її так і не
   // ввімкнув. Дефект знайдено незалежним review Фази 2.
+  //
+  // Прапорця `SYNC_ENABLED` тут свідомо НЕМАЄ, хоч раніше був. Він повертав
+  // рівно той самий дефект з іншого боку: local-only збірка не виконувала
+  // зачистку взагалі, а з підключенням `telegram-web-app.js` (index.html)
+  // Telegram сам почав писати `__telegram__initParams` у sessionStorage — і
+  // підписаний рядок автентифікації жив би всю сесію вкладки саме в тій
+  // збірці, яка обіцяє не зберігати нічого, крім щоденника.
+  //
+  // Мережевого коду це не тягне: initdata.ts — чистий розбір фрагмента й
+  // sessionStorage, без жодного fetch (перевіряється scripts/assert-bundle.mjs).
   useEffect(() => {
-    if (!SYNC_ENABLED) return;
     void import('./initdata').then(({ readInitDataOnce }) => {
       readInitDataOnce({
         location: window.location,
         history: window.history,
         sessionStorage: window.sessionStorage,
-        telegramInitData: (
-          window as unknown as { Telegram?: { WebApp?: { initData?: string } } }
-        ).Telegram?.WebApp?.initData
+        telegramInitData: window.Telegram?.WebApp?.initData
       });
     });
   }, []);
@@ -159,9 +166,7 @@ export function SyncProvider({ children }: { children: ReactNode }) {
         location: window.location,
         history: window.history,
         sessionStorage: window.sessionStorage,
-        telegramInitData: (
-          window as unknown as { Telegram?: { WebApp?: { initData?: string } } }
-        ).Telegram?.WebApp?.initData
+        telegramInitData: window.Telegram?.WebApp?.initData
       }
     });
     return session.current;

@@ -10,6 +10,27 @@ export const NOW_ISO = '2026-01-15';
 export const APP_URL = '/?now=' + NOW_ISO;
 export const STORAGE_KEY = 'nd_demo_v3';
 
+/** Адреса, яку index.html вантажить у <head>. */
+export const TELEGRAM_SDK_URL = 'https://telegram.org/js/telegram-web-app.js';
+
+/**
+ * Віддає SDK локально порожнім тілом.
+ *
+ * Дві причини. Перша: без цього вся сюїта залежить від доступності
+ * telegram.org — мережевий збій чужого хоста ставав би червоним прогоном.
+ * Друга: порожнє тіло означає, що `window.Telegram` не з'являється, тож усі
+ * наявні тести й далі йдуть шляхом звичайного браузера — жодна їхня асерція
+ * не змінюється за побудовою.
+ *
+ * `page.route` НЕ ховає запит від `page.on('request')`, тож AC8 і далі бачить
+ * його й перевіряє.
+ */
+export async function stubTelegramSdk(page: Page): Promise<void> {
+  await page.route(TELEGRAM_SDK_URL, (route) =>
+    route.fulfill({ status: 200, contentType: 'application/javascript', body: '' })
+  );
+}
+
 export function demoData() {
   return genDemo(new Date('2026-01-15T12:00:00+02:00'));
 }
@@ -20,6 +41,7 @@ export function demoData() {
  * після page.reload() зберігається стан, який записав сам застосунок (AC2).
  */
 export async function seedState(page: Page, state: Record<string, unknown>): Promise<void> {
+  await stubTelegramSdk(page);
   await page.addInitScript(
     ([key, json]) => {
       if (!localStorage.getItem('nd_e2e_seeded')) {
@@ -42,6 +64,7 @@ export async function gotoApp(page: Page, extra: Record<string, unknown> = {}): 
 
 /** Посів валідного стану перед симуляцією quota/security failure у setItem. */
 export async function gotoWithBrokenStorage(page: Page, state: Record<string, unknown>): Promise<void> {
+  await stubTelegramSdk(page);
   await page.addInitScript(
     ([key, json]) => {
       const setItem = Storage.prototype.setItem;

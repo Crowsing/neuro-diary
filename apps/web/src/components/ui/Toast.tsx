@@ -12,11 +12,11 @@ export default function Toast() {
     <div
       className="nd-toast"
       role="status"
+      /* Позиціювання живе в .nd-toast: воно читає нижній інсет і висоту
+         навігації з токенів. Попереднє `bottom: 96` було здогадкою про
+         висоту нижньої навігації — і висіло над порожнечею на під-екранах,
+         де тієї навігації немає взагалі. */
       style={{
-        position: 'absolute',
-        bottom: 96,
-        left: '50%',
-        transform: 'translateX(-50%)',
         background: 'var(--color-neutral-800)',
         color: 'var(--color-neutral-100)',
         padding: '11px 20px',
@@ -25,10 +25,8 @@ export default function Toast() {
         boxShadow: 'var(--shadow-md)',
         animation: 'ndToast .18s ease-out',
         whiteSpace: 'nowrap',
-        maxWidth: 340,
         overflow: 'hidden',
-        textOverflow: 'ellipsis',
-        zIndex: 60
+        textOverflow: 'ellipsis'
       }}
     >
       {state.toast}

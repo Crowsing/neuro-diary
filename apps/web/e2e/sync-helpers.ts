@@ -12,6 +12,7 @@
 
 import { createPrivateKey, sign } from 'node:crypto';
 import type { BrowserContext, Page } from '@playwright/test';
+import { stubTelegramSdk } from './helpers';
 
 /** Той самий фікстурний bot id, що і в `scripts/dev-stand.sh`. */
 export const BOT_ID = 1234567890;
@@ -97,6 +98,7 @@ export async function openDevice(
   options: { queryId: string; seed?: Record<string, unknown> }
 ): Promise<{ page: Page; initData: string }> {
   const page = await context.newPage();
+  await stubTelegramSdk(page);
   const initData = signedInitData({ queryId: options.queryId });
   if (options.seed !== undefined) await seedEmptyDiary(page, options.seed);
   await page.goto(syncAppUrl(initData));

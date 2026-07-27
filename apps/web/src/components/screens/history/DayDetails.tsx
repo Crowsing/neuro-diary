@@ -10,6 +10,7 @@ import {
   navSub
 } from '../../../state/actions';
 import { fmtLong } from '../../../lib/dates';
+import SubScreenHeader from '../../frame/SubScreenHeader';
 import { cycleDay } from '../../../lib/cycle';
 import { entryState } from '../../../lib/entry';
 import { groupBadges, uniqueIds } from '../../../lib/groups';
@@ -108,11 +109,8 @@ export default function DayDetails() {
   const dayDelMenses = () => { if (sel) dispatch(mensesRemove(sel)); };
 
   return (
-    <div data-screen-label="Деталі дня" style={{ flex: 1, overflowY: 'auto', padding: '6px 20px 20px', display: 'flex', flexDirection: 'column', gap: 13 }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-        <button className="btn btn-icon btn-secondary" aria-label="Назад до історії" onClick={dayBack} style={{ width: 44, height: 44 }}><svg width="16" height="16"><path d="M10 2 L4 8 L10 14" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"></path></svg></button>
-        <h2 style={{ fontSize: 20, margin: 0, flex: 1 }}>{dayTitle}</h2>
-      </div>
+    <div data-screen-label="Деталі дня" className="nd-screen nd-screen--tight">
+      <SubScreenHeader title={dayTitle} backLabel="Назад до історії" onBack={dayBack} />
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
         <span className="tag" style={{ background: dayStatusBg, color: dayStatusFg, fontSize: 12, padding: '5px 12px' }}>{dayStatusT}</span>
         {dayFilledLater && (<span className="tag tag-neutral" style={{ fontSize: 12, padding: '5px 12px' }}>Заповнено пізніше</span>)}
@@ -125,9 +123,13 @@ export default function DayDetails() {
           )}
           <div className="card" style={{ gap: 6 }}>
             {dayRows.map((r) => (
-              <div key={r.id} style={{ display: 'flex', gap: 12, justifyContent: 'space-between', borderBottom: '1px solid color-mix(in srgb, var(--color-text) 8%, transparent)', padding: '6px 0' }}>
-                <span style={{ fontSize: 13, flex: 'none' }} className="text-muted">{r.k}</span>
-                <span style={{ fontSize: '13.5px', textAlign: 'right', display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4 }}>
+              // `r.k` — назва симптому, яку пише користувачка: довжина нічим
+              // не обмежена. Розкладка живе в .nd-detail-row, бо `flex: none`
+              // тут забороняв стискання, і довга назва виштовхувала картку за
+              // межі екрана — непомітно, бо горизонтальний скролбар прихований.
+              <div key={r.id} className="nd-detail-row" style={{ borderBottom: '1px solid color-mix(in srgb, var(--color-text) 8%, transparent)', padding: '6px 0' }}>
+                <span style={{ fontSize: 13 }} className="text-muted">{r.k}</span>
+                <span style={{ fontSize: '13.5px', display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4 }}>
                   <span>{r.v}</span>
                   {!!r.badges?.length && (
                     <span style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'flex-end', gap: 4 }}>

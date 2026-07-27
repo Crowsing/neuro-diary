@@ -1,10 +1,17 @@
 import { test, expect } from '@playwright/test';
-import { APP_URL, demoData, readState, seedState } from './helpers';
+import { APP_URL, demoData, readState, seedState, stubTelegramSdk, TELEGRAM_SDK_URL } from './helpers';
 
 test('onboarding has five steps, ends after cycle, and never requests browser notifications', async ({ page }) => {
+  // Виняток той самий і з тих самих причин, що в AC8: рівно один піно́ваний
+  // рядок, звірений на повний збіг. Предмет цього тесту — канал нагадувань,
+  // і SDK Telegram ним не є: він не має ані тіла запиту, ані параметрів.
   const external: string[] = [];
+  const sdk: string[] = [];
   page.on('request', (request) => {
-    if (!request.url().startsWith('http://localhost:4173/')) external.push(request.url());
+    const url = request.url();
+    if (url.startsWith('http://localhost:4173/')) return;
+    if (url === TELEGRAM_SDK_URL) sdk.push(url);
+    else external.push(url);
   });
   await page.addInitScript(() => {
     const tracked = window as Window & { __notificationRequests?: number };
@@ -21,6 +28,7 @@ test('onboarding has five steps, ends after cycle, and never requests browser no
     });
   });
 
+  await stubTelegramSdk(page);
   await page.goto(APP_URL);
   const headings = [
     'Пам’ятати менше.',
@@ -48,6 +56,7 @@ test('onboarding has five steps, ends after cycle, and never requests browser no
   await expect(page.getByRole('heading', { name: /четвер, 15 січня/i })).toBeVisible();
   expect(await page.evaluate(() => (window as Window & { __notificationRequests?: number }).__notificationRequests)).toBe(0);
   expect(external).toEqual([]);
+  expect(sdk).toEqual([TELEGRAM_SDK_URL]);
 });
 
 test('legacy reminder state preserves health data and resumes on the cycle step without consent', async ({ page }) => {
@@ -67,6 +76,7 @@ test('legacy reminder state preserves health data and resumes on the cycle step 
     obTime: '08:00',
     data
   });
+  await stubTelegramSdk(page);
   await page.goto(APP_URL);
 
   await expect(page.getByLabel('Крок 5 із 5')).toBeVisible();

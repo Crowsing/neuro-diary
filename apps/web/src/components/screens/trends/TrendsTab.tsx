@@ -12,6 +12,7 @@ import { filterByGroup, groupBadges, trendableSymptomIds, UNGROUPED_ID, visibleG
 import { makeSymDef } from '../../../lib/utils';
 import type { Period } from '../../../lib/types';
 import Chip from '../../ui/Chip';
+import ScreenHeader from '../../frame/ScreenHeader';
 
 const PERIODS: Period[] = [7, 30, 90];
 
@@ -59,8 +60,8 @@ export default function TrendsTab() {
     })
     .filter((x): x is NonNullable<typeof x> => x !== null);
   return (
-    <div className="nd-trends-screen" data-screen-label="Динаміка" style={{ flex: 1, overflowY: 'auto', padding: '8px 20px 20px', display: 'flex', flexDirection: 'column', gap: 13 }}>
-      <h2 style={{ fontSize: 24, margin: 0 }}>Динаміка</h2>
+    <div data-screen-label="Динаміка" className="nd-screen">
+      <ScreenHeader title="Динаміка" />
       <div role="group" aria-label="Період динаміки" style={{ display: 'flex', gap: 7, flexWrap: 'wrap' }}>
         {PERIODS.map((p) => <Chip key={p} label={p + ' дн.'} selected={per === p} onClick={() => dispatch(trendsSet({ period: p }))} />)}
       </div>

@@ -5,6 +5,7 @@
 // `'wasm-unsafe-eval'`. Обидві перевіряються тут на артефакті, а не на намірі.
 
 import { expect, test } from '@playwright/test';
+import { stubTelegramSdk } from './helpers';
 import { emptyAppState, seedEmptyDiary, signedInitData, syncAppUrl } from './sync-helpers';
 
 test('повний обхід застосунку не дає жодного порушення політики', async ({ page }) => {
@@ -19,6 +20,7 @@ test('повний обхід застосунку не дає жодного п
   });
 
   await seedEmptyDiary(page, emptyAppState());
+  await stubTelegramSdk(page);
   await page.goto(syncAppUrl(signedInitData({ queryId: 'csp-1' })));
   await page.getByRole('heading', { name: 'Налаштування' }).waitFor();
 
@@ -35,6 +37,7 @@ test('повний обхід застосунку не дає жодного п
 
 test('WebAssembly.instantiate працює під чинною політикою', async ({ page }) => {
   await seedEmptyDiary(page, emptyAppState());
+  await stubTelegramSdk(page);
   await page.goto(syncAppUrl(signedInitData({ queryId: 'csp-2' })));
   await page.getByRole('heading', { name: 'Налаштування' }).waitFor();
 
@@ -55,6 +58,7 @@ test('WebAssembly.instantiate працює під чинною політико�
 
 test('політика не дозволяє ані eval, ані inline-скрипт', async ({ page }) => {
   await seedEmptyDiary(page, emptyAppState());
+  await stubTelegramSdk(page);
   await page.goto(syncAppUrl(signedInitData({ queryId: 'csp-3' })));
   const policy = await page.evaluate(
     () =>

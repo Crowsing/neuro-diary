@@ -4,7 +4,7 @@
 // todNoSym → TODAY_NO_SYMPTOMS, todMenses → DIALOG_OPEN menses,
 // safetyOpen → NAV_SUB safety.
 
-import { useMemo } from 'react';
+import { useMemo, type CSSProperties } from 'react';
 import { useApp } from '../../state/store';
 import { useNow } from '../../state/clock';
 import { checkinStart, dialogOpen, navSub, todayNoSymptoms } from '../../state/actions';
@@ -15,6 +15,7 @@ import { sum } from '../../lib/summary';
 import { makeSymDef } from '../../lib/utils';
 import { WD_SHORT } from '../../constants/copy';
 import GroupBadges from '../ui/GroupBadges';
+import ScreenHeader from '../frame/ScreenHeader';
 
 /** Стовпчик 7-денного міні-барчарта (vToday, рядки 1137–1144). */
 interface WeekBar {
@@ -72,17 +73,13 @@ export default function Today() {
   const todSum = done ? sum(doneEntry, t, symDef, st.data.cycleOn, st.data.cycleStarts) : '';
 
   return (
-    <div data-screen-label="Сьогодні" style={{ flex: 1, overflowY: 'auto', padding: '8px 20px 20px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
-      <div>
-        <div style={{ fontSize: '12px', letterSpacing: '.08em', textTransform: 'uppercase' }} className="text-muted">Сьогодні</div>
-        <div style={{ display: 'flex', alignItems: 'baseline', gap: '10px', flexWrap: 'wrap' }}>
-          <h2 style={{ fontSize: '27px', margin: 0 }}>{todWD}</h2>
-        </div>
-        <div style={{ display: 'flex', gap: '8px', marginTop: '8px', flexWrap: 'wrap' }}>
+    <div data-screen-label="Сьогодні" className="nd-screen" style={{ '--nd-screen-gap': '14px' } as CSSProperties}>
+      <ScreenHeader title={todWD} kicker="Сьогодні" size="lead">
+        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
           <span className="tag" style={{ background: todStatusBg, color: todStatusFg, fontSize: '12px', padding: '5px 12px' }}>{todStatusT}</span>
           {todHasCycle && <span className="tag tag-neutral" style={{ fontSize: '12px', padding: '5px 12px' }}>{todCycle}</span>}
         </div>
-      </div>
+      </ScreenHeader>
       {todHasSum && (
         <div className="card elev-sm" style={{ gap: '8px' }}>
           <span className="card-kicker">Підсумок дня</span>

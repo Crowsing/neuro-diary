@@ -2,6 +2,7 @@ import { useApp } from '../../../state/store';
 import { dataPatch, dialogOpen, navSub } from '../../../state/actions';
 import Toggle from '../../ui/Toggle';
 import SyncSettings from '../../../sync/ui/SyncSettings';
+import ScreenHeader from '../../frame/ScreenHeader';
 
 export default function SettingsTab() {
   const { state, dispatch } = useApp();
@@ -13,14 +14,14 @@ export default function SettingsTab() {
   );
 
   return (
-    <div data-screen-label="Налаштування" style={{ flex: 1, overflowY: 'auto', padding: '8px 20px 20px', display: 'flex', flexDirection: 'column', gap: 13 }}>
-      <h2 style={{ fontSize: 24, margin: 0 }}>Налаштування</h2>
+    <div data-screen-label="Налаштування" className="nd-screen">
+      <ScreenHeader title="Налаштування" />
       <button
         className="card"
         onClick={() => dispatch(navSub('groups', { tab: 'set' }))}
         style={{ border: 'none', font: 'inherit', cursor: 'pointer', textAlign: 'left', width: '100%', flexDirection: 'row', alignItems: 'center', gap: 10 }}
       >
-        <span style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 2 }}>
+        <span className="nd-row-main">
           <span style={{ fontWeight: 700, fontSize: 14.5 }}>Групи спостереження</span>
           <span style={{ fontSize: 12.5 }} className="text-muted">
             {data.groups.filter((group) => !group.archived).length} активних · {data.groups.filter((group) => group.archived).length} в архіві
@@ -33,7 +34,7 @@ export default function SettingsTab() {
         onClick={() => dispatch(navSub('catalog', { catFrom: 'set' }))}
         style={{ border: 'none', font: 'inherit', cursor: 'pointer', textAlign: 'left', width: '100%', flexDirection: 'row', alignItems: 'center', gap: 10 }}
       >
-        <span style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 2 }}>
+        <span className="nd-row-main">
           <span style={{ fontWeight: 700, fontSize: 14.5 }}>Мої симптоми</span>
           <span style={{ fontSize: 12.5 }} className="text-muted">Активний список, каталог, архів, власні симптоми</span>
         </span>
@@ -62,7 +63,7 @@ export default function SettingsTab() {
         onClick={() => dispatch(navSub('privacy'))}
         style={{ border: 'none', font: 'inherit', cursor: 'pointer', textAlign: 'left', width: '100%', flexDirection: 'row', alignItems: 'center', gap: 10 }}
       >
-        <span style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 2 }}>
+        <span className="nd-row-main">
           <span style={{ fontWeight: 700, fontSize: 14.5 }}>Приватність і дані</span>
           <span style={{ fontSize: 12.5 }} className="text-muted">Локальне зберігання, експорт і повне видалення</span>
         </span>
@@ -74,7 +75,7 @@ export default function SettingsTab() {
         onClick={() => dispatch(navSub('safety', { safetyMore: false }))}
         style={{ border: 'none', font: 'inherit', cursor: 'pointer', textAlign: 'left', width: '100%', flexDirection: 'row', alignItems: 'center', gap: 10 }}
       >
-        <span style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 2 }}>
+        <span className="nd-row-main">
           <span style={{ fontWeight: 700, fontSize: 14.5 }}>Коли потрібна термінова допомога?</span>
           <span style={{ fontSize: 12.5 }} className="text-muted">Ключові ознаки і як діяти</span>
         </span>

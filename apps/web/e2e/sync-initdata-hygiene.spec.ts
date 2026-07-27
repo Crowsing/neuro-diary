@@ -6,6 +6,7 @@
 // зачистка відбулася» може розірватися й не показати цього жодним тестом.
 
 import { expect, test } from '@playwright/test';
+import { stubTelegramSdk } from './helpers';
 import { emptyAppState, seedEmptyDiary, signedInitData, syncAppUrl } from './sync-helpers';
 
 test('initData не лишає слідів ані в адресі, ані в sessionStorage', async ({ page }) => {
@@ -23,6 +24,7 @@ test('initData не лишає слідів ані в адресі, ані в se
     sessionStorage.setItem('nd_e2e_control', 'present');
   }, initData);
 
+  await stubTelegramSdk(page);
   await page.goto(syncAppUrl(initData));
   await page.getByRole('heading', { name: 'Налаштування' }).waitFor();
 
@@ -45,6 +47,7 @@ test('initData не лишає слідів ані в адресі, ані в se
 test('initData не потрапляє в localStorage', async ({ page }) => {
   const initData = signedInitData({ queryId: 'hygiene-2' });
   await seedEmptyDiary(page, emptyAppState());
+  await stubTelegramSdk(page);
   await page.goto(syncAppUrl(initData));
   await page.getByRole('heading', { name: 'Налаштування' }).waitFor();
 
