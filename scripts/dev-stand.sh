@@ -118,6 +118,9 @@ elif [[ -z "$(grep -E '^WEBAPP_URL=' "$ENV_FILE" | cut -d= -f2-)" ]]; then
   rm -f "$ENV_FILE.bak"
   WEBAPP_URL="http://localhost:5173"
   export WEBAPP_URL
+  warn "WEBAPP_URL порожній — поставив http://localhost:5173. Цього досить для api
+й браузера на цій машині, але Telegram Mini App за такою адресою не відкриє:
+йому потрібен HTTPS. Тунель піднімає ./scripts/dev-start.sh."
 fi
 
 # --- PostgreSQL -------------------------------------------------------------
