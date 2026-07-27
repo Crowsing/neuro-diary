@@ -119,3 +119,93 @@ describe('the module never persists initData', () => {
     expect(code).toContain('removeItem');
   });
 });
+
+describe('перезавантаження вкладки — чому «свіжий initData» не існує', () => {
+  /**
+   * Модель того, як `telegram-web-app.js` знаходить initData при завантаженні.
+   *
+   * Він читає ті самі два джерела, що й ми: фрагмент `tgWebAppData` і
+   * `__telegram__initParams` у sessionStorage. Іншого носія в нього немає, і
+   * методу «видай новий рядок» у Bot API теж — `initData` є знімком моменту
+   * запуску Mini App.
+   */
+  function sdkInitData(location: { hash: string }, session: Map<string, string>): string {
+    const fromHash = new URLSearchParams(location.hash.replace(/^#/, '')).get(
+      'tgWebAppData'
+    );
+    if (fromHash !== null && fromHash !== '') return fromHash;
+    const stored = session.get('__telegram__initParams');
+    if (stored === undefined) return '';
+    return (JSON.parse(stored) as { tgWebAppData?: string }).tgWebAppData ?? '';
+  }
+
+  /** Одна вкладка: `location` і `sessionStorage` переживають перезавантаження. */
+  function tab(
+    location: { hash: string; href: string },
+    session: Map<string, string>
+  ): BrowserEnv {
+    return {
+      location,
+      history: {
+        replaceState(_state: unknown, _title: string, url: string): void {
+          location.hash = '';
+          location.href = url;
+        }
+      },
+      sessionStorage: {
+        getItem: (key: string) => session.get(key) ?? null,
+        removeItem: (key: string) => void session.delete(key)
+      },
+      telegramInitData: sdkInitData(location, session)
+    };
+  }
+
+  it('після F5 у SDK не лишається чого віддати — обидва його джерела зачищені', () => {
+    // Це і є доказ, що названий у threat-model §3.1 шлях «запросити свіжий
+    // initData у Telegram SDK при монтуванні» не є роботою, яку відкладали:
+    // такого API немає, а обидва носії, з яких SDK будує значення, прибирає
+    // наша ж гігієна §8 — і прибирає навмисно.
+    // Telegram кладе значення у фрагмент URL-кодованим — інакше `&` усередині
+    // розірвав би параметр на кілька.
+    const location = {
+      hash: `#tgWebAppData=${encodeURIComponent(RAW)}`,
+      href: 'https://app.invalid/diary'
+    };
+    const session = new Map<string, string>([
+      ['__telegram__initParams', JSON.stringify({ tgWebAppData: RAW })]
+    ]);
+
+    // Перше завантаження вкладки: значення є, і одразу по прочитанні зникає.
+    expect(readInitDataOnce(tab(location, session))).toBe(RAW);
+
+    // Перезавантаження: пам'ять модуля порожня, але сторінка та сама.
+    resetInitDataForTests();
+    const afterReload = tab(location, session);
+
+    expect(afterReload.telegramInitData).toBe('');
+    expect(readInitDataOnce(afterReload)).toBeNull();
+    expect(location.href).toBe('https://app.invalid/diary');
+    expect(session.size).toBe(0);
+  });
+
+  it('і навіть якби рядок уцілів, він уже витрачений: сесію купують один раз', () => {
+    // Друга, незалежна причина. Anti-replay §8 віддає сесію щонайбільше один
+    // раз на конкретний initData, тож повторна автентифікація тим самим рядком
+    // — це 401 `auth_replay`, а не відновлений доступ. Тут це видно як
+    // властивість самого модуля: значення НЕ перечитується, а віддається з
+    // пам'яті, і другого рядка взятися нізвідки.
+    // Telegram кладе значення у фрагмент URL-кодованим — інакше `&` усередині
+    // розірвав би параметр на кілька.
+    const location = {
+      hash: `#tgWebAppData=${encodeURIComponent(RAW)}`,
+      href: 'https://app.invalid/diary'
+    };
+    const session = new Map<string, string>();
+
+    const first = readInitDataOnce(tab(location, session));
+    const second = readInitDataOnce(tab(location, session));
+
+    expect(second).toBe(first);
+    expect(peekInitData()).toBe(RAW);
+  });
+});

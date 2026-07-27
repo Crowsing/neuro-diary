@@ -9,24 +9,32 @@
 # BOT_TOKEN лишається виключно в apps/bot/.env: кожен процес запускається у
 # власному підшелі, і оточення api його не бачить (§5.3).
 #
-# За замовчуванням web підіймається в local-only режимі: він не робить жодного
-# мережевого виклику, і це навмисно — саме так застосунок працює для тих, хто
-# синхронізацію не вмикав. Щоб пройти шлях Mini App → api → БД, потрібен
-# SYNC=on (див. нижче): без нього бандл фізично не містить мережевого коду,
-# тож ані `/v1/auth/telegram`, ані згоди, ані нагадувань із телефона не буде.
+# За замовчуванням підіймається ПОВНИЙ стенд: web зі мережевим кодом, екраном
+# нагадувань і api за тим самим тунелем. Тобто ця команда достатня, щоб пройти
+# шлях Mini App → api → БД із телефона:
 #
-#   SYNC=on ./scripts/dev-start.sh
+#   ./scripts/dev-start.sh --set-menu-button
 #
-# Телефон ходить до api з інтернету, тому за SYNC=on потрібен тунель і на
-# api-порт, а не лише на web. Скрипт піднімає його там само і, якщо не зможе,
-# каже про це прямо замість того, щоб віддати стенд, у якому Mini App
-# мовчки не достукається.
+# api не потребує власного публічного домену: dev-сервер проксує `/v1/...` і
+# `/health` на localhost:API_PORT, тож web і api — одне походження. Це знімає
+# і вимогу другого тунелю (акаунт із одним доменом його не дасть), і CORS.
+#
+# Звузити стенд можна явно:
+#
+#   SYNC=off ./scripts/dev-start.sh        local-only: нуль мережевих викликів,
+#                                          рівно так застосунок працює для тих,
+#                                          хто синхронізацію не вмикав
+#   REMINDERS=off ./scripts/dev-start.sh   форма, якою пішов би продакшен:
+#                                          sync є, екрана нагадувань немає
+#
+# Обидва прапорці статичні й діють на збірку, а не на рантайм: за `off`
+# відповідного коду в бандлі немає фізично (перевіряє scripts/assert-bundle.mjs).
 #
 # Прапорці:
 #   --set-menu-button   виставити кнопку меню, навіть якщо її ще немає
 #   --no-menu-button    не чіпати кнопку меню взагалі
 #
-# Змінні оточення: API_PORT, WEB_PORT, SYNC, NGROK_BIN, NGROK_DOMAIN.
+# Змінні оточення: API_PORT, WEB_PORT, SYNC, REMINDERS, NGROK_BIN, NGROK_DOMAIN.
 
 set -euo pipefail
 
@@ -45,7 +53,8 @@ LOG_DIR="$ROOT/.dev-logs"
 NGROK_LOG="$LOG_DIR/ngrok.log"
 API_PORT="${API_PORT:-8000}"
 WEB_PORT="${WEB_PORT:-5173}"
-SYNC="${SYNC:-off}"
+SYNC="${SYNC:-on}"
+REMINDERS="${REMINDERS:-on}"
 NGROK_BIN="${NGROK_BIN:-ngrok}"
 NGROK_DOMAIN="${NGROK_DOMAIN:-}"
 SET_MENU_BUTTON=0
@@ -159,28 +168,17 @@ find_tunnel() { tunnel_field "$1" public_url; }
 
 agent_alive() { curl -s --max-time 2 -o /dev/null http://127.0.0.1:4040/api/tunnels; }
 
-drop_tunnel() {
-  local name
-  name="$(tunnel_field "$1" name)"
-  [[ -n "$name" ]] || return 0
-  curl -s --max-time 5 -X DELETE "http://127.0.0.1:4040/api/tunnels/$name" \
-    >>"$NGROK_LOG" 2>&1 || true
-}
-
 # Результат — у глобальній TUNNEL_URL, а не в stdout, і це не стиль, а вимога:
 # `$( )` виконався б у підшелі, тож $! запущеного ngrok не потрапив би до PIDS
 # і тунель пережив би Ctrl+C.
 TUNNEL_URL=""
-TUNNEL_CREATED=0
 ensure_tunnel() {
   local port="$1" label="$2" ngrok_pid=""
   local -a args
 
-  TUNNEL_CREATED=0
   TUNNEL_URL="$(find_tunnel "$port")"
   # Чужого агента поважаємо: ngrok у сусідньому вікні — теж робочий тунель.
   [[ -z "$TUNNEL_URL" ]] || return 0
-  TUNNEL_CREATED=1
 
   if agent_alive; then
     # Агент є, тунелю на цей порт немає — просимо його ж додати ще один.
@@ -248,38 +246,25 @@ done
 ok "WEBAPP_URL записано в обидва .env"
 
 # --- походження api для web -------------------------------------------------
+#
+# api їде ТИМ САМИМ тунелем, що й web, через проксі dev-сервера
+# (`server.proxy` у apps/web/vite.config.ts). Причина не в зручності:
+# Telegram відкриває Mini App лише через HTTPS, а акаунт ngrok з одним доменом
+# не дає api власної публічної адреси — другий тунель отримує ту саму. Раніше
+# скрипт це розпізнавав і вироджувався в `http://localhost:8000`, до якого
+# телефон не достукається, тож шлях Mini App → api → БД неможливо було пройти
+# руками взагалі.
+#
+# Отже `VITE_API_ORIGIN` лишається порожнім свідомо: клієнт ходить відносними
+# шляхами `/v1/...` на власне походження, `connect-src 'self'` їх покриває, а
+# dev-сервер передає їх на api. CORS у цій схемі не бере участі — і це названо
+# як втрату fidelity у vite.config.ts: крос-origin перевіряє job `sync-e2e`.
 
 API_ORIGIN=""
+API_PROXY=""
 if [[ "$SYNC" == "on" ]]; then
-  if ensure_tunnel "$API_PORT" api; then
-    if [[ "$TUNNEL_URL" == "$WEB_TUNNEL" ]]; then
-      # Акаунт із одним доменом віддає обом тунелям ту саму адресу, і за нею
-      # відповідає лише один із них. Тобто Mini App ходив би по /v1/... і
-      # отримував index.html замість api — помилка, яка з телефона виглядає як
-      # завгодно, тільки не як «тунель не той». Свій такий тунель знімаємо, бо
-      # він ще й перехоплює частину запитів до web.
-      if [[ "$TUNNEL_CREATED" == "1" ]]; then
-        drop_tunnel "$API_PORT"
-        warn "ngrok видав api-тунелю ту саму адресу, що й web — тунель знято"
-      else
-        warn "тунель на api-порт має ту саму адресу, що й web"
-      fi
-      warn "на цьому акаунті ngrok один домен, тож двох різних адрес не буде"
-    else
-      API_ORIGIN="$TUNNEL_URL"
-      ok "api-тунель: $API_ORIGIN"
-    fi
-  else
-    warn "тунелю на api-порт немає — причина в $NGROK_LOG"
-  fi
-  if [[ -z "$API_ORIGIN" ]]; then
-    API_ORIGIN="http://localhost:$API_PORT"
-    warn "беру $API_ORIGIN: у браузері на цій машині це працює, а з телефона"
-    warn "Telegram до localhost не достукається — Mini App покаже помилку мережі."
-    warn "Щоб пройти шлях із телефона, потрібна окрема публічна адреса на"
-    warn "порт $API_PORT: другий домен на акаунті, інший тунельний сервіс або"
-    warn "NGROK_DOMAIN для web, щоб звільнити спільний домен під api."
-  fi
+  API_PROXY="http://localhost:$API_PORT"
+  ok "api через тунель web: $WEB_TUNNEL/v1/... → $API_PROXY"
 fi
 
 # --- база й міграції --------------------------------------------------------
@@ -301,7 +286,9 @@ say "Стартую процеси"
 (
   cd "$ROOT/apps/web"
   export VITE_SYNC="$SYNC"
+  export VITE_REMINDERS="$REMINDERS"
   export VITE_API_ORIGIN="$API_ORIGIN"
+  export VITE_API_PROXY="$API_PROXY"
   pnpm dev --port "$WEB_PORT" --strictPort >"$LOG_DIR/web.log" 2>&1
 ) &
 PIDS+=($!)
@@ -472,24 +459,27 @@ cat <<EOF
 
   Mini App:   $WEB_TUNNEL
   api:        http://localhost:$API_PORT/health
-  режим web:  $([[ "$SYNC" == "on" ]] && printf 'sync → %s' "$API_ORIGIN" || printf 'local-only')
+  режим web:  $([[ "$SYNC" == "on" ]] && printf 'sync → %s (той самий тунель)' "$WEB_TUNNEL" || printf 'local-only')
+  нагадування:$([[ "$SYNC" == "on" && "$REMINDERS" == "on" ]] && printf ' увімкнені' || printf ' недоступні')
   логи:       $LOG_DIR/{ngrok,web,api,bot}.log
 
 EOF
 
 if [[ "$SYNC" == "on" ]]; then
-  if [[ "$API_ORIGIN" == http://localhost:* ]]; then
-    warn "web зібрано з sync, але api доступний лише як $API_ORIGIN: у браузері"
-    warn "на цій машині шлях пройде, з телефона — ні (причина вище)."
-  else
-    ok "web зібрано з sync: Mini App автентифікується в api й може давати згоди."
-  fi
+  ok "Mini App автентифікується в api через той самий тунель — CORS не задіяний."
 else
   warn "web у local-only режимі — мережевих викликів немає, api й бот під час"
-  warn "користування не задіяні. Для шляху Mini App → api → БД перезапусти так:"
-  warn "  SYNC=on ./scripts/dev-start.sh"
+  warn "користування не задіяні. Для повного шляху досить запустити без SYNC=off."
 fi
 warn "Тексти згод — 0.9, контролер не названий; стенд приймає згоди лише в development."
+if [[ "$REMINDERS" == "on" && "$SYNC" != "on" ]]; then
+  warn "REMINDERS=on без SYNC=on нічого не вмикає: розклад ходить сесією синхронізації."
+elif [[ "$REMINDERS" == "on" ]]; then
+  warn "Нагадування ввімкнені. У продакшеновій збірці їх немає: gate"
+  warn "future-telegram-reminders.md відкритий (review доставки не підписаний)."
+else
+  ok "Нагадування вимкнені — саме та форма збірки, якою пішов би продакшен."
+fi
 
 printf '\nCtrl+C зупиняє все.\n'
 wait

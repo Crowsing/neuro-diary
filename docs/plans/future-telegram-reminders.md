@@ -63,3 +63,39 @@ Quiet hours не мають зафіксованого діапазону до �
 - exact allowlist-тести для всіх outbound text, labels і callback payloads;
 - інтеграційні тести private-chat binding, opt-in/revoke та відмов Telegram API;
 - чесний unavailable-state лишається в UI, доки весь delivery path не пройде ці gate-и.
+
+## Звірка з кодом (Фаза 6)
+
+Перелік вище **не переписаний**: він фіксує стан на момент, коли писався, і
+цінний саме цим. Нижче — що з нього закрив код, а що лишається відкритим.
+Порядок рядків збігається з порядком пунктів gate.
+
+| # | Пункт gate | Стан | Чим закрито / чого бракує |
+|---|---|---|---|
+| 1 | consent copy, retention, revoke/blocked-chat | **частково** | retention і revoke/blocked-chat закриті: `ErasureService.erase_reminders`, `MESSAGE_CLEANUP_TTL = 48 год`, TTL `reminder_delivery` 14 днів, `BOT_BLOCKED_STREAK = 14 днів` плюс `_reconcile_blocked_bots`. **Copy — ні:** `consent-copy/registry.json` тримає `telegram_reminders@0.9`, `frozen: false`, у тексті плейсхолдер `[ім'я контролера]` |
+| 2 | privacy/security/clinical review доставки | **відкрито, людське** | Досьє зібране — [threat-model.md](../threat-model.md) розділ 5. Підписів немає, і код їх не ставить |
+| 3 | одна політика quiet hours і DST-тести | **закрито кодом** | `QUIET_HOURS_START = 22:00`, `QUIET_HOURS_END = 08:00` у `app/domain/reminders.py`, експорт у [`fixtures/contract/quiet-hours.json`](../../fixtures/contract/quiet-hours.json), який тепер читають **обидві** сторони. DST: `tests/unit/test_reminder_domain.py::test_a_nonexistent_local_time_fires_at_the_first_valid_instant` (Київ, 29.03.2026) і `::test_an_ambiguous_local_time_fires_at_its_first_occurrence` (25.10.2026), обидва проти запіненої `tzdata`, не проти tzdata хоста |
+| 4 | атомарні claim/ack/dedupe + тест повторної доставки | **закрито кодом** | PK `(account_id, local_date)` як ключ ідемпотентності, `claim_occurrence` у SAVEPOINT, повторне читання розкладу під `FOR UPDATE`; `tests/integration/test_reminder_worker.py` |
+| 5 | exact allowlist outbound | **закрито кодом** | `tests/unit/test_telegram_bot_api.py::test_the_outbound_message_is_exactly_the_two_allowlisted_strings`. Callback payload відсутній: snooze поза першою версією контракту |
+| 6 | private-chat binding, opt-in/revoke, відмови Telegram API | **закрито кодом** | `ck_reminder_schedule_private_chat`; `tests/integration/test_reminder_settings.py`, `test_revocation_erasure.py`, гілки 403/429 у тестах воркера |
+| 7 | чесний unavailable-state лишається в UI | **чинний, і виконується** | Оскільки 1 і 2 відкриті, «весь delivery path» gate не пройшов. UI нагадувань **реалізований і вимкнений прапорцем** `VITE_REMINDERS` (default `off`); картка «Нагадування недоступні» лишається дослівно тією самою, і це під `e2e/production-controls.spec.ts` |
+
+**Розбіжність, яку звірка виявила.** Рядок §«Доставка й приватність» вище каже:
+«Quiet hours не мають зафіксованого діапазону до продуктового та клінічного
+рішення». Станом на Фазу 6 це вже не так: діапазон ухвалений Gate D, живе
+константами в домені, експортується спільною фікстурою й **названий дослівно в
+самому тексті згоди `0.9`** («Час можна вибрати між 08:00 і 22:00»). Клінічний
+підпис під цим діапазоном справді лишається відкритим — але це пункт 2 gate, а
+не пункт 3. Речення в §«Доставка й приватність» лишене недоторканим свідомо: це
+опис наміру на момент написання, і переписати його заднім числом означало б
+стерти слід рішення.
+
+### Що потрібно, щоб увімкнути
+
+Рівно дві речі, і жодна з них не кодова:
+
+1. заморозити тексти згод до `1.0`, назвавши контролера (знімає `503
+   consent_copy_not_frozen` поза `APP_ENV=development`);
+2. підписи privacy/security/clinical review реальної доставки.
+
+Після цього `VITE_REMINDERS=on` у продакшеновій збірці — і більше нічого.

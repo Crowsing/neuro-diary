@@ -71,7 +71,15 @@ export default defineConfig({
     ...(SYNC
       ? [
           {
-            command: `VITE_SYNC=on VITE_API_ORIGIN=${API_ORIGIN} VITE_OUT_DIR=dist-sync pnpm build && pnpm exec vite preview --outDir dist-sync --port ${SYNC_PORT} --strictPort`,
+            // `VITE_REMINDERS=on` саме тут, і ніде більше в репозиторії.
+            //
+            // Шлях нагадувань лишається за прапорцем, доки gate
+            // `docs/plans/future-telegram-reminders.md` відкритий, — але
+            // «вимкнено» не означає «неперевірено». Це єдина збірка, у якій
+            // він увімкнений, і вона ж єдина, що ходить до живого api з
+            // реальною PostgreSQL. `assert-bundle.mjs --reminders` одразу
+            // після збірки червоніє, якщо прапорець не дійшов до артефакту.
+            command: `VITE_SYNC=on VITE_REMINDERS=on VITE_API_ORIGIN=${API_ORIGIN} VITE_OUT_DIR=dist-sync pnpm build && node scripts/assert-bundle.mjs dist-sync --sync --reminders --api=${API_ORIGIN} && pnpm exec vite preview --outDir dist-sync --port ${SYNC_PORT} --strictPort`,
             url: `http://localhost:${SYNC_PORT}`,
             reuseExistingServer: false,
             timeout: 180_000

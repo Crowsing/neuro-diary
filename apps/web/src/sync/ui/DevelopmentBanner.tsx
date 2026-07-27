@@ -14,7 +14,14 @@ export default function DevelopmentBanner() {
   const [isDevelopment, setDevelopment] = useState(false);
 
   useEffect(() => {
-    if (import.meta.env.VITE_SYNC !== 'on' || API_ORIGIN === '') return;
+    // Умова — рівно прапорець sync, і `API_ORIGIN === ''` більше не означає
+    // «api немає». На стенді за проксі web і api живуть одним походженням, тож
+    // порожнє значення тут — це `/health` того самого хоста, а не відсутність
+    // сервера. Попередня редакція мовчала саме там, де банер найпотрібніший:
+    // на стенді, який приймає згоди з незамороженим текстом.
+    //
+    // У local-only збірці прапорець вимкнений, тож жодного запиту й далі немає.
+    if (import.meta.env.VITE_SYNC !== 'on') return;
     let cancelled = false;
     void fetch(`${API_ORIGIN}/health`)
       .then((response) => (response.ok ? response.json() : null))

@@ -47,6 +47,17 @@ describe('consent copy registry', () => {
     }
   );
 
+  it('lists a revocation text for each of the three consents', () => {
+    // UI відкликання показує саме ці тексти дослівно. Загублений запис
+    // проявився б порожнім діалогом підтвердження — тобто відкликанням без
+    // жодного пояснення, що саме буде видалено.
+    expect((registry.revocations ?? []).map((entry) => entry.kind).sort()).toEqual([
+      'cycle_sync',
+      'health_sync',
+      'telegram_reminders'
+    ]);
+  });
+
   it('keeps the texts at 0.9 and unfrozen, as phase 2 requires', () => {
     // Заморожування до 1.0 потребує імені контролера — блокер Фази 2, не її
     // завдання. Fail-closed guard сервера лишається чинним.

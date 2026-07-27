@@ -13,6 +13,8 @@ import { buildDirectives, metaSafe, toPolicy } from "./src/security/csp";
 const HERE = dirname(fileURLToPath(import.meta.url));
 const CONSENT_COPY_ROOT = resolve(HERE, "../../consent-copy");
 const VIRTUAL_CONSENT_COPY = "virtual:consent-copy";
+const CONTRACT_FIXTURES = resolve(HERE, "../../fixtures/contract");
+const VIRTUAL_QUIET_HOURS = "virtual:quiet-hours";
 
 /**
  * Реєстр текстів згод — той самий каталог у корені, який читає apps/api.
@@ -29,27 +31,62 @@ function consentCopyPlugin(): Plugin {
     },
     load(id) {
       if (id !== `\0${VIRTUAL_CONSENT_COPY}`) return null;
+      interface RegistryEntry {
+        kind: string;
+        text_version: string;
+        locale: string;
+        file: string;
+        sha256: string;
+        frozen: boolean;
+      }
       const registry = JSON.parse(
         readFileSync(resolve(CONSENT_COPY_ROOT, "registry.json"), "utf-8"),
-      ) as {
-        grants: {
-          kind: string;
-          text_version: string;
-          locale: string;
-          file: string;
-          sha256: string;
-          frozen: boolean;
-        }[];
-      };
-      const texts = registry.grants.map((entry) => ({
-        kind: entry.kind,
-        textVersion: entry.text_version,
-        locale: entry.locale,
-        sha256: entry.sha256,
-        frozen: entry.frozen,
-        body: readFileSync(resolve(CONSENT_COPY_ROOT, entry.file), "utf-8"),
-      }));
-      return `export const CONSENT_TEXTS = ${JSON.stringify(texts)};`;
+      ) as { grants: RegistryEntry[]; revocations: RegistryEntry[] };
+      const project = (entries: RegistryEntry[]) =>
+        entries.map((entry) => ({
+          kind: entry.kind,
+          textVersion: entry.text_version,
+          locale: entry.locale,
+          sha256: entry.sha256,
+          frozen: entry.frozen,
+          body: readFileSync(resolve(CONSENT_COPY_ROOT, entry.file), "utf-8"),
+        }));
+      // Тексти відкликання лежали в реєстрі з Фази 2 і не доходили до застосунку
+      // взагалі: плагін мапив лише `grants`. UI відкликання без них показував би
+      // переказ своїми словами — другий текст, якого ніхто не звіряє з хешем.
+      return [
+        `export const CONSENT_TEXTS = ${JSON.stringify(project(registry.grants))};`,
+        `export const CONSENT_REVOKE_TEXTS = ${JSON.stringify(
+          project(registry.revocations),
+        )};`,
+      ].join("\n");
+    },
+  };
+}
+
+/**
+ * Політика quiet hours §10 — той самий файл, який читає apps/api.
+ *
+ * Число не переїжджає в код web навіть як константа: §10 вимагає, щоб політика
+ * експортувалася з API, а не переоголошувалась. Проєкція навмисно вузька —
+ * лише `start` і `end`; `boundaries` у фікстурі існують для тестів обох сторін,
+ * і бандлу вони не потрібні.
+ */
+function quietHoursPlugin(): Plugin {
+  return {
+    name: "nd-quiet-hours",
+    resolveId(id) {
+      return id === VIRTUAL_QUIET_HOURS ? `\0${VIRTUAL_QUIET_HOURS}` : null;
+    },
+    load(id) {
+      if (id !== `\0${VIRTUAL_QUIET_HOURS}`) return null;
+      const policy = JSON.parse(
+        readFileSync(resolve(CONTRACT_FIXTURES, "quiet-hours.json"), "utf-8"),
+      ) as { start: string; end: string };
+      return `export const QUIET_HOURS = ${JSON.stringify({
+        start: policy.start,
+        end: policy.end,
+      })};`;
     },
   };
 }
@@ -91,12 +128,24 @@ export default defineConfig(({ mode }) => {
   // Порожній рядок означає local-only збірку: sync вимкнений, і connect-src
   // не отримує жодного зовнішнього походження.
   const apiOrigin = process.env.VITE_API_ORIGIN ?? "";
+  // Куди dev-сервер проксує api. Порожньо — проксі немає (збірка, CI, local-only).
+  const apiProxy = process.env.VITE_API_PROXY ?? "";
   return {
-    plugins: [react(), consentCopyPlugin(), cspPlugin(apiOrigin)],
+    plugins: [react(), consentCopyPlugin(), quietHoursPlugin(), cspPlugin(apiOrigin)],
     define: {
       // Статичний прапорець: гілка з `await import('./engine')` усувається
       // збіркою цілком, тож local-only бандл фізично не містить мережевого коду.
       "import.meta.env.VITE_SYNC": JSON.stringify(process.env.VITE_SYNC ?? "off"),
+      // Другий прапорець, і за замовчуванням він `off`.
+      //
+      // Бекенд нагадувань готовий, але gate `future-telegram-reminders.md` — ні:
+      // тексти згод лишаються `0.9` з плейсхолдером замість імені контролера, а
+      // privacy/security/clinical review реальної доставки не підписаний. Доки
+      // так, §10 вимагає, щоб чесний стан «недоступно» лишався в UI — тож шлях
+      // реалізований, але усувається зі збірки так само фізично, як sync.
+      "import.meta.env.VITE_REMINDERS": JSON.stringify(
+        process.env.VITE_REMINDERS ?? "off",
+      ),
       "import.meta.env.VITE_API_ORIGIN": JSON.stringify(apiOrigin),
     },
     server: {
@@ -109,6 +158,27 @@ export default defineConfig(({ mode }) => {
         ".ngrok.app",
         ".trycloudflare.com",
       ],
+      // api тим самим тунелем, що й web — лише для стенду.
+      //
+      // Telegram відкриває Mini App тільки через HTTPS, тобто через тунель, а
+      // акаунт ngrok з одним доменом не дає api власної публічної адреси. Без
+      // проксі стенд вироджувався в `http://localhost:8000`, до якого телефон
+      // не достукається, і шлях Mini App → api → БД неможливо було пройти
+      // руками взагалі.
+      //
+      // Наслідок, який треба назвати: за проксі web і api стають ОДНИМ
+      // походженням, тож стенд перестає перевіряти CORS і preflight. Саме там
+      // жила відсутність `PUT` у `allow_methods` — дефект, який знайшов лише
+      // крос-origin прогін. Тому job `sync-e2e` у CI лишається крос-origin
+      // (`localhost:4174` проти `localhost:8000`) і проксі не використовує:
+      // fidelity перевірки живе там, зручність — тут.
+      proxy:
+        apiProxy === ""
+          ? undefined
+          : {
+              "/v1": { target: apiProxy, changeOrigin: true },
+              "/health": { target: apiProxy, changeOrigin: true },
+            },
     },
     build: {
       outDir: process.env.VITE_OUT_DIR ?? "dist",

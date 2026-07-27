@@ -8,7 +8,7 @@ import {
   type EncryptedChange,
   planChunks
 } from './chunks';
-import { SyncError, type PushResult, type SyncTransport } from './client';
+import { SyncError, type EngineTransport, type PushResult } from './client';
 import { SyncEngine } from './engine';
 import type { PlainRecord } from './types';
 
@@ -45,7 +45,7 @@ function entry(iso: string): PlainRecord {
   };
 }
 
-class RecordingTransport implements SyncTransport {
+class RecordingTransport implements EngineTransport {
   readonly pushes: { baseRevision: number; changes: EncryptedChange[] }[] = [];
   failuresLeft = 0;
   revision = 0;
@@ -96,7 +96,7 @@ class RecordingTransport implements SyncTransport {
 }
 
 async function engineWith(
-  transport: SyncTransport,
+  transport: EngineTransport,
   retries = 2,
   sleep?: (milliseconds: number) => Promise<void>
 ): Promise<SyncEngine> {

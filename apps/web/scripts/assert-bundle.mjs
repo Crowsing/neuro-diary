@@ -1,25 +1,39 @@
 // Перевірка зібраного бандла — §9.6 і §13.3.
 //
-//   node apps/web/scripts/assert-bundle.mjs dist          # local-only
+//   node apps/web/scripts/assert-bundle.mjs dist                      # local-only
 //   node apps/web/scripts/assert-bundle.mjs dist-sync --sync
+//   node apps/web/scripts/assert-bundle.mjs dist-sync --sync --reminders
 //
-// Два ризики, які вона закриває:
+// Три ризики, які вона закриває:
 //
 //  * демо-дані. `genDemo` викликається лише з тестів і e2e, але прапорець
 //    збірки може зламатися мовчки — тому перевіряється сам артефакт;
 //  * мережевий код у local-only збірці. Гілка `import.meta.env.VITE_SYNC` має
 //    усуватися збіркою цілком, тож у local-only бандлі не має бути ані
-//    `fetch(`, ані шляхів /v1/sync.
+//    `fetch(`, ані шляхів /v1;
+//  * шлях нагадувань, який лишається за прапорцем, доки gate
+//    `future-telegram-reminders.md` відкритий. Перевіряються ОБИДВІ гілки:
+//    без `--reminders` жодного `/v1/reminders/` бути не має, з ним — має бути
+//    рівно той ресурс, який §10 дозволяє. Прапорець, зламаний у будь-який бік,
+//    червонить збірку.
 
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 
 const [, , directory, ...flags] = process.argv;
 if (!directory) {
-  console.error('usage: assert-bundle.mjs <dist-dir> [--sync]');
+  console.error('usage: assert-bundle.mjs <dist-dir> [--sync] [--reminders] [--api=<origin>]');
   process.exit(2);
 }
 const syncBuild = flags.includes('--sync');
+const remindersBuild = flags.includes('--reminders');
+if (remindersBuild && !syncBuild) {
+  // Нагадування ходять тим самим транспортом, що й sync (одна сесія на вкладку,
+  // anti-replay §8). Збірка з нагадуваннями без sync не може працювати, і мовчки
+  // прийняти таку комбінацію означало б випустити артефакт, що не вміє нічого.
+  console.error('✗ --reminders без --sync: шлях нагадувань не існує без транспорту');
+  process.exit(2);
+}
 
 function files(dir) {
   return readdirSync(dir, { withFileTypes: true }).flatMap((item) => {
@@ -59,10 +73,34 @@ refuse(all.includes('987654321'), 'bundle contains the demo data seed');
 // наявний e2e ac8-no-network.
 if (syncBuild) {
   refuse(!all.includes('/v1/sync/push'), 'sync bundle has no sync client');
+  // Відкликання згод жодним gate не блоковане: Art. 7(3) вимагає, щоб
+  // відкликати було так само легко, як надати. Його відсутність — дефект.
+  refuse(
+    !all.includes('/v1/consents/revoke'),
+    'sync bundle cannot revoke a consent; Art. 7(3) requires it'
+  );
 } else {
-  refuse(all.includes('/v1/sync/'), 'local-only bundle references sync endpoints');
-  refuse(all.includes('/v1/auth/telegram'), 'local-only bundle references auth');
+  // Суцільна відмова, а не перелік трьох шляхів.
+  //
+  // Попередня редакція називала `/v1/sync/`, `/v1/auth/telegram` і `Bearer `
+  // поіменно — і саме тому пропустила б `/v1/consents/revoke` та
+  // `/v1/reminders/settings`, які додала Фаза 6. Перелік, що росте разом із API,
+  // рано чи пізно відстає від нього; префікс не відстає.
+  refuse(all.includes('/v1/'), 'local-only bundle references an api endpoint');
   refuse(all.includes('Bearer '), 'local-only bundle carries an Authorization header');
+}
+
+// 2b. Нагадування — рівно там, де їх увімкнули, і ніде більше.
+if (remindersBuild) {
+  refuse(
+    !all.includes('/v1/reminders/settings'),
+    'reminders build has no reminder client; the flag did not reach the bundle'
+  );
+} else {
+  refuse(
+    all.includes('/v1/reminders/'),
+    'bundle carries the reminder path while the gate of future-telegram-reminders.md is open'
+  );
 }
 
 // 3. CSP присутня в index.html і дозволяє WASM, не дозволяючи eval.

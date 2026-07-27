@@ -6,10 +6,18 @@
 // жодного запиту → жодного акаунта (§8).
 
 import { CONSENT_TEXTS } from 'virtual:consent-copy';
+import type { ConsentKind } from '../provider';
 import { SYNC_COPY } from './copy';
 
 export interface ConsentDialogProps {
-  kind: 'health_sync' | 'cycle_sync';
+  /**
+   * Третій вид з'явився у Фазі 6 і нічого тут не змінив, крім типу.
+   *
+   * Текст `telegram_reminders@0.9` лежав у реєстрі з Фази 2 і вже інлайнився
+   * у віртуальний модуль — бракувало саме споживача. Другого діалогу згоди
+   * писати не треба було: він показує текст дослівно й не знає, що це за вид.
+   */
+  kind: ConsentKind;
   onAccept(grant: { kind: string; textVersion: string; sha256: string }): void;
   onDecline(): void;
 }

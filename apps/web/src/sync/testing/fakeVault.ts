@@ -23,9 +23,15 @@ import {
   type PullResult,
   type PulledRecord,
   type PushResult,
+  type RevokeBody,
   type SyncTransport,
   type VaultKeyView
 } from '../client';
+import type {
+  ReminderSettingsBody,
+  ReminderSettingsView,
+  ReminderTransport
+} from '../../reminders/transport';
 
 interface StoredRecord {
   payloadB64: string | null;
@@ -41,6 +47,30 @@ interface StoredKey {
   keyVersion: number;
   wrapVersion: number;
 }
+
+interface StoredSchedule {
+  enabled: boolean;
+  time: string;
+  timezone: string;
+  /** Єдине значення, яке допускає `ck_reminder_schedule_disabled_reason`. */
+  disabledReason: 'bot_blocked' | null;
+}
+
+/**
+ * Межа quiet hours §10, виражена тут **окремо** від `src/reminders/policy.ts`.
+ *
+ * Спокуса імпортувати спільну функцію велика й хибна: двійник грає роль
+ * сервера, і якби він рахував quiet hours тим самим кодом, що й клієнт, помилка
+ * в тому коді проходила б обидві сторони непоміченою. Джерело числа одне —
+ * `fixtures/contract/quiet-hours.json`, — а виразів має бути два.
+ */
+function inQuietHours(value: string): boolean {
+  const hour = Number.parseInt(value.slice(0, 2), 10);
+  return hour >= 22 || hour < 8;
+}
+
+/** Зони, які знає цей двійник; решта — `unknown_timezone`, як у tzdata. */
+const KNOWN_ZONES = new Set(['Europe/Kyiv', 'Europe/Lisbon', 'UTC']);
 
 /**
  * Керовані збої і зловмисні відповіді.
@@ -89,6 +119,18 @@ export class FakeVaultServer {
   readonly consents = new Set<string>();
   /** §9.7: значення, яке клієнт назвав при grant `cycle_sync`. */
   recordKeyCycle: string | null = null;
+  /**
+   * Розклад нагадувань — рівно те, що тримає `reminders.reminder_schedule`.
+   *
+   * `null` означає, що рядка немає: або згоди ще не було, або її відкликали й
+   * `ErasureService.erase_reminders` забрав рядок у тій самій транзакції. §4.4
+   * забороняє розкладу пережити свою згоду, і саме це відтворює `revokeConsent`.
+   */
+  schedule: StoredSchedule | null = null;
+  /** Ревізія, вище за яку сервер має записи, а пристрій їх не бачив (§8). */
+  revisionAboveDevice = 0;
+  /** Останнє, що повернув `revokeConsent` транспорту. */
+  accountErased = false;
   readonly faults: FakeVaultFaults = noFaults();
   /** Скільки сесій ревокував останній `revoke-others`. */
   revokedOthers = 0;
@@ -166,7 +208,33 @@ export class FakeVaultServer {
     ) {
       this.currentRevision += 1;
     }
+    // §4.4: жоден рядок розкладу не переживає своєї згоди, і зникає він у тій
+    // самій транзакції — не наступним прогоном воркера.
+    if (kind === 'telegram_reminders') this.schedule = null;
     this.consentEpoch += 1;
+  }
+
+  /**
+   * Grant `telegram_reminders` заводить розклад — так само, як `ConsentService`.
+   *
+   * `settings` обов'язкові рівно для цього виду (перехресний валідатор
+   * `GrantInput`), а час у quiet hours відхиляється ще до створення акаунта.
+   */
+  openSchedule(grant: GrantBody): void {
+    if (grant.kind !== 'telegram_reminders') return;
+    if (grant.settings === undefined) throw new SyncError('server', null, [], 'server');
+    if (!KNOWN_ZONES.has(grant.settings.timezone)) {
+      throw new SyncError('server', null, [], 'unknown_timezone');
+    }
+    if (inQuietHours(grant.settings.time)) {
+      throw new SyncError('server', null, [], 'quiet_hours_violation');
+    }
+    this.schedule = {
+      enabled: true,
+      time: grant.settings.time,
+      timezone: grant.settings.timezone,
+      disabledReason: null
+    };
   }
 
   /** Компакшн: викидає надгробки й піднімає горизонт (§6.4). */
@@ -189,7 +257,7 @@ export class FakeVaultServer {
 }
 
 /** Транспорт одного пристрою поверх спільного стану сервера. */
-export class FakeVaultTransport implements SyncTransport {
+export class FakeVaultTransport implements SyncTransport, ReminderTransport {
   private token: string | null = null;
 
   constructor(
@@ -226,6 +294,9 @@ export class FakeVaultTransport implements SyncTransport {
       // §4.3: повторний grant активної згоди — 409, а не тихий no-op.
       throw new SyncError('conflict');
     }
+    // Розклад заводиться ДО витрачання initData: відмова за quiet hours не
+    // лишає ані акаунта, ані спаленого рядка автентифікації (гілка 2 §8).
+    if (grant !== undefined) this.server.openSchedule(grant);
     this.server.usedInitData.add(initData);
     if (grant !== undefined) {
       this.server.accountExists = true;
@@ -253,6 +324,7 @@ export class FakeVaultTransport implements SyncTransport {
       // §4.3: cycle_sync надається лише за активної health_sync.
       throw new SyncError('conflict');
     }
+    this.server.openSchedule(grant);
     this.server.consents.add(grant.kind);
     if (grant.record_key_cycle !== undefined) {
       this.server.recordKeyCycle = grant.record_key_cycle;
@@ -414,10 +486,92 @@ export class FakeVaultTransport implements SyncTransport {
     return { revoked: this.server.revokeAllExcept(token) };
   }
 
+  async readReminderSettings(): Promise<ReminderSettingsView> {
+    this.requireSession();
+    this.server.calls.push('readReminderSettings');
+    return reminderView(this.requireSchedule());
+  }
+
+  async writeReminderSettings(
+    body: ReminderSettingsBody
+  ): Promise<ReminderSettingsView> {
+    this.requireSession();
+    this.server.calls.push('writeReminderSettings');
+    const schedule = this.requireSchedule();
+    // Порядок відмов той самий, що в `ReminderService.update`: зона, потім
+    // quiet hours, і лише потім будь-який запис. Тест «валідація відповідає до
+    // того, як зачеплено колонки блокування» тримає саме це.
+    if (!KNOWN_ZONES.has(body.timezone)) {
+      throw new SyncError('server', null, [], 'unknown_timezone');
+    }
+    if (inQuietHours(body.time)) {
+      throw new SyncError('server', null, [], 'quiet_hours_violation');
+    }
+    schedule.time = body.time;
+    schedule.timezone = body.timezone;
+    schedule.enabled = body.enabled;
+    // Лише вмикання знімає блок: правка часу при заблокованому боті означала б,
+    // що користувачка мовчки стерла власний 14-денний дедлайн.
+    if (body.enabled) schedule.disabledReason = null;
+    return reminderView(schedule);
+  }
+
+  async revokeConsent(
+    body: RevokeBody
+  ): Promise<{ accountErased: boolean }> {
+    this.requireSession();
+    this.server.calls.push('revokeConsent');
+    if (!this.server.consents.has(body.kind)) {
+      throw new SyncError('conflict', null, [], 'consent_precondition');
+    }
+    // 409 `confirm_required` гейтить рівно `health_sync` і рівно один раз:
+    // сервер тримає більше, ніж бачив пристрій.
+    if (
+      body.kind === 'health_sync' &&
+      !body.acknowledge_incomplete &&
+      this.server.revisionAboveDevice > body.last_acked_revision
+    ) {
+      throw new SyncError('conflict', null, [], 'confirm_required');
+    }
+    this.server.revokeConsent(body.kind);
+    const erased = this.server.consents.size === 0;
+    if (erased) {
+      // Остання згода забирає акаунт разом із собою (Art. 17): далі немає ані
+      // сейфа, ані конверта, ані рядка, якому нараховувати ліміт.
+      this.server.accountExists = false;
+      this.server.records.clear();
+      this.server.key = null;
+    }
+    this.server.accountErased = erased;
+    return { accountErased: erased };
+  }
+
+  private requireSchedule(): StoredSchedule {
+    if (!this.server.consents.has('telegram_reminders')) {
+      throw new SyncError('consent_required', null, [], 'consent_required');
+    }
+    if (this.server.schedule === null) {
+      // 404 на цьому шляху означає `no_schedule`, а не «немає конверта ключа»:
+      // саме заради цієї різниці `SyncError` носить серверний код.
+      throw new SyncError('no_vault_key', null, [], 'no_schedule');
+    }
+    return this.server.schedule;
+  }
+
   /** Значення initData цього пристрою — воно ж і його «профіль браузера». */
   ownInitData(): string {
     return this.initData;
   }
+}
+
+function reminderView(schedule: StoredSchedule): ReminderSettingsView {
+  return {
+    enabled: schedule.enabled,
+    time: schedule.time,
+    timezone: schedule.timezone,
+    quietBlocked: inQuietHours(schedule.time),
+    botBlocked: schedule.disabledReason === 'bot_blocked'
+  };
 }
 
 /** Параметри рівня «одна ітерація» — те, що віддав би скомпрометований сервер. */
