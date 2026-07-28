@@ -159,7 +159,16 @@ def create_app(dependencies: AppDependencies) -> FastAPI:
         CORSMiddleware,
         allow_origins=[settings.webapp_url],
         allow_credentials=False,
-        allow_methods=["GET", "POST"],
+        # Every method this API actually routes, and no more. `PUT` is here
+        # because §10 routes one — `PUT /v1/reminders/settings`. It is not a
+        # simple request, so the browser sends a preflight first, and a
+        # preflight answered without `PUT` blocks the save before it is made.
+        # Nothing caught this while the web client only ever issued GET and
+        # POST: the Mini App and the api sit on different origins on the stand
+        # and in CI, so the gap was real and invisible at the same time.
+        # `test_openapi_surface.py` now derives this list from the routed
+        # surface rather than trusting it.
+        allow_methods=["GET", "POST", "PUT"],
         allow_headers=["Authorization", "Content-Type"],
     )
     # Starlette runs middleware in reverse order of registration, so what is

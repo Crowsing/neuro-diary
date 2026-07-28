@@ -3,6 +3,7 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { entryState } from '../lib/entry';
 import type { DoneEntry } from '../lib/types';
+import { isQuietHour, type QuietHoursPolicy } from '../reminders/policy';
 import { migrateState } from '../state/persist';
 import { mergeCycle } from './merge';
 import type { CycleBody } from './types';
@@ -67,5 +68,29 @@ describe('shared contract fixtures', () => {
 
     expect(oneWay).toEqual(fixture.expected);
     expect(otherWay).toEqual(fixture.expected);
+  });
+
+  it('судить кожну межу quiet hours так само, як api', () => {
+    // До Фази 6 цю фікстуру читала лише api-сторона, і README фікстур називав
+    // це винятком: UI нагадувань не існувало, тож споживача в web не було.
+    // Тепер він є, і §10 виконується буквально — політика **експортується** з
+    // api, а не переоголошується тут числами.
+    const policy = load<QuietHoursPolicy & { boundaries: Record<string, boolean> }>(
+      'quiet-hours.json'
+    );
+
+    // Асертиться сам перелік меж, а не його довжина: зникла з файлу межа має
+    // забирати покриття гучно, а не тихо.
+    expect(Object.keys(policy.boundaries).sort()).toEqual([
+      '00:00',
+      '07:59',
+      '08:00',
+      '21:59',
+      '22:00',
+      '23:59'
+    ]);
+    for (const [time, quiet] of Object.entries(policy.boundaries)) {
+      expect(isQuietHour(time, policy), `${time}`).toBe(quiet);
+    }
   });
 });

@@ -29,6 +29,27 @@ export const TELEGRAM_USER_ID = Number(
   process.env.SYNC_E2E_USER_ID ?? 4_200_000_000 + (Date.now() % 90_000_000)
 );
 
+let issuedUsers = 0;
+
+/**
+ * Свій акаунт на кожен тест, який не про два пристрої.
+ *
+ * `TELEGRAM_USER_ID` вище спільний навмисно — без нього тест «два пристрої»
+ * доводив би не те. Але спільний він і між **файлами**, і саме на цьому впали
+ * перші редакції тестів нагадувань і згод: акаунт приходив у тест уже зі
+ * згодою від сусіднього файлу, а після відкликання — уже стертим. Тест, чий
+ * результат залежить від порядку сусідів, не є тестом.
+ *
+ * Лічильник сам по собі цього не закриває — Playwright дає кожному файлові
+ * власний екземпляр модуля, тож два файли починали з одиниці й отримували той
+ * самий id. Основа береться з часу виклику, а лічильник лише розводить виклики
+ * в межах однієї мілісекунди.
+ */
+export function freshTelegramUserId(): number {
+  issuedUsers += 1;
+  return 4_300_000_000 + ((Date.now() + issuedUsers) % 80_000_000);
+}
+
 /** Публічний ключ насіння нижче — рівно те, що очікує api. */
 export const TEST_PUBLIC_KEY_HEX =
   '03a107bff3ce10be1d70dd18e74bc09967e4d6309ba50d5f1ddc8664125531b8';
@@ -95,11 +116,19 @@ export function syncAppUrl(initData: string, nowIso = '2026-01-15'): string {
  */
 export async function openDevice(
   context: BrowserContext,
-  options: { queryId: string; seed?: Record<string, unknown> }
+  options: {
+    queryId: string;
+    seed?: Record<string, unknown>;
+    /** Опущений — спільний акаунт прогону (потрібен тесту двох пристроїв). */
+    telegramUserId?: number;
+  }
 ): Promise<{ page: Page; initData: string }> {
   const page = await context.newPage();
   await stubTelegramSdk(page);
-  const initData = signedInitData({ queryId: options.queryId });
+  const initData = signedInitData({
+    queryId: options.queryId,
+    telegramUserId: options.telegramUserId
+  });
   if (options.seed !== undefined) await seedEmptyDiary(page, options.seed);
   await page.goto(syncAppUrl(initData));
   return { page, initData };

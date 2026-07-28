@@ -22,7 +22,7 @@ import {
 } from '../crypto/manifest';
 import { recordKey } from '../crypto/recordKey';
 import { type EncryptedChange, planChunks } from './chunks';
-import { SyncError, type SyncTransport } from './client';
+import { SyncError, type EngineTransport } from './client';
 import type { PlainRecord } from './types';
 
 export interface UploadReport {
@@ -55,7 +55,7 @@ export interface UploadPlan {
 }
 
 export interface EngineDeps {
-  readonly transport: SyncTransport;
+  readonly transport: EngineTransport;
   readonly subkeys: Subkeys;
   readonly deviceId: string;
   /** Скільки разів повторювати чанк тими самими байтами. */

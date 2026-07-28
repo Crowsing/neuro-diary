@@ -6,6 +6,7 @@
 // локалізаційного review, тож ані «72 бітів», ані індикатора сили (§7).
 
 import Toggle from '../../components/ui/Toggle';
+import { CONSENTS_COPY } from '../../reminders/copy';
 import { useSync } from '../provider';
 import { SYNC_COPY } from './copy';
 
@@ -84,6 +85,23 @@ export default function SyncSettings() {
           </div>
         </>
       )}
+
+      {/* Поза гілкою `active` навмисно. Акаунт може мати лише згоду на
+          нагадування — сейфа в нього немає, `active` там завжди false, — а
+          Art. 7(3) вимагає, щоб відкликати було так само легко, як надати.
+          Сховати цю кнопку за станом синхронізації означало б залишити частину
+          людей без шляху відкликання взагалі. */}
+      <button
+        className="btn btn-secondary"
+        style={{ minHeight: 44 }}
+        data-testid="sync-consents"
+        onClick={sync.openConsents}
+      >
+        {CONSENTS_COPY.cardTitle}
+      </button>
+      <span style={{ fontSize: 12 }} className="text-muted">
+        {CONSENTS_COPY.cardBody}
+      </span>
     </div>
   );
 }

@@ -3,6 +3,11 @@
 // Bearer-only: токен ніколи не потрапляє в URL (§8). Тіла помилок не
 // розгортаються в текст для користувачки — сервер віддає стабільні ASCII-коди,
 // а українська копія живе в UI (§11).
+//
+// Нагадування і відкликання згод живуть тут само, хоч до сейфа не мають
+// стосунку. initData купує рівно одну сесію (anti-replay §8), тож другий
+// транспорт із власною автентифікацією отримав би 401 на тому самому рядку —
+// одна сесія на вкладку не зручність, а межа протоколу.
 
 import type { EncryptedChange } from './chunks';
 
@@ -24,7 +29,17 @@ export class SyncError extends Error {
   constructor(
     readonly code: SyncErrorCode,
     readonly retryAfterSeconds: number | null = null,
-    readonly conflictKeys: readonly string[] = []
+    readonly conflictKeys: readonly string[] = [],
+    /**
+     * Стабільний ASCII-код із поля `error`, як його віддав сервер.
+     *
+     * `code` вище — це грубий клас, зведений зі статусу, і для sync його
+     * вистачало. Нагадуванням не вистачає: 404 на цьому шляху означає
+     * `no_schedule`, а не `no_vault_key`, і два різні 422
+     * (`quiet_hours_violation`, `unknown_timezone`) потребують різних текстів.
+     * Розрізняє їх лише тіло, тож воно більше не викидається.
+     */
+    readonly serverCode: string | null = null
   ) {
     super(code);
     this.name = 'SyncError';
@@ -72,6 +87,12 @@ export interface AuthResult {
   readonly consents: readonly ConsentView[];
 }
 
+export interface RevokeBody {
+  readonly kind: string;
+  readonly last_acked_revision: number;
+  readonly acknowledge_incomplete: boolean;
+}
+
 /** Порт транспорту: движок не знає ані про fetch, ані про URL. */
 export interface SyncTransport {
   authenticate(initData: string, grant?: GrantBody): Promise<AuthResult>;
@@ -84,7 +105,33 @@ export interface SyncTransport {
   vaultReset(): Promise<{ newRevision: number }>;
   /** Re-key при компрометації завершується ревокацією інших сесій (§7). */
   revokeOtherSessions(): Promise<{ revoked: number }>;
+  /** Art. 7(3): відкликати має бути так само легко, як надати. */
+  revokeConsent(body: RevokeBody): Promise<{ accountErased: boolean }>;
 }
+
+/**
+ * Автентифікований HTTP як порт — для сусідніх ресурсів, що не є сейфом.
+ *
+ * Нагадувань тут немає **навмисно**, і це не питання смаку. `SyncTransport`
+ * потрапляє в sync-бандл безумовно, тож метод із рядком `/v1/reminders/settings`
+ * лишався б у ньому й тоді, коли прапорець вимкнений, — а `assert-bundle.mjs`
+ * перевіряє артефакт, не намір, і саме на цьому спіймав першу редакцію Фази 6.
+ * Тому шлях нагадувань живе в `src/reminders/transport.ts`, який підвантажується
+ * динамічно й зникає з артефакту разом із гілкою прапорця.
+ */
+export interface AuthedCaller {
+  call<T>(method: string, path: string, body?: unknown): Promise<T>;
+}
+
+/**
+ * Те, що просить рушій, — і рівно те.
+ *
+ * Рушій ходить у мережу двома викликами й нічим більше. Поки він приймав увесь
+ * `SyncTransport`, кожен новий метод протоколу вимагав дописати заглушку в
+ * `engine.test.ts` — тобто розширення сусіднього ресурсу псувало тести, які
+ * про нього нічого не знають. Звужений порт робить залежність чесною.
+ */
+export type EngineTransport = Pick<SyncTransport, 'push' | 'pull'>;
 
 export interface GrantBody {
   readonly kind: string;
@@ -122,7 +169,7 @@ const CODE_BY_FORBIDDEN_REASON: Record<string, SyncErrorCode> = {
   step_up_required: 'step_up_required'
 };
 
-export class HttpSyncTransport implements SyncTransport {
+export class HttpSyncTransport implements SyncTransport, AuthedCaller {
   private token: string | null = null;
 
   private readonly fetchImpl: typeof fetch;
@@ -142,11 +189,13 @@ export class HttpSyncTransport implements SyncTransport {
     this.token = token;
   }
 
-  private async call<T>(
-    method: string,
-    path: string,
-    body?: unknown
-  ): Promise<T> {
+  /**
+   * Публічний, бо сусідні ресурси беруть його як `AuthedCaller`.
+   *
+   * Токен і мапінг відмов лишаються тут: дублювати їх у другому модулі означало
+   * б завести другий, розбіжний переклад статусів у причини.
+   */
+  async call<T>(method: string, path: string, body?: unknown): Promise<T> {
     let response: Response;
     try {
       response = await this.fetchImpl(`${this.baseUrl}${path}`, {
@@ -171,6 +220,8 @@ export class HttpSyncTransport implements SyncTransport {
       payload = {};
     }
 
+    const serverCode = typeof payload.error === 'string' ? payload.error : null;
+
     if (response.status === 409) {
       const reason = payload.reason;
       if (reason === 'conflict') {
@@ -179,22 +230,31 @@ export class HttpSyncTransport implements SyncTransport {
               (item): item is string => typeof item === 'string'
             )
           : [];
-        throw new SyncError('conflict', null, keys);
+        throw new SyncError('conflict', null, keys, serverCode);
       }
       throw new SyncError(
-        payload.error === 'vault_reset' ? 'vault_reset' : 'conflict'
+        serverCode === 'vault_reset' ? 'vault_reset' : 'conflict',
+        null,
+        [],
+        serverCode
       );
     }
 
     if (response.status === 403) {
-      const reason = typeof payload.error === 'string' ? payload.error : '';
-      throw new SyncError(CODE_BY_FORBIDDEN_REASON[reason] ?? 'consent_required');
+      throw new SyncError(
+        CODE_BY_FORBIDDEN_REASON[serverCode ?? ''] ?? 'consent_required',
+        null,
+        [],
+        serverCode
+      );
     }
 
     const retryAfter = response.headers.get('Retry-After');
     throw new SyncError(
       CODE_BY_STATUS[response.status] ?? 'server',
-      retryAfter === null ? null : Number.parseInt(retryAfter, 10)
+      retryAfter === null ? null : Number.parseInt(retryAfter, 10),
+      [],
+      serverCode
     );
   }
 
@@ -339,5 +399,16 @@ export class HttpSyncTransport implements SyncTransport {
       '/v1/sessions/revoke-others'
     );
     return { revoked: body.revoked };
+  }
+
+  async revokeConsent(body: RevokeBody): Promise<{ accountErased: boolean }> {
+    const result = await this.call<{ account_erased: boolean }>(
+      'POST',
+      // §13.12: назва згоди не потрапляє в шлях — вона їде тілом, бо request
+      // line пише в лог reverse proxy, а набір згод є health-inference.
+      '/v1/consents/revoke',
+      body
+    );
+    return { accountErased: result.account_erased };
   }
 }

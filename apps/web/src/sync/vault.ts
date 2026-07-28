@@ -43,7 +43,10 @@ import { SyncEngine } from './engine';
 import {
   HttpSyncTransport,
   SyncError,
+  type AuthedCaller,
+  type ConsentView,
   type GrantBody,
+  type RevokeBody,
   type SyncTransport,
   type VaultKeyView
 } from './client';
@@ -198,6 +201,27 @@ export class VaultSession {
    * безпечний дефолт тут fail-closed.
    */
   private consents = new Set<string>();
+  /**
+   * Чи вже витрачено initData цієї вкладки.
+   *
+   * Anti-replay §8 віддає сесію рівно один раз на конкретний рядок, тож другий
+   * `POST /v1/auth/telegram` тим самим initData — це 401, а не повторний вхід.
+   * Поки в сесії був єдиний вхід (`beginEnable`), прапорець був зайвий; із
+   * нагадуваннями й переліком згод входів стало три, і будь-які два поспіль
+   * ламали б одне одного.
+   */
+  private authenticated = false;
+  /**
+   * Сервер уже відповів `no_account` у цій вкладці.
+   *
+   * Гілка 2 §8 змушує ходити двічі: спершу без grant (щоб акаунт із уже наданою
+   * згодою не діставав 409), і лише на `no_account` — повторно з grant. Але
+   * якщо перша відповідь уже прозвучала — наприклад, екран нагадувань відкрили
+   * до вмикання, — питати вдруге означає витратити ще одну спробу з десяти,
+   * які §11 дає на хвилину, заради відповіді, яку ми знаємо. Відмова
+   * `no_account` не витрачає initData, тож повтор із grant лишається законним.
+   */
+  private knownNoAccount = false;
 
   private constructor(
     private readonly deps: VaultDeps,
@@ -276,35 +300,113 @@ export class VaultSession {
    * він не відкривається.
    */
   async beginEnable(grant: GrantBody): Promise<'create' | 'open'> {
-    const initData = readInitDataOnce(this.deps.browser);
-    if (initData === null) throw new VaultError('unauthenticated');
     try {
-      // Спершу БЕЗ grant. Порядок обов'язковий: акаунт із уже наданою згодою
-      // відповів би 409 `consent_already_active`, тобто другий пристрій не міг
-      // би увійти взагалі. Гілка 2 §8 гарантує, що відмова `no_account` не
-      // лишає жодного рядка й не витрачає initData, тож повтор із grant
-      // легальний — і саме він створює акаунт разом із першою згодою.
-      let session;
-      try {
-        session = await this.deps.transport.authenticate(initData);
-      } catch (error) {
-        if (!(error instanceof SyncError) || error.code !== 'no_account') throw error;
-        session = await this.deps.transport.authenticate(initData, grant);
-      }
-
-      this.consents = new Set(session.consents.map((item) => item.kind));
-      if (!this.consents.has(grant.kind)) {
-        // Акаунт існує, але саме цієї згоди в нього немає (наприклад, лишилася
-        // тільки згода на нагадування). Без неї push повернув би 403.
-        await this.deps.transport.grantConsent(grant);
-        this.consents.add(grant.kind);
-      }
-
+      await this.authenticateOnce(grant);
       this.pendingKey = await this.deps.transport.readKey();
       return this.pendingKey === null ? 'create' : 'open';
     } catch (error) {
       throw asFailure(error);
     }
+  }
+
+  /**
+   * Сесія — і, за потреби, згода. Жодної роботи з ключами.
+   *
+   * Спершу БЕЗ grant. Порядок обов'язковий: акаунт із уже наданою згодою
+   * відповів би 409 `consent_already_active`, тобто другий пристрій не міг би
+   * увійти взагалі. Гілка 2 §8 гарантує, що відмова `no_account` не лишає
+   * жодного рядка й не витрачає initData, тож повтор із grant легальний — і
+   * саме він створює акаунт разом із першою згодою.
+   */
+  private async authenticateOnce(grant?: GrantBody): Promise<void> {
+    if (!this.authenticated) {
+      const initData = readInitDataOnce(this.deps.browser);
+      if (initData === null) throw new VaultError('unauthenticated');
+      let session;
+      if (this.knownNoAccount && grant !== undefined) {
+        session = await this.deps.transport.authenticate(initData, grant);
+      } else {
+        try {
+          session = await this.deps.transport.authenticate(initData);
+        } catch (error) {
+          if (!(error instanceof SyncError) || error.code !== 'no_account') throw error;
+          this.knownNoAccount = true;
+          if (grant === undefined) throw error;
+          session = await this.deps.transport.authenticate(initData, grant);
+        }
+      }
+      this.knownNoAccount = false;
+      this.authenticated = true;
+      this.consents = new Set(session.consents.map((item) => item.kind));
+    }
+
+    if (grant !== undefined && !this.consents.has(grant.kind)) {
+      // Акаунт існує, але саме цієї згоди в нього немає (наприклад, лишилася
+      // тільки згода на нагадування). Без неї push повернув би 403.
+      await this.deps.transport.grantConsent(grant);
+      this.consents.add(grant.kind);
+    }
+  }
+
+  // ---------------------------------------------------------------------
+  // Нагадування і згоди: сусідні ресурси, яким потрібна та сама сесія
+  //
+  // Сейфа вони не торкаються — і саме тому мають власний вхід, а не
+  // `beginEnable`. Той після автентифікації читає конверт ключа, і для акаунта
+  // лише з нагадуваннями `readKey → null` означав би «створіть парольну фразу»
+  // там, де жодного сейфа не планується.
+  //
+  // Помилки тут НЕ проходять через `asFailure`, і це не недогляд. `VaultFailure`
+  // — це п'ятнадцять причин, у яких немає ані `no_schedule`, ані двох різних
+  // 422; звести їх туди означало б втратити рівно ту різницю, заради якої
+  // `SyncError` носить серверний код. Мапить їх `src/reminders/client.ts`.
+  // ---------------------------------------------------------------------
+
+  /** Сесія без роботи з ключами; повертає активні згоди, як їх назвав сервер. */
+  async ensureSession(grant?: GrantBody): Promise<readonly string[]> {
+    await this.authenticateOnce(grant);
+    return this.activeConsents;
+  }
+
+  /**
+   * Автентифікований HTTP цієї сесії — для сусідніх ресурсів.
+   *
+   * Нагадування не є сейфом і не мають бути методами сесії: вони лише потребують
+   * тієї самої сесії, бо initData купує рівно одну (§8). Тримати їх тут означало
+   * б записати `/v1/reminders/settings` у модуль, який sync-бандл містить
+   * безумовно, — і прапорець перестав би усувати шлях із артефакту.
+   *
+   * `null`, якщо транспорт не вміє HTTP (двійник у тестах): нагадування тоді
+   * складаються з власного порту.
+   */
+  get caller(): AuthedCaller | null {
+    const transport = this.deps.transport as Partial<AuthedCaller>;
+    return typeof transport.call === 'function' ? (transport as AuthedCaller) : null;
+  }
+
+  async listConsents(): Promise<readonly ConsentView[]> {
+    const consents = await this.deps.transport.listConsents();
+    this.consents = new Set(consents.map((item) => item.kind));
+    return consents;
+  }
+
+  /**
+   * Відкликання (Art. 7(3)) — і локальних даних воно не чіпає.
+   *
+   * §9.4 забороняє видаляти локальні дані домену з неактивною згодою, тож тут
+   * немає жодного очищення: сервер стирає своє, пристрій лишається з усім, що
+   * на ньому було.
+   */
+  async revokeConsent(body: RevokeBody): Promise<{ accountErased: boolean }> {
+    const outcome = await this.deps.transport.revokeConsent(body);
+    this.consents.delete(body.kind);
+    if (body.kind === 'health_sync') this.consents.delete('cycle_sync');
+    return outcome;
+  }
+
+  /** Ревізія, яку цей пристрій підтвердив, — джерело `last_acked_revision`. */
+  get lastAckedRevision(): number {
+    return this.meta.lastAckedRevision;
   }
 
   /** Другий крок: фраза введена — або створюємо сейф, або відкриваємо наявний. */
@@ -361,12 +463,11 @@ export class VaultSession {
    * «одна ітерація» (§7).
    */
   async open(input: { passphrase: string; nowMs: number }): Promise<void> {
-    const initData = readInitDataOnce(this.deps.browser);
-    if (initData === null) throw new VaultError('unauthenticated');
-
     try {
-      const session = await this.deps.transport.authenticate(initData);
-      this.consents = new Set(session.consents.map((item) => item.kind));
+      // Через той самий вхід, що й нагадування: користувачка могла вже відкрити
+      // перелік згод у цій вкладці, а другий `authenticate` тим самим initData
+      // повернув би 401 і виглядав би як «фраза не підійшла».
+      await this.authenticateOnce();
       const view = await this.deps.transport.readKey();
       if (view === null) throw new VaultError('no_vault_key');
       await this.openWith(view, input.passphrase, input.nowMs);

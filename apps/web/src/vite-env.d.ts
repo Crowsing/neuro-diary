@@ -3,6 +3,14 @@
 interface ImportMetaEnv {
   /** 'on' лише у sync-збірці; local-only бандл не містить мережевого коду. */
   readonly VITE_SYNC: string;
+  /**
+   * 'on' лише там, де шлях нагадувань справді перевіряють: стенд і sync-e2e.
+   *
+   * За замовчуванням 'off', і це рішення gate, а не зручність збірки — див.
+   * коментар у `vite.config.ts` і «Звірка з кодом» у
+   * `docs/plans/future-telegram-reminders.md`.
+   */
+  readonly VITE_REMINDERS: string;
   /** Походження api для connect-src і для запитів; порожнє в local-only. */
   readonly VITE_API_ORIGIN: string;
 }
@@ -23,6 +31,11 @@ interface Window {
   readonly Telegram?: { readonly WebApp?: import('./telegram/types').TelegramWebApp };
 }
 
+/** Політика quiet hours §10 із кореневої fixtures/contract/quiet-hours.json. */
+declare module 'virtual:quiet-hours' {
+  export const QUIET_HOURS: { readonly start: string; readonly end: string };
+}
+
 /** Реєстр текстів згод, вбудований плагіном збірки з кореневого consent-copy/. */
 declare module 'virtual:consent-copy' {
   export interface ConsentTextEntry {
@@ -34,4 +47,6 @@ declare module 'virtual:consent-copy' {
     readonly body: string;
   }
   export const CONSENT_TEXTS: readonly ConsentTextEntry[];
+  /** Тексти відкликання — `uk/revoke/<kind>/<version>.md` того самого реєстру. */
+  export const CONSENT_REVOKE_TEXTS: readonly ConsentTextEntry[];
 }

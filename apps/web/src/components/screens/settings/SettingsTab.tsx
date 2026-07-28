@@ -2,6 +2,7 @@ import { useApp } from '../../../state/store';
 import { dataPatch, dialogOpen, navSub } from '../../../state/actions';
 import Toggle from '../../ui/Toggle';
 import SyncSettings from '../../../sync/ui/SyncSettings';
+import RemindersCard from '../../../reminders/ui/RemindersCard';
 import ScreenHeader from '../../frame/ScreenHeader';
 
 export default function SettingsTab() {
@@ -51,10 +52,10 @@ export default function SettingsTab() {
         </div>
       </div>
 
-      <div className="card" style={{ gap: 4 }}>
-        <span style={{ fontSize: 14.5, fontWeight: 700 }}>Нагадування недоступні</span>
-        <span style={{ fontSize: 12.5 }} className="text-muted">Застосунок зараз не надсилає фонових повідомлень. Майбутні зовнішні нагадування можливі лише через Telegram і вимагатимуть нової явної згоди.</span>
-      </div>
+      {/* Обидві гілки прапорця живуть усередині картки: у збірці без нагадувань
+          вона рендерить дослівно той самий чесний стан «недоступно», що й до
+          Фази 6, і саме тому production-controls.spec.ts лишився недоторканим. */}
+      <RemindersCard />
 
       <SyncSettings />
 

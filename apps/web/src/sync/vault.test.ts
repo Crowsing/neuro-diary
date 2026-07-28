@@ -715,3 +715,203 @@ async function serverKeyOfPath(
   }
   throw new Error(`на сервері немає запису ${path}`);
 }
+
+describe('нагадування і згоди ділять сесію з сейфом', () => {
+  const REMINDER_GRANT: GrantBody = {
+    kind: 'telegram_reminders',
+    text_version: '0.9',
+    text_sha256: 'c'.repeat(64),
+    settings: { time: '20:00', timezone: 'Europe/Kyiv' }
+  };
+
+  it('другий вхід у тій самій вкладці не витрачає initData вдруге', async () => {
+    // Це і є причина, з якої клієнт нагадувань не має власного транспорту:
+    // anti-replay §8 віддає сесію рівно один раз на конкретний рядок, тож
+    // другий `POST /v1/auth/telegram` повернув би 401 — і виглядав би для
+    // користувачки як «фраза не підійшла».
+    const server = new FakeVaultServer();
+    const a = newDevice(server, 'init-shared');
+
+    await a.session.ensureSession(REMINDER_GRANT);
+    // Два виклики тут легальні й обов'язкові — це гілка 2 §8: без grant сервер
+    // відповідає `no_account`, не лишаючи рядків і не витрачаючи initData, і
+    // саме повтор із grant створює акаунт.
+    const afterFirstEntry = server.calls.filter((call) => call === 'authenticate').length;
+    expect(afterFirstEntry).toBe(2);
+
+    await a.session.enable({
+      grant: GRANT,
+      passphrase: PASSPHRASE,
+      data: sample(),
+      nowMs: T0
+    });
+
+    // А ось приріст мусить бути нульовим: другий вхід у ту саму вкладку не
+    // автентифікується заново.
+    expect(server.calls.filter((call) => call === 'authenticate')).toHaveLength(
+      afterFirstEntry
+    );
+    // Найпряміший доказ: рядок автентифікації спожито рівно один раз.
+    expect(server.usedInitData.size).toBe(1);
+    expect([...a.session.activeConsents].sort()).toEqual([
+      'health_sync',
+      'telegram_reminders'
+    ]);
+  });
+
+  it('акаунт лише з нагадуваннями не читає конверта ключа', async () => {
+    // `beginEnable` після автентифікації читає `GET /v1/sync/key`, і для такого
+    // акаунта `null` означав би «придумайте парольну фразу» там, де жодного
+    // сейфа не планується. Саме тому вхід окремий.
+    const server = new FakeVaultServer();
+    const a = newDevice(server, 'init-reminders-only');
+
+    const consents = await a.session.ensureSession(REMINDER_GRANT);
+
+    expect(consents).toEqual(['telegram_reminders']);
+    expect(server.calls).not.toContain('readKey');
+    expect(a.session.unlocked).toBe(false);
+  });
+
+  it('розклад читається й замінюється цілком, а quiet hours відхиляє сервер', async () => {
+    const server = new FakeVaultServer();
+    const a = newDevice(server, 'init-schedule');
+    await a.session.ensureSession(REMINDER_GRANT);
+
+    expect(await a.transport.readReminderSettings()).toEqual({
+      enabled: true,
+      time: '20:00',
+      timezone: 'Europe/Kyiv',
+      quietBlocked: false,
+      botBlocked: false
+    });
+
+    const saved = await a.transport.writeReminderSettings({
+      enabled: true,
+      time: '09:15',
+      timezone: 'Europe/Lisbon'
+    });
+    expect(saved.time).toBe('09:15');
+    expect(saved.timezone).toBe('Europe/Lisbon');
+
+    await expect(
+      a.transport.writeReminderSettings({ enabled: true, time: '23:00', timezone: 'Europe/Kyiv' })
+    ).rejects.toMatchObject({ serverCode: 'quiet_hours_violation' });
+    // Відмова нічого не записала: інакше «невдале збереження» тихо зсувало б час.
+    expect((await a.transport.readReminderSettings()).time).toBe('09:15');
+  });
+
+  it('відкликання прибирає згоду з сесії й забирає розклад разом із нею', async () => {
+    const server = new FakeVaultServer();
+    const a = newDevice(server, 'init-revoke');
+    await a.session.ensureSession(REMINDER_GRANT);
+    await a.session.ensureSession(GRANT);
+
+    const outcome = await a.session.revokeConsent({
+      kind: 'telegram_reminders',
+      last_acked_revision: a.session.lastAckedRevision,
+      acknowledge_incomplete: false
+    });
+
+    expect(outcome.accountErased).toBe(false);
+    expect(a.session.activeConsents).toEqual(['health_sync']);
+    // §4.4: рядок розкладу не переживає своєї згоди.
+    expect(server.schedule).toBeNull();
+    await expect(a.transport.readReminderSettings()).rejects.toMatchObject({
+      serverCode: 'consent_required'
+    });
+  });
+
+  it('відкликання health_sync каскадить cycle_sync і в локальному переліку', async () => {
+    const { a, server } = await enabledPair(sample(), { cycleSync: true });
+    expect([...a.session.activeConsents].sort()).toEqual(['cycle_sync', 'health_sync']);
+
+    await a.session.revokeConsent({
+      kind: 'health_sync',
+      last_acked_revision: a.session.lastAckedRevision,
+      acknowledge_incomplete: false
+    });
+
+    expect(a.session.activeConsents).toEqual([]);
+    expect(server.consents.size).toBe(0);
+  });
+
+  it('відкликання останньої згоди звітує про видалення акаунта', async () => {
+    const server = new FakeVaultServer();
+    const a = newDevice(server, 'init-last');
+    await a.session.ensureSession(REMINDER_GRANT);
+
+    const outcome = await a.session.revokeConsent({
+      kind: 'telegram_reminders',
+      last_acked_revision: 0,
+      acknowledge_incomplete: false
+    });
+
+    expect(outcome.accountErased).toBe(true);
+    expect(server.accountExists).toBe(false);
+  });
+
+  it('health_sync питає підтвердження один раз, коли сервер тримає більше', async () => {
+    const { a, server } = await enabledPair();
+    server.revisionAboveDevice = a.session.lastAckedRevision + 1;
+
+    await expect(
+      a.session.revokeConsent({
+        kind: 'health_sync',
+        last_acked_revision: a.session.lastAckedRevision,
+        acknowledge_incomplete: false
+      })
+    ).rejects.toMatchObject({ serverCode: 'confirm_required' });
+
+    const outcome = await a.session.revokeConsent({
+      kind: 'health_sync',
+      last_acked_revision: a.session.lastAckedRevision,
+      acknowledge_incomplete: true
+    });
+    expect(outcome.accountErased).toBe(true);
+  });
+});
+
+describe('§11: клієнт не витрачає спроб автентифікації на відомі відповіді', () => {
+  const REMINDER_GRANT: GrantBody = {
+    kind: 'telegram_reminders',
+    text_version: '0.9',
+    text_sha256: 'd'.repeat(64),
+    settings: { time: '20:00', timezone: 'Europe/Kyiv' }
+  };
+
+  it('після почутого no_account другий вхід іде одразу з grant', async () => {
+    // §11 дає десять спроб на хвилину з одного IP. Екран, відкритий до
+    // вмикання, чує `no_account` — і питати те саме вдруге означає витратити
+    // спробу заради відповіді, яку вже маємо. initData відмова не витрачає
+    // (гілка 2 §8), тож повтор із grant лишається законним.
+    const server = new FakeVaultServer();
+    const a = newDevice(server, 'init-known-empty');
+
+    // Сирий `SyncError`, а не `VaultError`: сусідні ресурси мапять відмови
+    // самі, бо `VaultFailure` не розрізняє того, що їм потрібно розрізняти.
+    await expect(a.session.ensureSession()).rejects.toMatchObject({
+      code: 'no_account'
+    });
+    const afterProbe = server.calls.filter((call) => call === 'authenticate').length;
+    expect(afterProbe).toBe(1);
+
+    await a.session.ensureSession(REMINDER_GRANT);
+
+    // Рівно одна додаткова спроба, а не дві.
+    expect(server.calls.filter((call) => call === 'authenticate')).toHaveLength(2);
+    expect(a.session.activeConsents).toEqual(['telegram_reminders']);
+  });
+
+  it('без попереднього no_account порядок §8 лишається двокроковим', async () => {
+    // Зворотний бік: оптимізація не має скорочувати шлях там, де відповіді ще
+    // не чули. Акаунт із уже наданою згодою відповів би 409 на grant-перший
+    // виклик, і саме тому §8 вимагає спершу питати без нього.
+    const server = new FakeVaultServer();
+    const a = newDevice(server, 'init-cold');
+
+    await a.session.ensureSession(REMINDER_GRANT);
+
+    expect(server.calls.filter((call) => call === 'authenticate')).toHaveLength(2);
+  });
+});

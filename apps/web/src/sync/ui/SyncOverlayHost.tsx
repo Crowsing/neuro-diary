@@ -8,12 +8,28 @@
 // українська копія живе тут (§11), і жоден із текстів не називає ані шляху
 // запису, ані згоди.
 
-import { useState } from 'react';
+import { lazy, Suspense, useState } from 'react';
 import ConsentDialog from './ConsentDialog';
+import ConsentsDialog from './ConsentsDialog';
 import PassphraseScreen from './PassphraseScreen';
 import { SYNC_COPY } from './copy';
 import { useSync } from '../provider';
 import type { VaultFailure } from '../vault';
+
+/**
+ * Екран нагадувань — за тим самим прапорцем, що й його мережевий шлях.
+ *
+ * `lazy` тут не про вагу чанка, а про артефакт: у збірці без нагадувань
+ * `REMINDERS_ENABLED` статично хибний, тож імпорту немає, модуль лишається без
+ * жодного споживача й не потрапляє в бандл. Той самий прийом, що в
+ * `SyncMount.tsx` для всього оверлея.
+ */
+const REMINDERS_ENABLED =
+  import.meta.env.VITE_SYNC === 'on' && import.meta.env.VITE_REMINDERS === 'on';
+
+const RemindersDialog = REMINDERS_ENABLED
+  ? lazy(() => import('../../reminders/ui/RemindersDialog'))
+  : null;
 
 const ERROR_COPY: Record<VaultFailure, string> = {
   offline: SYNC_COPY.errorOffline,
@@ -112,6 +128,14 @@ export default function SyncOverlayHost() {
             onDecline={sync.dismiss}
           />
         ) : null}
+
+        {sync.stage === 'reminders' && RemindersDialog !== null ? (
+          <Suspense fallback={null}>
+            <RemindersDialog />
+          </Suspense>
+        ) : null}
+
+        {sync.stage === 'consents' ? <ConsentsDialog /> : null}
 
         {sync.stage === 'passphrase' ? (
           <PassphraseScreen
